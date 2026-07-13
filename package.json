@@ -1,0 +1,86 @@
+{
+  "name": "borgmcp-shared",
+  "version": "0.1.0",
+  "description": "Shared protocol, domain, templates, and conformance contracts for Borg MCP implementations.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./templates": {
+      "types": "./dist/templates.d.ts",
+      "import": "./dist/templates.js"
+    },
+    "./role-section": {
+      "types": "./dist/role-section.d.ts",
+      "import": "./dist/role-section.js"
+    },
+    "./log-stream-hwm": {
+      "types": "./dist/log-stream-hwm.d.ts",
+      "import": "./dist/log-stream-hwm.js"
+    },
+    "./drone-address": {
+      "types": "./dist/drone-address.d.ts",
+      "import": "./dist/drone-address.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol/index.d.ts",
+      "import": "./dist/protocol/index.js"
+    },
+    "./domain": {
+      "types": "./dist/domain/index.d.ts",
+      "import": "./dist/domain/index.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance/index.d.ts",
+      "import": "./dist/conformance/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "docs"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run check && npm test && npm run build"
+  },
+  "keywords": [
+    "borgmcp",
+    "mcp",
+    "multi-agent",
+    "protocol",
+    "conformance"
+  ],
+  "author": "Byte Ventures IO AB",
+  "license": "Apache-2.0",
+  "homepage": "https://borgmcp.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Byte-Ventures/borg-mcp-shared.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Byte-Ventures/borg-mcp-shared/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
