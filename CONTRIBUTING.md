@@ -9,11 +9,9 @@ Describe the affected consumers, the rollout order, and whether existing
 clients or servers require a compatibility window. Small documentation and test
 corrections can proceed directly to a pull request.
 
-Keep this package implementation-neutral. Changes must not introduce private
-backend details, credentials, infrastructure bindings, database access,
-authentication implementation, billing logic, filesystem state, or process
-management. Runtime dependencies require explicit justification and a security
-review.
+Keep this package implementation-neutral. Contributions should extend portable
+contracts, pure helpers, canonical templates, or synthetic conformance data.
+Runtime dependency changes require explicit justification and a security review.
 
 ## Development Workflow
 
