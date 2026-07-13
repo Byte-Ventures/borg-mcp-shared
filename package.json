@@ -1,5 +1,5 @@
 {
-  "name": "@borgmcp/shared",
+  "name": "borgmcp-shared",
   "version": "0.1.0",
   "description": "Shared protocol, domain, templates, and conformance contracts for Borg MCP implementations.",
   "type": "module",

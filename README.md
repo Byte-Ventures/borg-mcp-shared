@@ -1,6 +1,6 @@
-# @borgmcp/shared
+# borgmcp-shared
 
-`@borgmcp/shared` is the implementation-neutral contract package for Borg MCP.
+`borgmcp-shared` is the implementation-neutral contract package for Borg MCP.
 It contains the protocol types, domain helpers, built-in cube templates, and
 portable conformance vectors used by the hosted service, the `borgmcp` client,
 and self-hosted Borg MCP servers.
@@ -12,7 +12,7 @@ Those concerns remain with the applications that own them.
 ## Installation
 
 ```sh
-npm install @borgmcp/shared
+npm install borgmcp-shared
 ```
 
 The package is ESM-only and supports Node.js 20 or newer.
@@ -27,31 +27,31 @@ import {
   TEMPLATES,
   compareBroadcastHwm,
   parseRoleSections,
-} from '@borgmcp/shared';
+} from 'borgmcp-shared';
 ```
 
 Focused subpath exports let consumers keep their dependency boundary explicit:
 
 ```ts
-import { TEMPLATES } from '@borgmcp/shared/templates';
-import { patchRoleSectionText } from '@borgmcp/shared/role-section';
-import { compareBroadcastHwm } from '@borgmcp/shared/log-stream-hwm';
-import { formatDroneAddressToken } from '@borgmcp/shared/drone-address';
-import type { AppendLogRequest } from '@borgmcp/shared/protocol';
-import { BROADCAST_HWM_CONFORMANCE } from '@borgmcp/shared/conformance';
+import { TEMPLATES } from 'borgmcp-shared/templates';
+import { patchRoleSectionText } from 'borgmcp-shared/role-section';
+import { compareBroadcastHwm } from 'borgmcp-shared/log-stream-hwm';
+import { formatDroneAddressToken } from 'borgmcp-shared/drone-address';
+import type { AppendLogRequest } from 'borgmcp-shared/protocol';
+import { BROADCAST_HWM_CONFORMANCE } from 'borgmcp-shared/conformance';
 ```
 
 The supported subpaths are:
 
-- `@borgmcp/shared/protocol`: wire entities, requests, responses, errors, and
+- `borgmcp-shared/protocol`: wire entities, requests, responses, errors, and
   protocol compatibility metadata.
-- `@borgmcp/shared/domain`: pure role-section, address, and high-water-mark
+- `borgmcp-shared/domain`: pure role-section, address, and high-water-mark
   helpers plus shared domain types.
-- `@borgmcp/shared/conformance`: test-runner-independent behavior vectors.
-- `@borgmcp/shared/templates`: built-in cube templates and template helpers.
-- `@borgmcp/shared/role-section`: lossless role-text parsing and patching.
-- `@borgmcp/shared/log-stream-hwm`: broadcast cursor ordering.
-- `@borgmcp/shared/drone-address`: stable short drone-address rendering.
+- `borgmcp-shared/conformance`: test-runner-independent behavior vectors.
+- `borgmcp-shared/templates`: built-in cube templates and template helpers.
+- `borgmcp-shared/role-section`: lossless role-text parsing and patching.
+- `borgmcp-shared/log-stream-hwm`: broadcast cursor ordering.
+- `borgmcp-shared/drone-address`: stable short drone-address rendering.
 
 Generated declaration files are included in every published package. Public
 functions and contracts include API documentation in their TypeScript sources.
@@ -59,7 +59,7 @@ functions and contracts include API documentation in their TypeScript sources.
 ## Conformance
 
 Server and client implementations should run the vectors exported from
-`@borgmcp/shared/conformance` against their adapters. The vectors are plain
+`borgmcp-shared/conformance` against their adapters. The vectors are plain
 readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime.
 

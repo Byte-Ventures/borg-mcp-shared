@@ -1,6 +1,6 @@
 # Protocol Compatibility
 
-`@borgmcp/shared` versions the contracts shared by Borg MCP clients and server
+`borgmcp-shared` versions the contracts shared by Borg MCP clients and server
 implementations. Package versions and protocol generations are related but are
 not interchangeable: a package release can add helpers without changing the
 wire protocol.
