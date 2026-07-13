@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   AppendLogResponse,
+  AssimilateRequest,
   ReadLogResponse,
   RegenResponse,
   Role,
@@ -53,6 +54,19 @@ const { detailed_description: _description, detailed_description_hash: _hash, ..
 const publicRole = { ...publicRoleBase, default_backend: null };
 
 describe('current public response contracts', () => {
+  it('represents current and legacy assimilation model fields', () => {
+    const request = {
+      cube_name: 'example',
+      hostname: 'host.example',
+      agent_kind: 'opencode',
+      model: 'provider:model',
+      backend: null,
+    } satisfies AssimilateRequest;
+
+    expect(request.model).toBe('provider:model');
+    expect(request.backend).toBeNull();
+  });
+
   it('represents roster role, repository, model, and wake-path fields', () => {
     const response = {
       drones: [

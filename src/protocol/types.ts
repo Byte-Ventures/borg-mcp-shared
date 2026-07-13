@@ -112,6 +112,9 @@ export interface AssimilateRequest {
   prior_drone_id?: string;
   hostname?: string | null;
   agent_kind?: AgentKind | null;
+  model?: string | null;
+  /** Legacy compatibility alias for model. */
+  backend?: string | null;
 }
 
 export interface AssimilateResponse {
