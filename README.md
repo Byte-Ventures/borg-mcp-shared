@@ -3,10 +3,8 @@
 `borgmcp-shared` is the implementation-neutral contract package for Borg MCP.
 It contains protocol types, domain helpers, built-in cube templates, and
 portable conformance vectors used by Borg MCP clients and server implementations.
-
-The package deliberately contains no authentication, billing, database,
-Cloudflare, filesystem, process-management, or MCP transport implementation.
-Those concerns remain with the applications that own them.
+Its pure ESM helpers and generated TypeScript declarations run consistently
+across host environments with zero runtime dependencies.
 
 ## Installation
 
@@ -78,10 +76,8 @@ the policy for introducing protocol changes.
 
 ## Security Posture
 
-This package is intentionally dependency-free at runtime and contains only
-public, non-secret contracts and deterministic helpers. It must never contain
-credentials, private backend configuration, database access, authentication
-implementation, billing logic, or environment-specific infrastructure code.
+The package publishes portable wire contracts, deterministic helpers, canonical
+templates, and conformance data as dependency-free ESM.
 
 Protocol types describe untrusted wire data; they do not replace runtime input
 validation at a server boundary. Implementations remain responsible for
