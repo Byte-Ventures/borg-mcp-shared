@@ -31,6 +31,7 @@ export interface TemplateRole {
   short_description: string;
   detailed_description: string;
   is_default?: boolean;
+  is_mandatory?: boolean;
   is_human_seat?: boolean;
   can_broadcast?: boolean;
   receives_all_direct?: boolean;
@@ -572,6 +573,7 @@ const SOFTWARE_DEV: Template = {
   roles: [
     {
       name: 'Coordinator',
+      is_mandatory: true,
       is_human_seat: true,
       can_broadcast: true,
       short_description:

@@ -1,9 +1,8 @@
 # borgmcp-shared
 
 `borgmcp-shared` is the implementation-neutral contract package for Borg MCP.
-It contains the protocol types, domain helpers, built-in cube templates, and
-portable conformance vectors used by the hosted service, the `borgmcp` client,
-and self-hosted Borg MCP servers.
+It contains protocol types, domain helpers, built-in cube templates, and
+portable conformance vectors used by Borg MCP clients and server implementations.
 
 The package deliberately contains no authentication, billing, database,
 Cloudflare, filesystem, process-management, or MCP transport implementation.
@@ -48,7 +47,7 @@ The supported subpaths are:
 - `borgmcp-shared/domain`: pure role-section, address, and high-water-mark
   helpers plus shared domain types.
 - `borgmcp-shared/conformance`: test-runner-independent behavior vectors.
-- `borgmcp-shared/templates`: built-in cube templates and template helpers.
+- `borgmcp-shared/templates`: built-in cube templates, template schemas, and helpers.
 - `borgmcp-shared/role-section`: lossless role-text parsing and patching.
 - `borgmcp-shared/log-stream-hwm`: broadcast cursor ordering.
 - `borgmcp-shared/drone-address`: stable short drone-address rendering.
@@ -63,9 +62,9 @@ Server and client implementations should run the vectors exported from
 readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime.
 
-The package's own suite also runs the original behavior tests for templates,
-role-section patching, broadcast high-water-mark ordering, and drone-address
-formatting.
+The package's own suite covers built-in templates, role-section patching,
+broadcast high-water-mark ordering, drone-address formatting, and current public
+response shapes.
 
 ## Compatibility
 
