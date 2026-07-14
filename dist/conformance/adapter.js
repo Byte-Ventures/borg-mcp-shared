@@ -1,7 +1,9 @@
-import { ErrorCode, ProtocolContractError, compareLogCursor, createProtocolEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolInfoEnvelope, decodeReadLogResultEnvelope, decodeSseFrames, negotiateProtocol, } from '../protocol/index.js';
+import { ErrorCode, ProtocolContractError, compareLogCursor, createProtocolEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolInfoEnvelope, decodeReadLogResultEnvelope, decodeSseFrames, negotiateProtocol, utf8ByteLength, } from '../protocol/index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
     { id: 'protocol.enrollment-auth', area: 'protocol' },
+    { id: 'security.adapter-boundary-injection', area: 'security' },
+    { id: 'security.oversize-request', area: 'security' },
     { id: 'security.cross-cube-isolation', area: 'security' },
     { id: 'log.read-cursor-tuple', area: 'cursor' },
     { id: 'sse.replay-live-transition', area: 'sse' },
@@ -145,6 +147,7 @@ export async function runAdapterConformance(environment, options = {}) {
     let credentialA = '';
     let credentialB = '';
     let protocolBody;
+    let protocolInfo = null;
     await record('http.unauthenticated-liveness', async () => {
         const response = await environment.operations.health();
         expectStatus(response, 204, 'Unauthenticated liveness');
@@ -172,7 +175,7 @@ export async function runAdapterConformance(environment, options = {}) {
         const protocolResponse = await environment.operations.protocol(credentialA);
         expectStatus(protocolResponse, 200, 'Authenticated protocol request');
         protocolBody = protocolResponse.body;
-        const info = negotiateProtocol(decodeProtocolInfoEnvelope(protocolBody).payload, [
+        protocolInfo = negotiateProtocol(decodeProtocolInfoEnvelope(protocolBody).payload, [
             'log.cursor',
             'stream.sse',
             'stream.replay',
@@ -184,8 +187,58 @@ export async function runAdapterConformance(environment, options = {}) {
             unauthenticated: ErrorCode.AUTH_MISSING,
             enrollment_status: 201,
             invitation_reuse: ErrorCode.AUTH_INVALID,
-            protocol_version: info.protocol_version,
+            protocol_version: protocolInfo.protocol_version,
         };
+    });
+    await record('security.adapter-boundary-injection', async () => {
+        invariant(protocolInfo, 'Protocol fixture did not produce request limits.');
+        const injectedMessage = "'); DROP TABLE log_entries; --\r\ndata: forged-sse-frame";
+        const injectedBody = JSON.stringify(createProtocolEnvelope('inject-b1', { message: injectedMessage }));
+        invariant(utf8ByteLength(injectedBody) <= protocolInfo.limits.max_request_bytes &&
+            utf8ByteLength(injectedMessage) <= protocolInfo.limits.max_log_message_bytes, 'Injection fixture exceeded an advertised request limit.');
+        const injected = await environment.operations.appendRaw(credentialB, cubeB, injectedBody);
+        expectStatus(injected, 201, 'Adapter-boundary injection append');
+        const injectedEntry = decodeAppendLogResultEnvelope(injected.body).payload.entry;
+        invariant(injectedEntry.message === injectedMessage, 'Adapter altered or interpreted injection-shaped log data.');
+        const sentinel = await environment.operations.append(credentialB, cubeB, createProtocolEnvelope('inject-b2', { message: 'post-injection-sentinel' }));
+        expectStatus(sentinel, 201, 'Post-injection sentinel append');
+        const read = await environment.operations.read(credentialB, cubeB, createProtocolEnvelope('inject-read', { cursor: null, limit: 10 }));
+        expectStatus(read, 200, 'Post-injection read');
+        const messages = decodeReadLogResultEnvelope(read.body).payload.entries.map((entry) => entry.message);
+        invariant(same(messages, [injectedMessage, 'post-injection-sentinel']), 'Injection-shaped input was not persisted inertly and exactly.');
+        const opened = await environment.operations.openStream(credentialB, cubeB, null);
+        expectStatus(opened, 200, 'Post-injection stream open');
+        invariant(opened.stream, 'Post-injection stream omitted its AsyncIterable.');
+        const reader = new SseEventReader(opened.stream);
+        try {
+            const first = logEvent(await within(reader.next(), 'Injected SSE event', streamDeadlineMs), 'Injected SSE event');
+            const second = logEvent(await within(reader.next(), 'Post-injection sentinel SSE event', streamDeadlineMs), 'Post-injection sentinel SSE event');
+            invariant(first.entry.message === injectedMessage && second.entry.message === 'post-injection-sentinel', 'Injection-shaped input escaped or split its SSE frame.');
+            const bookmark = await within(reader.next(), 'Post-injection bookmark', streamDeadlineMs);
+            invariant(bookmark.type === 'bookmark', 'Post-injection stream produced an extra forged event.');
+        }
+        finally {
+            await reader.close();
+        }
+        return {
+            status: 201,
+            preserved_exactly: true,
+            subsequent_write_succeeded: true,
+            ordered_messages: 2,
+            sse_events: 2,
+        };
+    });
+    await record('security.oversize-request', async () => {
+        invariant(protocolInfo, 'Protocol fixture did not produce request limits.');
+        const baseBody = JSON.stringify(createProtocolEnvelope('oversize-a1', { message: 'must-not-persist' }));
+        const oversizedBody = baseBody + ' '.repeat(Math.max(0, protocolInfo.limits.max_request_bytes - utf8ByteLength(baseBody) + 1));
+        invariant(utf8ByteLength(oversizedBody) > protocolInfo.limits.max_request_bytes, 'Oversize fixture did not exceed max_request_bytes.');
+        const response = await environment.operations.appendRaw(credentialA, cubeA, oversizedBody);
+        expectError(response, 413, ErrorCode.CONTENT_TOO_LARGE, 'Oversized append request');
+        const read = await environment.operations.read(credentialA, cubeA, createProtocolEnvelope('oversize-read', { cursor: null, limit: 10 }));
+        expectStatus(read, 200, 'Post-oversize read');
+        invariant(decodeReadLogResultEnvelope(read.body).payload.entries.length === 0, 'Oversized request was persisted before rejection.');
+        return { status: 413, code: ErrorCode.CONTENT_TOO_LARGE, persisted_entries: 0 };
     });
     await record('security.cross-cube-isolation', async () => {
         const secretAppend = await environment.operations.append(credentialB, cubeB, createProtocolEnvelope('append-b1', { message: 'principal-b-secret' }));

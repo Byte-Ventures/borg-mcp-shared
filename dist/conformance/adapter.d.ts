@@ -31,6 +31,7 @@ export interface ConformanceOperations {
     protocol(credential: string | null): Promise<ConformanceHttpResponse>;
     enroll(request: unknown): Promise<ConformanceHttpResponse>;
     append(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+    appendRaw(credential: string, cube: ConformanceCube, body: string): Promise<ConformanceHttpResponse>;
     read(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     ack(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     recordDecision(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
@@ -47,6 +48,12 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
 }, {
     readonly id: "protocol.enrollment-auth";
     readonly area: "protocol";
+}, {
+    readonly id: "security.adapter-boundary-injection";
+    readonly area: "security";
+}, {
+    readonly id: "security.oversize-request";
+    readonly area: "security";
 }, {
     readonly id: "security.cross-cube-isolation";
     readonly area: "security";

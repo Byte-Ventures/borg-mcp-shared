@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ADAPTER_CONFORMANCE_FIXTURES,
   ErrorCode,
   REQUIRED_SECURITY_CAPABILITIES,
   SHARED_PACKAGE_NAME,
@@ -15,6 +16,7 @@ import {
   encodeSseEvent,
   runAdapterConformance,
   runEquivalentAdapterConformance,
+  utf8ByteLength,
   type ConformanceCube,
   type ConformanceEnvironment,
   type ConformanceHttpResponse,
@@ -30,7 +32,9 @@ type Fault =
   | 'cross-cube-leak'
   | 'ignore-stream-cursor'
   | 'drop-transition-write'
-  | 'keep-stream-after-revoke';
+  | 'keep-stream-after-revoke'
+  | 'interpret-injection-input'
+  | 'accept-oversize-request';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -82,6 +86,12 @@ class AsyncQueue implements AsyncIterable<string> {
 }
 
 class MemoryConformanceEnvironment implements ConformanceEnvironment {
+  private readonly limits = {
+    max_request_bytes: 65_536,
+    max_log_message_bytes: 10_240,
+    max_read_page_size: 500,
+    max_replay_page_size: 200,
+  } as const;
   private principals = new Map<string, PrincipalState>();
   private cubes = new Map<string, CubeState>();
   private invitations = new Map<string, { principalId: string; used: boolean }>();
@@ -172,12 +182,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           capabilities: [
             ...supported,
           ],
-          limits: {
-            max_request_bytes: 65_536,
-            max_log_message_bytes: 10_240,
-            max_read_page_size: 500,
-            max_replay_page_size: 200,
-          },
+          limits: this.limits,
         }),
       };
     },
@@ -224,6 +229,29 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         }
       }
       return { status: 201, body: createProtocolEnvelope(envelope.request_id, { entry }) };
+    },
+    appendRaw: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      body: string,
+    ): Promise<ConformanceHttpResponse> => {
+      if (this.fault !== 'accept-oversize-request' &&
+          utf8ByteLength(body) > this.limits.max_request_bytes) {
+        return this.error(413, ErrorCode.CONTENT_TOO_LARGE);
+      }
+      let request: unknown;
+      try {
+        request = JSON.parse(body);
+      } catch {
+        return this.error(400, ErrorCode.INVALID_INPUT);
+      }
+      if (this.fault === 'interpret-injection-input') {
+        const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
+        if (envelope.payload.message.includes('DROP TABLE')) {
+          request = createProtocolEnvelope(envelope.request_id, { message: 'interpreted-input' });
+        }
+      }
+      return this.operations.append(credential, cubeHandle, request);
     },
     read: async (
       credential: string,
@@ -434,7 +462,9 @@ describe('executable adapter conformance', () => {
       report.ok,
       JSON.stringify(report.results.filter((result) => !result.ok)),
     ).toBe(true);
-    expect(report.results).toHaveLength(11);
+    expect(report.results.map((result) => result.id)).toEqual(
+      ADAPTER_CONFORMANCE_FIXTURES.map((fixture) => fixture.id),
+    );
     expect(report.results.every((result) => result.ok)).toBe(true);
   });
 
@@ -454,6 +484,8 @@ describe('executable adapter conformance', () => {
     ['ignored replay cursor', 'ignore-stream-cursor', 'sse.replay-live-transition'],
     ['dropped replay-transition write', 'drop-transition-write', 'sse.replay-live-transition'],
     ['unterminated revoked stream', 'keep-stream-after-revoke', 'security.active-stream-revocation'],
+    ['interpreted adapter-boundary injection', 'interpret-injection-input', 'security.adapter-boundary-injection'],
+    ['accepted oversized request body', 'accept-oversize-request', 'security.oversize-request'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),
