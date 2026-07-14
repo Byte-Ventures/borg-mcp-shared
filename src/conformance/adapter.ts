@@ -97,6 +97,24 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
     expected: { ordered: true, duplicates: 0, transition_losses: 0, replay_complete: true },
   },
   {
+    id: 'sse.control-character-injection',
+    area: 'sse',
+    description: 'CR, LF, and NUL cursor or log ids are rejected before SSE framing.',
+    expected: { cr_rejected: true, lf_rejected: true, nul_rejected: true },
+  },
+  {
+    id: 'sse.payload-bounds',
+    area: 'sse',
+    description: 'Total input, frame, data, count, and unknown-event limits are enforced.',
+    expected: { total_bounded: true, frame_bounded: true, data_bounded: true, count_bounded: true, unknown_bounded: true },
+  },
+  {
+    id: 'sse.strict-event-codecs',
+    area: 'sse',
+    description: 'Malformed, extra-field, and oversized log-entry payloads are rejected.',
+    expected: { malformed_rejected: true, extra_fields_rejected: true, oversized_entry_rejected: true },
+  },
+  {
     id: 'cursor.expired-is-explicit',
     area: 'cursor',
     description: 'Expired cursors fail explicitly instead of silently returning a recent window.',

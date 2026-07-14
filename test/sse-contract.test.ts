@@ -28,6 +28,14 @@ describe('strict cursor semantics', () => {
       ProtocolContractError,
     );
   });
+
+  it('rejects cursor identifiers containing SSE control characters', () => {
+    for (const suffix of ['\r\nevent: injected', '\nInjected: yes', '\0hidden']) {
+      expect(() =>
+        compareLogCursor({ ...cursorA, id: `${cursorA.id}${suffix}` }, cursorB),
+      ).toThrow(ProtocolContractError);
+    }
+  });
 });
 
 describe('SSE wire codec', () => {
@@ -37,8 +45,8 @@ describe('SSE wire codec', () => {
       cursor: cursorA,
       entry: {
         id: cursorA.id,
-        cube_id: 'cube-12345678',
-        drone_id: 'drone-12345678',
+        cube_id: '10000000-0000-4000-8000-000000000001',
+        drone_id: '20000000-0000-4000-8000-000000000001',
         message: 'hello',
         visibility: 'broadcast',
         created_at: cursorA.created_at,
@@ -61,13 +69,13 @@ describe('SSE wire codec', () => {
       {
         type: 'ack' as const,
         log_entry_id: cursorA.id,
-        actor_drone_id: 'drone-12345678',
+        actor_drone_id: '20000000-0000-4000-8000-000000000001',
         occurred_at: cursorA.created_at,
       },
       {
         type: 'claim' as const,
         log_entry_id: cursorA.id,
-        actor_drone_id: 'drone-12345678',
+        actor_drone_id: '20000000-0000-4000-8000-000000000001',
         occurred_at: cursorA.created_at,
       },
     ]) {
@@ -99,6 +107,40 @@ describe('SSE wire codec', () => {
   it('requires a resume id on log events', () => {
     expect(() =>
       decodeSseFrames('event: log\ndata: {"entry":{}}\n\n'),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects oversized streams, frames, and unknown-event data', () => {
+    expect(() => decodeSseFrames('x'.repeat(1_048_577))).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeSseFrames(`event: unknown\ndata: ${'x'.repeat(4097)}\n\n`),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects extra event fields and malformed enriched entries', () => {
+    expect(() =>
+      decodeSseFrames(
+        `event: heartbeat\ndata: {"at":"2026-07-14T10:00:00.000Z","broadcast_hwm":null,"token":"secret"}\n\n`,
+      ),
+    ).toThrow(ProtocolContractError);
+
+    expect(() =>
+      decodeSseFrames(
+        `event: log\nid: ${cursorA.id}\ndata: ${JSON.stringify({
+          cursor: cursorA,
+          entry: {
+            id: cursorA.id,
+            cube_id: 'cube-1',
+            drone_id: null,
+            message: 'x'.repeat(10_241),
+            visibility: 'broadcast',
+            created_at: cursorA.created_at,
+            drone_label: null,
+            role_name: null,
+            recipient_drone_ids: [],
+          },
+        })}\n\n`,
+      ),
     ).toThrow(ProtocolContractError);
   });
 });

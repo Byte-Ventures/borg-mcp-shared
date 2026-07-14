@@ -8,6 +8,13 @@ export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange' as const;
 
+export const PROTOCOL_LIMIT_CEILINGS = {
+  max_request_bytes: 10 * 1024 * 1024,
+  max_log_message_bytes: 1024 * 1024,
+  max_read_page_size: 500,
+  max_replay_page_size: 1000,
+} as const;
+
 export const KNOWN_CAPABILITIES = [
   'coordination.core',
   'auth.bearer',
@@ -82,6 +89,15 @@ export interface EnrollmentExchangeResponse {
   credential_expires_at?: string | null;
 }
 
+export interface AckLogRequest {
+  entry_id: string;
+  kind: 'ack' | 'claim';
+}
+
+export type RemoveDecisionRequest =
+  | { topic: string }
+  | { decision_id: string };
+
 export interface LogCursor {
   id: string;
   created_at: string;
@@ -137,11 +153,31 @@ function boundedString(
   return value;
 }
 
-function positiveInteger(value: unknown, path: readonly (string | number)[]): number {
-  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
-    fail('Expected a positive safe integer.', path);
+function boundedPositiveInteger(
+  value: unknown,
+  maximum: number,
+  path: readonly (string | number)[],
+): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
+    fail(`Expected a positive safe integer no greater than ${maximum}.`, path);
   }
   return value as number;
+}
+
+function opaqueIdentifier(value: unknown, path: readonly (string | number)[]): string {
+  const identifier = boundedString(value, 1, 128, path);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(identifier)) {
+    fail('Expected a URL-safe opaque identifier.', path);
+  }
+  return identifier;
+}
+
+function opaqueToken(value: unknown, path: readonly (string | number)[]): string {
+  const token = boundedString(value, 43, 1024, path);
+  if (!/^[A-Za-z0-9_-]+$/.test(token)) {
+    fail('Expected an unpadded base64url token.', path);
+  }
+  return token;
 }
 
 export function decodeProtocolInfo(value: unknown): ProtocolInfo {
@@ -205,10 +241,10 @@ export function decodeProtocolInfo(value: unknown): ProtocolInfo {
     package: { name: SHARED_PACKAGE_NAME, version: packageVersion },
     capabilities,
     limits: {
-      max_request_bytes: positiveInteger(limits.max_request_bytes, ['limits', 'max_request_bytes']),
-      max_log_message_bytes: positiveInteger(limits.max_log_message_bytes, ['limits', 'max_log_message_bytes']),
-      max_read_page_size: positiveInteger(limits.max_read_page_size, ['limits', 'max_read_page_size']),
-      max_replay_page_size: positiveInteger(limits.max_replay_page_size, ['limits', 'max_replay_page_size']),
+      max_request_bytes: boundedPositiveInteger(limits.max_request_bytes, PROTOCOL_LIMIT_CEILINGS.max_request_bytes, ['limits', 'max_request_bytes']),
+      max_log_message_bytes: boundedPositiveInteger(limits.max_log_message_bytes, PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes, ['limits', 'max_log_message_bytes']),
+      max_read_page_size: boundedPositiveInteger(limits.max_read_page_size, PROTOCOL_LIMIT_CEILINGS.max_read_page_size, ['limits', 'max_read_page_size']),
+      max_replay_page_size: boundedPositiveInteger(limits.max_replay_page_size, PROTOCOL_LIMIT_CEILINGS.max_replay_page_size, ['limits', 'max_replay_page_size']),
     },
   };
 }
@@ -238,10 +274,102 @@ export function createProtocolEnvelope<T>(requestId: string, payload: T): Protoc
   return { protocol_version: PROTOCOL_VERSION, request_id: requestId, payload };
 }
 
+export function decodeProtocolEnvelope<T>(
+  value: unknown,
+  decodePayload: (payload: unknown) => T,
+): ProtocolEnvelope<T> {
+  const input = record(value);
+  exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
+    'protocol_version',
+    'request_id',
+    'payload',
+  ]);
+  if (input.protocol_version !== PROTOCOL_VERSION) {
+    throw new ProtocolContractError(
+      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+      ['protocol_version'],
+    );
+  }
+  const requestId = boundedString(input.request_id, 8, 128, ['request_id']);
+  if (!/^[A-Za-z0-9._-]+$/.test(requestId)) {
+    fail('Request id contains unsupported characters.', ['request_id']);
+  }
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    request_id: requestId,
+    payload: decodePayload(input.payload),
+  };
+}
+
+export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelope {
+  const input = record(value);
+  exactKeys(input, ['protocol_version', 'request_id', 'error'], ['protocol_version', 'error']);
+  if (input.protocol_version !== PROTOCOL_VERSION) {
+    throw new ProtocolContractError(
+      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+      ['protocol_version'],
+    );
+  }
+  const error = record(input.error, ['error']);
+  exactKeys(
+    error,
+    [
+      'code',
+      'message',
+      'details',
+      'retry_after',
+      'required_capability',
+      'supported_versions',
+    ],
+    ['code', 'message'],
+    ['error'],
+  );
+  if (typeof error.code !== 'string' || !Object.values(ErrorCode).includes(error.code as ErrorCode)) {
+    fail('Unknown protocol error code.', ['error', 'code']);
+  }
+  const decodedError: ProtocolErrorEnvelope['error'] = {
+    code: error.code as ErrorCode,
+    message: redactProtocolDiagnostic(
+      boundedString(error.message, 1, 512, ['error', 'message']),
+    ),
+  };
+  if (error.details !== undefined) {
+    decodedError.details = redactProtocolDiagnostic(
+      boundedString(error.details, 1, 2048, ['error', 'details']),
+    );
+  }
+  if (error.retry_after !== undefined) {
+    decodedError.retry_after = boundedPositiveInteger(error.retry_after, 86_400, ['error', 'retry_after']);
+  }
+  if (error.required_capability !== undefined) {
+    decodedError.required_capability = boundedString(
+      error.required_capability,
+      1,
+      64,
+      ['error', 'required_capability'],
+    );
+  }
+  if (error.supported_versions !== undefined) {
+    if (!Array.isArray(error.supported_versions) ||
+        !error.supported_versions.every((version) => version === PROTOCOL_VERSION)) {
+      fail('Invalid supported protocol versions.', ['error', 'supported_versions']);
+    }
+    decodedError.supported_versions = [...error.supported_versions] as ProtocolVersion[];
+  }
+  const requestId = input.request_id === undefined
+    ? undefined
+    : boundedString(input.request_id, 8, 128, ['request_id']);
+  return requestId === undefined
+    ? { protocol_version: PROTOCOL_VERSION, error: decodedError }
+    : { protocol_version: PROTOCOL_VERSION, request_id: requestId, error: decodedError };
+}
+
 export function decodeEnrollmentExchangeRequest(value: unknown): EnrollmentExchangeRequest {
   const input = record(value);
   exactKeys(input, ['invitation', 'client_name'], ['invitation']);
-  const invitation = boundedString(input.invitation, 43, 1024, ['invitation']);
+  const invitation = opaqueToken(input.invitation, ['invitation']);
   const clientName = input.client_name === undefined
     ? undefined
     : boundedString(input.client_name, 1, 120, ['client_name']);
@@ -258,8 +386,8 @@ export function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExch
     ['client_id', 'credential', 'credential_expires_at'],
     ['client_id', 'credential'],
   );
-  const clientId = boundedString(input.client_id, 8, 128, ['client_id']);
-  const credential = boundedString(input.credential, 43, 1024, ['credential']);
+  const clientId = opaqueIdentifier(input.client_id, ['client_id']);
+  const credential = opaqueToken(input.credential, ['credential']);
   let expiresAt: string | null | undefined;
   if (input.credential_expires_at === null) expiresAt = null;
   else if (input.credential_expires_at !== undefined) {
@@ -268,6 +396,85 @@ export function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExch
   return expiresAt === undefined
     ? { client_id: clientId, credential }
     : { client_id: clientId, credential, credential_expires_at: expiresAt };
+}
+
+export function decodeAppendLogRequest(value: unknown): import('./types.js').AppendLogRequest {
+  const input = record(value);
+  exactKeys(
+    input,
+    ['message', 'visibility', 'recipientDroneIds', 'class', 'to'],
+    ['message'],
+  );
+  const output: import('./types.js').AppendLogRequest = {
+    message: boundedString(input.message, 1, 10_240, ['message']),
+  };
+  if (input.visibility !== undefined) {
+    if (input.visibility !== 'broadcast' && input.visibility !== 'direct') {
+      fail('Invalid log visibility.', ['visibility']);
+    }
+    output.visibility = input.visibility;
+  }
+  if (input.recipientDroneIds !== undefined) {
+    if (!Array.isArray(input.recipientDroneIds) || input.recipientDroneIds.length === 0 || input.recipientDroneIds.length > 100) {
+      fail('Expected recipientDroneIds to contain 1-100 UUIDs.', ['recipientDroneIds']);
+    }
+    output.recipientDroneIds = input.recipientDroneIds.map((id, index) =>
+      decodeUuid(id, ['recipientDroneIds', index])
+    );
+  }
+  if (input.class !== undefined) {
+    output.class = boundedString(input.class, 1, 64, ['class']);
+  }
+  if (input.to !== undefined) {
+    output.to = decodeStringArray(input.to, 'to', 100, 120);
+  }
+  return output;
+}
+
+function decodeStringArray(value: unknown, field: string, maxItems: number, maxLength: number): string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maxItems) {
+    fail(`Expected ${field} to contain 1-${maxItems} values.`, [field]);
+  }
+  const decoded = value.map((item, index) => boundedString(item, 1, maxLength, [field, index]));
+  if (new Set(decoded).size !== decoded.length) fail(`${field} values must be unique.`, [field]);
+  return decoded;
+}
+
+export function decodeAckLogRequest(value: unknown): AckLogRequest {
+  const input = record(value);
+  exactKeys(input, ['entry_id', 'kind'], ['entry_id']);
+  const kind = input.kind ?? 'ack';
+  if (kind !== 'ack' && kind !== 'claim') fail('Invalid ack kind.', ['kind']);
+  return {
+    entry_id: decodeUuid(input.entry_id, ['entry_id']),
+    kind,
+  };
+}
+
+export function decodeRecordDecisionRequest(
+  value: unknown,
+): import('./types.js').RecordDecisionRequest {
+  const input = record(value);
+  exactKeys(input, ['topic', 'decision', 'rationale'], ['topic', 'decision']);
+  const output: import('./types.js').RecordDecisionRequest = {
+    topic: boundedString(input.topic, 1, 120, ['topic']),
+    decision: boundedString(input.decision, 1, 2000, ['decision']),
+  };
+  if (input.rationale !== undefined) {
+    output.rationale = boundedString(input.rationale, 1, 2000, ['rationale']);
+  }
+  return output;
+}
+
+export function decodeRemoveDecisionRequest(value: unknown): RemoveDecisionRequest {
+  const input = record(value);
+  exactKeys(input, ['topic', 'decision_id'], []);
+  const hasTopic = input.topic !== undefined;
+  const hasId = input.decision_id !== undefined;
+  if (hasTopic === hasId) fail('Exactly one decision selector is required.');
+  return hasTopic
+    ? { topic: boundedString(input.topic, 1, 120, ['topic']) }
+    : { decision_id: decodeUuid(input.decision_id, ['decision_id']) };
 }
 
 export function decodeCanonicalTimestamp(
@@ -289,9 +496,30 @@ export function decodeLogCursor(value: unknown, path: readonly (string | number)
   const input = record(value, path);
   exactKeys(input, ['id', 'created_at'], ['id', 'created_at'], path);
   return {
-    id: boundedString(input.id, 1, 128, [...path, 'id']),
+    id: decodeUuid(input.id, [...path, 'id']),
     created_at: decodeCanonicalTimestamp(input.created_at, [...path, 'created_at']),
   };
+}
+
+export function decodeUuid(value: unknown, path: readonly (string | number)[] = []): string {
+  const id = boundedString(value, 36, 36, path);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    fail('Expected a canonical UUID.', path);
+  }
+  return id.toLowerCase();
+}
+
+export function decodeOpaqueIdentifier(
+  value: unknown,
+  path: readonly (string | number)[] = [],
+): string {
+  return opaqueIdentifier(value, path);
+}
+
+export function redactProtocolDiagnostic(value: string): string {
+  return value
+    .replace(/\bBearer\s+[A-Za-z0-9_-]{20,}/gi, 'Bearer <REDACTED>')
+    .replace(/\b[A-Za-z0-9_-]{43,}\b/g, '<REDACTED>');
 }
 
 export function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1 {

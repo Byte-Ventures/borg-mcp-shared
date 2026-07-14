@@ -9,10 +9,17 @@ import {
   SHARED_PACKAGE_VERSION,
   ProtocolContractError,
   createProtocolEnvelope,
+  decodeAckLogRequest,
+  decodeAppendLogRequest,
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeResponse,
+  decodeProtocolEnvelope,
+  decodeProtocolErrorEnvelope,
   decodeProtocolInfo,
+  decodeRecordDecisionRequest,
+  decodeRemoveDecisionRequest,
   negotiateProtocol,
+  redactProtocolDiagnostic,
 } from '../src/index.js';
 
 const protocolInfo = {
@@ -70,6 +77,15 @@ describe('package and handshake contract', () => {
     );
   });
 
+  it('rejects server limits above local safety ceilings', () => {
+    expect(() =>
+      decodeProtocolInfo({
+        ...protocolInfo,
+        limits: { ...protocolInfo.limits, max_read_page_size: 1_000_000 },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
   it('fails closed when a security capability is missing', () => {
     const withoutRevocation = {
       ...protocolInfo,
@@ -94,6 +110,48 @@ describe('package and handshake contract', () => {
       request_id: 'req-12345678',
       payload: { ok: true },
     });
+  });
+
+  it('decodes the same versioned envelope at every JSON boundary', () => {
+    const envelope = createProtocolEnvelope('req-12345678', protocolInfo);
+    expect(decodeProtocolEnvelope(envelope, decodeProtocolInfo)).toEqual(envelope);
+    expect(() =>
+      decodeProtocolEnvelope({ ...envelope, protocol_version: '2' }, decodeProtocolInfo),
+    ).toThrowError(expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }));
+  });
+
+  it('decodes canonical errors without accepting secret-bearing fields', () => {
+    expect(
+      decodeProtocolErrorEnvelope({
+        protocol_version: '1',
+        request_id: 'req-12345678',
+        error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
+      }),
+    ).toMatchObject({ error: { code: 'AUTH_INVALID' } });
+
+    expect(() =>
+      decodeProtocolErrorEnvelope({
+        protocol_version: '1',
+        error: {
+          code: 'AUTH_INVALID',
+          message: 'Authentication failed.',
+          credential: 'secret',
+        },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('redacts bearer and opaque-token material from diagnostics', () => {
+    const secret = 's'.repeat(43);
+    expect(redactProtocolDiagnostic(`Bearer ${secret} failed: ${secret}`)).toBe(
+      'Bearer <REDACTED> failed: <REDACTED>',
+    );
+    expect(
+      decodeProtocolErrorEnvelope({
+        protocol_version: '1',
+        error: { code: 'AUTH_INVALID', message: `Credential ${secret} failed.` },
+      }).error.message,
+    ).toBe('Credential <REDACTED> failed.');
   });
 });
 
@@ -120,6 +178,9 @@ describe('enrollment codecs', () => {
     expect(() =>
       decodeEnrollmentExchangeRequest({ invitation, token: invitation }),
     ).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeEnrollmentExchangeRequest({ invitation: `${'a'.repeat(43)}\r\nInjected: yes` }),
+    ).toThrow(ProtocolContractError);
   });
 
   it('accepts a one-time credential response and rejects extra secret fields', () => {
@@ -140,6 +201,51 @@ describe('enrollment codecs', () => {
         client_id: 'client-12345678',
         credential,
         recovery_secret: credential,
+      }),
+    ).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeEnrollmentExchangeResponse({
+        client_id: 'client-12345678\nInjected',
+        credential,
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+});
+
+describe('coordination request codecs', () => {
+  it('bounds append-log input and rejects ambiguous fields', () => {
+    expect(decodeAppendLogRequest({ message: 'hello', to: ['Coordinator'] })).toEqual({
+      message: 'hello',
+      to: ['Coordinator'],
+    });
+    expect(() => decodeAppendLogRequest({ message: '' })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ message: 'hello', credential: 'secret' })).toThrow(
+      ProtocolContractError,
+    );
+  });
+
+  it('defaults ack kind and rejects unknown kinds', () => {
+    const entryId = '00000000-0000-4000-8000-000000000001';
+    expect(decodeAckLogRequest({ entry_id: entryId })).toEqual({
+      entry_id: entryId,
+      kind: 'ack',
+    });
+    expect(() =>
+      decodeAckLogRequest({ entry_id: entryId, kind: 'approve' }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('enforces decision bounds and an exclusive removal selector', () => {
+    expect(
+      decodeRecordDecisionRequest({ topic: 'server-runtime', decision: 'Use Node 22.' }),
+    ).toEqual({ topic: 'server-runtime', decision: 'Use Node 22.' });
+    expect(decodeRemoveDecisionRequest({ topic: 'server-runtime' })).toEqual({
+      topic: 'server-runtime',
+    });
+    expect(() =>
+      decodeRemoveDecisionRequest({
+        topic: 'server-runtime',
+        decision_id: '00000000-0000-4000-8000-000000000001',
       }),
     ).toThrow(ProtocolContractError);
   });
