@@ -48,6 +48,8 @@ jobs:
       - name: Verify release source and tag
         id: release
         shell: bash
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           test "$(node --version)" = "v22.22.2"
@@ -56,7 +58,13 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           release_tag="${GITHUB_REF_NAME}"
           if test "${GITHUB_EVENT_NAME}" = "workflow_dispatch"; then
-            release_tag="${{ inputs.tag }}"
+            test "${GITHUB_REF_TYPE}" = "branch"
+            test "${GITHUB_REF_NAME}" = "main"
+            test "${GITHUB_REF}" = "refs/heads/main"
+            protected_main_ref="refs/release-verification/main"
+            git fetch --no-tags origin "refs/heads/main:${protected_main_ref}"
+            git merge-base --is-ancestor "${GITHUB_SHA}" "${protected_main_ref}"
+            release_tag="${DISPATCH_TAG}"
           else
             test "${GITHUB_EVENT_NAME}" = "push"
             test "${GITHUB_REF_TYPE}" = "tag"

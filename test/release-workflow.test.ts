@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,11 +9,24 @@ describe('npm publish workflow', () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
     const [verificationJob, publishJob] = workflow.split('\n  publish:\n');
+    const releaseStep = verificationJob.slice(
+      verificationJob.indexOf('- name: Verify release source and tag'),
+      verificationJob.indexOf('- name: Install locked dependencies without lifecycle scripts'),
+    );
 
     expect(workflow).toContain("tags: ['v*.*.*']");
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).toContain('description: Existing immutable release tag to verify without publishing');
     expect(workflow).toContain('required: true');
+    expect(releaseStep).toContain('DISPATCH_TAG: ${{ inputs.tag }}');
+    expect(releaseStep.match(/\$\{\{ inputs\.tag \}\}/g)).toHaveLength(1);
+    expect(releaseStep).toContain('release_tag="${DISPATCH_TAG}"');
+    expect(releaseStep).not.toContain('release_tag="${{ inputs.tag }}"');
+    expect(releaseStep).toContain('test "${GITHUB_REF_TYPE}" = "branch"');
+    expect(releaseStep).toContain('test "${GITHUB_REF_NAME}" = "main"');
+    expect(releaseStep).toContain('test "${GITHUB_REF}" = "refs/heads/main"');
+    expect(releaseStep).toContain('git fetch --no-tags origin "refs/heads/main:${protected_main_ref}"');
+    expect(releaseStep).toContain('git merge-base --is-ancestor "${GITHUB_SHA}" "${protected_main_ref}"');
     expect(workflow).toContain('contents: read');
     expect(verificationJob).not.toContain('id-token: write');
     expect(verificationJob).not.toContain('environment:');
@@ -47,6 +60,38 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('The remote `v0.2.1` tag remains valid and immutable and MUST NOT be moved, reused,\nor rerun.');
     expect(runbook).toContain('No recovery version is currently selected.');
     expect(runbook).toContain('A manual dispatch is verification-only: the publish job is restricted\nto tag-push events');
+    expect(runbook).toContain('exact ref are protected `main`, requires the dispatch event SHA to remain in\na freshly fetched isolated `origin/main` verification ref');
+    expect(runbook).toContain('and passes the required\ntag input through the step environment rather than interpolating it into shell\nsource');
+  });
+
+  it.each([
+    ['tag', 'v0.2.1'],
+    ['branch', 'release-candidate'],
+  ])('rejects a %s dispatch from %s instead of protected main', (refType, refName) => {
+    expect(() => execFileSync('bash', ['-eu', '-c',
+      'test "${GITHUB_REF_TYPE}" = branch && test "${GITHUB_REF_NAME}" = main && test "${GITHUB_REF}" = refs/heads/main',
+    ], {
+      env: {
+        ...process.env,
+        GITHUB_REF_TYPE: refType,
+        GITHUB_REF_NAME: refName,
+        GITHUB_REF: refType === 'tag' ? `refs/tags/${refName}` : `refs/heads/${refName}`,
+      },
+      stdio: 'ignore',
+    })).toThrow();
+  });
+
+  it('treats a hostile dispatch tag as environment data, not shell source', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'borgmcp-dispatch-input-'));
+    const marker = join(root, 'injected');
+    try {
+      execFileSync('bash', ['-eu', '-c', 'release_tag="${DISPATCH_TAG}"; test "${release_tag}" = "${DISPATCH_TAG}"'], {
+        env: { ...process.env, DISPATCH_TAG: `$(touch "${marker}")` },
+      });
+      await expect(access(marker)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('recovers the annotated tag object after checkout flattens the local tag ref', async () => {

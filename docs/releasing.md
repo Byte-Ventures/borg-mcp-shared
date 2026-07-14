@@ -97,11 +97,15 @@ Before selecting another version, the Coordinator must dispatch the fixed
 workflow from protected `main` with the required existing tag input set to
 `v0.2.1`. A manual dispatch is verification-only: the publish job is restricted
 to tag-push events, so it cannot enter the protected environment or receive its
-bootstrap credential. The verify job independently fetches the remote annotated
-tag object into an isolated ref, binds its peeled commit to the checked-out
-source, runs every source and artifact gate, and uploads the exact tarball for
-Security audit. This is a new proof run against the immutable tag, not a rerun of
-the failed workflow run. A failed proof run remains a stop condition.
+bootstrap credential. The verify job requires a branch dispatch whose name and
+exact ref are protected `main`, requires the dispatch event SHA to remain in
+a freshly fetched isolated `origin/main` verification ref, and passes the required
+tag input through the step environment rather than interpolating it into shell
+source. It then independently fetches the remote annotated tag object into an
+isolated ref, binds its peeled commit to the checked-out source, runs every source
+and artifact gate, and uploads the exact tarball for Security audit. This is a new
+proof run against the immutable tag, not a rerun of the failed workflow run. A
+failed proof run remains a stop condition.
 
 The eventual first publication will use one temporary credential while still
 generating provenance from GitHub Actions.
