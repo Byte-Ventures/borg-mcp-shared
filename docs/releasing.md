@@ -16,7 +16,10 @@ Configure these controls before creating a release tag:
 1. Keep `.github/workflows/publish.yml` as the only npm trusted-publisher
    workflow. The workflow uses a GitHub-hosted runner, exact Node and npm
    versions, no dependency cache, and only `contents: read` plus
-   `id-token: write` in the protected publish job.
+   `id-token: write` in the protected publish job. npm is installed with
+   lifecycle scripts disabled under an isolated `${RUNNER_TEMP}` prefix; only
+   that prefix's bin directory enters `GITHUB_PATH`. Never update the active
+   global npm installation from within npm itself.
 2. Create a GitHub environment named `npm-publish`. Require an authorized
    approval from the sole operator `TheodorStorm`, allow self-review so that the
    sole-operator path remains executable, and prevent administrators from

@@ -15,6 +15,10 @@ describe('npm publish workflow', () => {
     expect(workflow).toContain('environment:\n      name: npm-publish');
     expect(workflow).toContain('node-version: 22.22.2');
     expect(workflow).toContain('npm@11.18.0');
+    expect(workflow.match(/npm_prefix="\$\{RUNNER_TEMP\}\/npm-11\.18\.0"/g)).toHaveLength(2);
+    expect(workflow.match(/>> "\$\{GITHUB_PATH\}"/g)).toHaveLength(2);
+    expect(workflow).not.toMatch(/npm install[^\n]*--global/);
+    expect(workflow).not.toContain('npm install --global');
     expect(workflow).toContain('npm publish "release/${{ needs.verify.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
     expect(verificationJob).toContain('Upload tarball for security audit');
     expect(publishJob).toContain('Download security-audited tarball');
