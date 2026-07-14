@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 describe('npm publish workflow', () => {
   it('is tag-only, protected, pinned, and publishes the verified tarball', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
+    const runbook = await readFile('docs/releasing.md', 'utf8');
     const [verificationJob, publishJob] = workflow.split('\n  publish:\n');
 
     expect(workflow).toContain("tags: ['v*.*.*']");
@@ -31,5 +32,8 @@ describe('npm publish workflow', () => {
     expect(workflow.match(/NODE_AUTH_TOKEN/g)).toHaveLength(1);
     expect(workflow).not.toContain('publishConfig.registry');
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
+    expect(runbook).toContain('The failed `v0.2.0` tag is immutable and MUST\nNOT be moved, reused, or rerun.');
+    expect(runbook).toContain('Recovery requires a separately Queen-authorized\nnew version and annotated tag.');
+    expect(runbook).toContain('No recovery version is currently selected.');
   });
 });
