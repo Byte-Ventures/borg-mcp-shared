@@ -16,7 +16,10 @@ Configure these controls before creating a release tag:
 1. Keep `.github/workflows/publish.yml` as the only npm trusted-publisher
    workflow. The workflow uses a GitHub-hosted runner, exact Node and npm
    versions, no dependency cache, and only `contents: read` plus
-   `id-token: write` in the protected publish job.
+   `id-token: write` in the protected publish job. npm is installed with
+   lifecycle scripts disabled under an isolated `${RUNNER_TEMP}` prefix; only
+   that prefix's bin directory enters `GITHUB_PATH`. Never update the active
+   global npm installation from within npm itself.
 2. Create a GitHub environment named `npm-publish`. Require an authorized
    approval from the sole operator `TheodorStorm`, allow self-review so that the
    sole-operator path remains executable, and prevent administrators from
@@ -82,8 +85,13 @@ tag or environment approval.
 ## First-Publish Bootstrap
 
 npm trusted publishing cannot be configured until the unscoped package exists.
-The first `0.2.0` publication therefore uses one temporary credential while
-still generating provenance from GitHub Actions.
+The initial `v0.2.0` bootstrap failed during verification before producing an
+artifact or reaching publication. The failed `v0.2.0` tag is immutable and MUST
+NOT be moved, reused, or rerun. Recovery requires a separately Queen-authorized
+new version and annotated tag. No recovery version is currently selected.
+
+The eventual first publication will use one temporary credential while still
+generating provenance from GitHub Actions.
 
 Before creating the tag, the release operator must verify all of the following:
 
@@ -102,9 +110,11 @@ never place it in repository variables, workflow files, shell history,
 `package.json`, a committed `.npmrc`, or an issue. Set the protected environment
 variable `ALLOW_UNCLAIMED_FIRST_PUBLISH` to `true` only for this bootstrap.
 
-The release operator then creates and pushes an annotated `v0.2.0` tag at the
-approved `main` commit. The tag starts the workflow but does not immediately
-publish. The unprivileged `verify` job performs the following gates first:
+After the Queen selects and authorizes the new recovery version, the release
+operator updates the package version through the full review gates, then creates
+and pushes its matching annotated tag at the approved `main` commit. The tag
+starts the workflow but does not immediately publish. The unprivileged `verify`
+job performs the following gates first:
 
 - verifies the public repository, annotated tag, exact package version, and
   ancestry on `main`;
@@ -121,8 +131,8 @@ approves the tarball, Release Quality confirms the operator procedure, and the
 Queen explicitly authorizes the public flip, an authorized reviewer may approve
 the waiting `npm-publish` environment deployment. The publish job downloads and
 checksum-verifies the same artifact, repeats the artifact verifier, checks that
-`0.2.0` is absent and the name is unclaimed as expected, and publishes only the
-downloaded tarball with `--access public --provenance`.
+the authorized recovery version is absent and the name is unclaimed as expected,
+and publishes only the downloaded tarball with `--access public --provenance`.
 
 Immediately after a successful first publish:
 

@@ -30,7 +30,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Set up exact npm
-        run: npm install --global npm@11.18.0 --ignore-scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm_prefix="${RUNNER_TEMP}/npm-11.18.0"
+          npm install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
+          test "$("${npm_prefix}/node_modules/.bin/npm" --version)" = "11.18.0"
+          echo "${npm_prefix}/node_modules/.bin" >> "${GITHUB_PATH}"
 
       - name: Verify release source and tag
         id: release
@@ -115,7 +121,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Set up exact npm
-        run: npm install --global npm@11.18.0 --ignore-scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm_prefix="${RUNNER_TEMP}/npm-11.18.0"
+          npm install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
+          test "$("${npm_prefix}/node_modules/.bin/npm" --version)" = "11.18.0"
+          echo "${npm_prefix}/node_modules/.bin" >> "${GITHUB_PATH}"
 
       - name: Download security-audited tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
