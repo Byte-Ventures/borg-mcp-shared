@@ -64,7 +64,12 @@ function decodePayload(attestation) {
   }
 }
 
-export function verifyProvenanceStatement(statement, name, version, integrity, commit) {
+export function verifyProvenanceStatement(statement, payloadType, name, version, integrity, commit) {
+  if (payloadType !== 'application/vnd.in-toto+json' ||
+      statement?._type !== 'https://in-toto.io/Statement/v1' ||
+      statement?.predicateType !== 'https://slsa.dev/provenance/v1') {
+    throw new Error('Signed provenance statement is not in-toto Statement v1 with SLSA provenance v1.');
+  }
   const digest = Buffer.from(integrity.slice('sha512-'.length), 'base64').toString('hex');
   if (statement.subject?.length !== 1 ||
       statement.subject[0].name !== `pkg:npm/${name}@${version}` ||
@@ -103,6 +108,7 @@ async function verifyProvenance(attestationsUrl, name, version, integrity) {
   if (!attestation) throw new Error('Registry attestation bundle has no SLSA provenance statement.');
   verifyProvenanceStatement(
     decodePayload(attestation),
+    attestation.bundle.dsseEnvelope.payloadType,
     name,
     version,
     integrity,

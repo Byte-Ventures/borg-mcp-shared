@@ -8,6 +8,8 @@ const integrity = `sha512-${Buffer.from(digest, 'hex').toString('base64')}`;
 
 function statement(path = '.github/workflows/publish.yml') {
   return {
+    _type: 'https://in-toto.io/Statement/v1',
+    predicateType: 'https://slsa.dev/provenance/v1',
     subject: [{
       name: 'pkg:npm/borgmcp-shared@0.2.0',
       digest: { sha512: digest },
@@ -38,6 +40,7 @@ describe('registry provenance verification', () => {
   it('accepts the real npm SLSA v1 GitHub Actions schema', () => {
     expect(() => verifyProvenanceStatement(
       statement(),
+      'application/vnd.in-toto+json',
       'borgmcp-shared',
       '0.2.0',
       integrity,
@@ -48,10 +51,29 @@ describe('registry provenance verification', () => {
   it('rejects a noncanonical workflow path', () => {
     expect(() => verifyProvenanceStatement(
       statement('/.github/workflows/publish.yml'),
+      'application/vnd.in-toto+json',
       'borgmcp-shared',
       '0.2.0',
       integrity,
       commit,
     )).toThrow(/workflow identity/);
+  });
+
+  it.each([
+    ['DSSE payload type', 'text/plain', undefined, undefined],
+    ['statement type', 'application/vnd.in-toto+json', 'https://in-toto.io/Statement/v0.1', undefined],
+    ['predicate type', 'application/vnd.in-toto+json', undefined, 'https://example.invalid/predicate'],
+  ])('rejects an invalid signed %s', (_description, payloadType, type, predicateType) => {
+    const value = statement();
+    if (type) value._type = type;
+    if (predicateType) value.predicateType = predicateType;
+    expect(() => verifyProvenanceStatement(
+      value,
+      payloadType,
+      'borgmcp-shared',
+      '0.2.0',
+      integrity,
+      commit,
+    )).toThrow(/in-toto Statement v1/);
   });
 });
