@@ -85,13 +85,13 @@ tag or environment approval.
 ## First-Publish Bootstrap
 
 npm trusted publishing cannot be configured until the unscoped package exists.
-The initial `v0.2.0` bootstrap failed during verification before producing an
-artifact or reaching publication. The failed `v0.2.0` tag is immutable and MUST
-NOT be moved, reused, or rerun. The separately authorized `v0.2.1` tag also
-failed verification before dependency installation or artifact creation because
-the checkout action replaced its local annotated-tag ref with the peeled commit.
-The remote `v0.2.1` tag remains valid and immutable and MUST NOT be moved, reused,
-or rerun. No recovery version is currently selected.
+The initial `v0.2.0` bootstrap run, `29353763609`, failed during verification
+before producing an artifact or reaching publication. The failed `v0.2.0` tag is
+immutable and MUST NOT be moved, reused, or rerun. The separately authorized
+`v0.2.1` tag run, `29355823822`, also failed verification before dependency
+installation or artifact creation because the checkout action replaced its local
+annotated-tag ref with the peeled commit. The remote `v0.2.1` tag remains valid
+and immutable and MUST NOT be moved, reused, or rerun.
 
 The first protected-main verification-only proof run, `29356980492`, confirmed
 the repaired tag/source trust checks, then failed before artifact upload because
@@ -100,19 +100,15 @@ instead of a local file. It produced no auditable artifact and MUST NOT be rerun
 The workflow now passes generated tarballs to both npm dry-run and publication as
 explicit `./release/<tarball>` filesystem paths.
 
-Before selecting another version, the Coordinator must dispatch the fixed
-workflow from protected `main` with the required existing tag input set to
-`v0.2.1`. A manual dispatch is verification-only: the publish job is restricted
-to tag-push events, so it cannot enter the protected environment or receive its
-bootstrap credential. The verify job requires a branch dispatch whose name and
-exact ref are protected `main`, requires the dispatch event SHA to remain in
-a freshly fetched isolated `origin/main` verification ref, and passes the required
-tag input through the step environment rather than interpolating it into shell
-source. It then independently fetches the remote annotated tag object into an
-isolated ref, binds its peeled commit to the checked-out source, runs every source
-and artifact gate, and uploads the exact tarball for Security audit. This is a new
-proof run against the immutable tag, not a rerun of either failed workflow run. A
-failed proof run remains a stop condition.
+The next protected-main proof run, `29357632667`, passed every verification gate
+against immutable `v0.2.1`, structurally skipped the publish job, and produced an
+exact artifact that passed Security audit. This proved the corrected tag,
+protected-main, input, artifact, and npm local-file handling without reusing the
+tag for publication.
+
+Under the ratified `borgmcp-shared-recovery-version` decision, `0.2.2` is the
+selected recovery version. The source bump does not itself authorize a tag,
+environment approval, or publication.
 
 The eventual first publication will use one temporary credential while still
 generating provenance from GitHub Actions.
@@ -134,12 +130,12 @@ never place it in repository variables, workflow files, shell history,
 `package.json`, a committed `.npmrc`, or an issue. Set the protected environment
 variable `ALLOW_UNCLAIMED_FIRST_PUBLISH` to `true` only for this bootstrap.
 
-After the proof run and exact-artifact Security audit pass, the Queen may select
-and separately authorize a new recovery version. Its package, lockfile, runbook,
-and version assertions must pass the full review gates and merge to protected
-`main` before the Coordinator requests separate authorization to create its
-matching annotated tag. The tag starts the workflow but does not immediately
-publish. The unprivileged `verify` job performs the following gates first:
+The `0.2.2` package, lockfile, runbook, and version assertions must pass fresh CR,
+Security, and Release Quality gates and merge to protected `main` before the
+Coordinator creates its matching annotated tag under
+`borgmcp-shared-first-publish-autonomy`. The tag starts the workflow but does not
+immediately publish. The unprivileged `verify` job performs the following gates
+first:
 
 - verifies the public repository, annotated tag, exact package version, and
   ancestry on `main`;
@@ -156,8 +152,8 @@ approves the tarball, Release Quality confirms the operator procedure, and the
 Queen explicitly authorizes the public flip, an authorized reviewer may approve
 the waiting `npm-publish` environment deployment. The publish job downloads and
 checksum-verifies the same artifact, repeats the artifact verifier, checks that
-the authorized recovery version is absent and the name is unclaimed as expected,
-and publishes only the downloaded tarball with `--access public --provenance`.
+`0.2.2` is absent and the name is unclaimed as expected, and publishes only the
+downloaded tarball with `--access public --provenance`.
 
 Immediately after a successful first publish:
 

@@ -46,7 +46,7 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.2.1',
+      version: '0.2.2',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
   });

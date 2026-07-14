@@ -59,14 +59,14 @@ describe('npm publish workflow', () => {
     expect(workflow.match(/NODE_AUTH_TOKEN/g)).toHaveLength(1);
     expect(workflow).not.toContain('publishConfig.registry');
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
-    expect(runbook).toContain('The failed `v0.2.0` tag is immutable and MUST\nNOT be moved, reused, or rerun.');
-    expect(runbook).toContain('The remote `v0.2.1` tag remains valid and immutable and MUST NOT be moved, reused,\nor rerun.');
-    expect(runbook).toContain('No recovery version is currently selected.');
+    expect(runbook).toContain('The failed `v0.2.0` tag is\nimmutable and MUST NOT be moved, reused, or rerun.');
+    expect(runbook).toContain('The remote `v0.2.1` tag remains valid\nand immutable and MUST NOT be moved, reused, or rerun.');
+    expect(runbook).toContain('`v0.2.0` bootstrap run, `29353763609`');
+    expect(runbook).toContain('`v0.2.1` tag run, `29355823822`');
     expect(runbook).toContain('verification-only proof run, `29356980492`, confirmed\nthe repaired tag/source trust checks');
     expect(runbook).toContain('explicit `./release/<tarball>` filesystem paths.');
-    expect(runbook).toContain('A manual dispatch is verification-only: the publish job is restricted\nto tag-push events');
-    expect(runbook).toContain('exact ref are protected `main`, requires the dispatch event SHA to remain in\na freshly fetched isolated `origin/main` verification ref');
-    expect(runbook).toContain('and passes the required\ntag input through the step environment rather than interpolating it into shell\nsource');
+    expect(runbook).toContain('proof run, `29357632667`, passed every verification gate');
+    expect(runbook).toContain('`borgmcp-shared-recovery-version` decision, `0.2.2` is the\nselected recovery version.');
   });
 
   it.each([
