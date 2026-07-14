@@ -24,6 +24,7 @@ export enum ErrorCode {
   SESSION_REVOKED = 'SESSION_REVOKED',
 }
 
+/** @deprecated Wire failures use the versioned ProtocolErrorEnvelope. */
 export interface ErrorResponse {
   code: ErrorCode;
   message: string;

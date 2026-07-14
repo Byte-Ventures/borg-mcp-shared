@@ -219,6 +219,12 @@ describe('Sprint 14: Template.cube_directive field', () => {
     }
   });
 
+  it('does not contradict one-signal or unread-log safety disciplines', () => {
+    const text = JSON.stringify(getTemplate('software-dev'));
+    expect(text).not.toContain('Bundle related posts into single entries');
+    expect(text).not.toContain('specific since-timestamp or entry-id rather than wide windows');
+  });
+
   it('starter marks Coordinator and Reviewer broadcast-capable but leaves Worker direct-first', () => {
     const t = getTemplate('starter')!;
     const byName = new Map(t.roles.map((role) => [role.name, role]));

@@ -161,10 +161,38 @@ function boundedString(
   max: number,
   path: readonly (string | number)[],
 ): string {
-  if (typeof value !== 'string' || value.length < min || value.length > max) {
-    fail(`Expected a string between ${min} and ${max} characters.`, path);
+  if (typeof value !== 'string') fail('Expected a string.', path);
+  const bytes = utf8ByteLength(value);
+  if (bytes < min || bytes > max) {
+    fail(`Expected a string between ${min} and ${max} UTF-8 bytes.`, path);
   }
   return value;
+}
+
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) bytes += 1;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length &&
+             value.charCodeAt(index + 1) >= 0xdc00 && value.charCodeAt(index + 1) <= 0xdfff) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
+function isSemanticVersion(value: string): boolean {
+  const match = value.match(
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/,
+  );
+  if (!match) return false;
+  const prerelease = match[4];
+  return prerelease === undefined || prerelease.split('.').every((identifier) =>
+    !/^\d+$/.test(identifier) || identifier === '0' || !identifier.startsWith('0')
+  );
 }
 
 function boundedPositiveInteger(
@@ -232,7 +260,7 @@ export function decodeProtocolInfo(value: unknown): ProtocolInfo {
     fail(`Expected package name "${SHARED_PACKAGE_NAME}".`, ['package', 'name']);
   }
   const packageVersion = boundedString(packageInfo.version, 5, 64, ['package', 'version']);
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageVersion)) {
+  if (!isSemanticVersion(packageVersion)) {
     fail('Expected a semantic package version.', ['package', 'version']);
   }
 
@@ -562,7 +590,7 @@ export function redactProtocolDiagnostic(value: string): string {
       `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
     )
     .replace(/\bBearer\s+[A-Za-z0-9_-]{20,}/gi, 'Bearer <REDACTED>')
-    .replace(/\b[A-Za-z0-9_-]{43,}\b/g, '<REDACTED>');
+    .replace(/[A-Za-z0-9_-]{43,}/g, '<REDACTED>');
 }
 
 export function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1 {

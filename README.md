@@ -71,6 +71,12 @@ The first-slice HTTP contract has three shared paths:
 verified TLS, and no-cloud-fallback capabilities. Missing security capabilities
 fail closed before an operation begins.
 
+Every JSON coordination request and successful JSON response is carried inside
+`ProtocolEnvelope<T>`. Failures use `ProtocolErrorEnvelope`. The only bodyless
+exceptions are the `204` liveness and acknowledgement responses. Payload codecs
+are exported separately so adapters can validate the envelope first and then
+validate the operation-specific payload without accepting ambiguous fields.
+
 ## Conformance
 
 Server and client implementations should run the vectors exported from
@@ -79,6 +85,13 @@ readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 acks, claims, decisions, and unsupported-capability failures.
+
+Implement `AdapterConformanceDriver` with raw responses from the target adapter,
+then call `runAdapterConformance`. The runner creates and decodes envelopes,
+drives state transitions, and decides pass/fail; adapters do not submit expected
+results. `runEquivalentAdapterConformance(cloud, local)` executes the identical
+sequence against both implementations and fails when either implementation or
+their normalized observable transcripts diverge.
 
 The package's own suite covers built-in templates, role-section patching,
 broadcast high-water-mark ordering, drone-address formatting, and current public
@@ -95,6 +108,21 @@ minor version while compatible additions and corrections increment the patch.
 
 See [docs/compatibility.md](docs/compatibility.md) for the current matrix and
 the policy for introducing protocol changes.
+
+## Distribution Before Public Release
+
+After the final source, security, conformance, and packed-artifact gates pass,
+`0.2.0` is published as a restricted package under the organization-controlled
+`@borgmcp` npm scope. Consumers then pin `^0.2.0` and commit registry lockfiles.
+No registry token belongs in this repository, package metadata, lockfiles, or a
+committed `.npmrc`; publishing and consumer reads use least-privilege external
+credentials.
+
+If restricted scoped publishing is unavailable, consumers may temporarily pin
+the exact audited release tag. That exception is intentionally exact rather
+than ranged and is replaced with the registry dependency before public release.
+Publishing publicly is not a fallback: it requires a separate artifact audit,
+namespace controls, provenance verification, and explicit release approval.
 
 ## Security Posture
 

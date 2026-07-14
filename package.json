@@ -73,7 +73,7 @@
     "url": "https://github.com/Byte-Ventures/borg-mcp-shared/issues"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "restricted"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

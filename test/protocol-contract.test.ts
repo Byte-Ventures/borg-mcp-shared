@@ -22,6 +22,9 @@ import {
   decodeProtocolInfo,
   decodeProtocolInfoEnvelope,
   decodeRecordDecisionRequest,
+  decodeReadLogRequest,
+  decodeReadLogResult,
+  decodeDecision,
   decodeRemoveDecisionRequest,
   negotiateProtocol,
   redactProtocolDiagnostic,
@@ -59,13 +62,14 @@ describe('package and handshake contract', () => {
   it('keeps the exported identity aligned with package.json', async () => {
     const manifest = JSON.parse(
       await readFile(new URL('../package.json', import.meta.url), 'utf8'),
-    ) as { name: string; version: string };
+    ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('@borgmcp/shared');
     expect(SHARED_PACKAGE_VERSION).toBe('0.2.0');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
+      publishConfig: { access: 'restricted' },
     });
     expect(COMPATIBILITY_MATRIX[0]?.packageRange).toBe('>=0.2.0 <0.3.0');
   });
@@ -173,6 +177,9 @@ describe('package and handshake contract', () => {
         error: { code: 'AUTH_INVALID', message: `Credential ${secret} failed.` },
       }).error.message,
     ).toBe('Credential <REDACTED> failed.');
+    expect(redactProtocolDiagnostic(`Credential ${'s'.repeat(42)}- failed.`)).toBe(
+      'Credential <REDACTED> failed.',
+    );
   });
 
   it('normalizes terminal controls and validates error metadata', () => {
@@ -287,9 +294,27 @@ describe('coordination request codecs', () => {
       to: ['Coordinator'],
     });
     expect(() => decodeAppendLogRequest({ message: '' })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ message: '😀'.repeat(3000) })).toThrow(
+      ProtocolContractError,
+    );
     expect(() => decodeAppendLogRequest({ message: 'hello', credential: 'secret' })).toThrow(
       ProtocolContractError,
     );
+  });
+
+  it('accepts SemVer build metadata and rejects leading-zero prerelease numbers', () => {
+    expect(
+      decodeProtocolInfo({
+        ...protocolInfo,
+        package: { name: '@borgmcp/shared', version: '0.2.0+build.1' },
+      }).package.version,
+    ).toBe('0.2.0+build.1');
+    expect(() =>
+      decodeProtocolInfo({
+        ...protocolInfo,
+        package: { name: '@borgmcp/shared', version: '0.2.0-01' },
+      }),
+    ).toThrow(ProtocolContractError);
   });
 
   it('defaults ack kind and rejects unknown kinds', () => {
@@ -314,6 +339,48 @@ describe('coordination request codecs', () => {
       decodeRemoveDecisionRequest({
         topic: 'server-runtime',
         decision_id: '00000000-0000-4000-8000-000000000001',
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('requires positive read limits and a cursor matching the final ordered entry', () => {
+    expect(() => decodeReadLogRequest({ cursor: null, limit: 0 })).toThrow(
+      ProtocolContractError,
+    );
+    const entry = {
+      id: '30000000-0000-4000-8000-000000000001',
+      cube_id: '10000000-0000-4000-8000-000000000001',
+      drone_id: '20000000-0000-4000-8000-000000000001',
+      message: 'hello',
+      visibility: 'broadcast',
+      created_at: '2026-07-14T10:00:00.000Z',
+      drone_label: 'one-of-one-builder',
+      role_name: 'Builder',
+      recipient_drone_ids: [],
+    };
+    expect(() =>
+      decodeReadLogResult({
+        entries: [entry],
+        cursor: { id: entry.id, created_at: '2026-07-14T10:00:01.000Z' },
+        behind_by: 0,
+        has_more: false,
+        claims: [],
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('requires decision actor attribution to be a canonical UUID', () => {
+    expect(() =>
+      decodeDecision({
+        id: '40000000-0000-4000-8000-000000000001',
+        cube_id: '10000000-0000-4000-8000-000000000001',
+        topic: 'runtime',
+        decision: 'Node 22',
+        rationale: null,
+        ratified_by: 'actor\r\nInjected',
+        status: 'active',
+        supersedes: null,
+        created_at: '2026-07-14T10:00:00.000Z',
       }),
     ).toThrow(ProtocolContractError);
   });

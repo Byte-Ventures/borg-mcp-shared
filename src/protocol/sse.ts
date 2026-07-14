@@ -5,6 +5,7 @@ import {
   decodeLogCursor,
   decodeOpaqueIdentifier,
   decodeUuid,
+  utf8ByteLength,
   type LogCursor,
 } from './contract.js';
 
@@ -15,21 +16,6 @@ export const SSE_LIMITS = {
   frame_count: 1000,
   unknown_data_bytes: 4096,
 } as const;
-
-function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index);
-    if (code <= 0x7f) bytes += 1;
-    else if (code <= 0x7ff) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length &&
-             value.charCodeAt(index + 1) >= 0xdc00 && value.charCodeAt(index + 1) <= 0xdfff) {
-      bytes += 4;
-      index++;
-    } else bytes += 3;
-  }
-  return bytes;
-}
 
 export type StreamEvent =
   | { type: 'log'; cursor: LogCursor; entry: EnrichedStreamEntry }
@@ -78,7 +64,7 @@ function exactKeys(
 }
 
 function boundedString(value: unknown, name: string, maximum: number): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > maximum) {
+  if (typeof value !== 'string' || value.length === 0 || utf8ByteLength(value) > maximum) {
     throw new ProtocolContractError(`Invalid SSE field "${name}".`);
   }
   return value;
@@ -88,7 +74,7 @@ function nullableString(value: unknown, name: string, maximum: number): string |
   return value === null ? null : boundedString(value, name, maximum);
 }
 
-function decodeEnrichedEntry(value: unknown): EnrichedStreamEntry {
+export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
   const entry = object(value);
   exactKeys(
     entry,
@@ -141,9 +127,9 @@ export function encodeSseEvent(event: Exclude<StreamEvent, { type: 'unknown' }>)
   let data: Record<string, unknown>;
   if (event.type === 'log') {
     const cursor = decodeLogCursor(event.cursor);
-    const entry = decodeEnrichedEntry(event.entry);
-    if (cursor.id !== entry.id) {
-      throw new ProtocolContractError('Log event cursor id must match the entry id.');
+    const entry = decodeEnrichedStreamEntry(event.entry);
+    if (cursor.id !== entry.id || cursor.created_at !== entry.created_at) {
+      throw new ProtocolContractError('Log event cursor must match the entry tuple.');
     }
     if (/[\r\n\0]/.test(cursor.id)) {
       throw new ProtocolContractError('SSE id contains a forbidden control character.');
@@ -250,8 +236,10 @@ function decodeFrame(frame: string): StreamEvent {
     exactKeys(data, ['cursor', 'entry'], ['cursor', 'entry']);
     const cursor = decodeLogCursor(data.cursor, ['cursor']);
     if (cursor.id !== id) throw new ProtocolContractError('SSE id and cursor id differ.');
-    const entry = decodeEnrichedEntry(data.entry);
-    if (entry.id !== id) throw new ProtocolContractError('SSE id and entry id differ.');
+    const entry = decodeEnrichedStreamEntry(data.entry);
+    if (entry.id !== id || entry.created_at !== cursor.created_at) {
+      throw new ProtocolContractError('SSE cursor and entry tuple differ.');
+    }
     return { type: 'log', cursor, entry };
   }
 

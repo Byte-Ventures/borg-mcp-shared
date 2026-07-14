@@ -110,6 +110,28 @@ describe('SSE wire codec', () => {
     ).toThrow(ProtocolContractError);
   });
 
+  it('rejects cursor timestamps that differ from the log entry timestamp', () => {
+    const entry = {
+      id: cursorA.id,
+      cube_id: '10000000-0000-4000-8000-000000000001',
+      drone_id: '20000000-0000-4000-8000-000000000001',
+      message: 'hello',
+      visibility: 'broadcast' as const,
+      created_at: '2026-07-14T10:00:01.000Z',
+      drone_label: 'one-of-one-builder',
+      role_name: 'Builder',
+      recipient_drone_ids: [],
+    };
+    expect(() => encodeSseEvent({ type: 'log', cursor: cursorA, entry })).toThrow(
+      ProtocolContractError,
+    );
+    expect(() =>
+      decodeSseFrames(
+        `event: log\nid: ${cursorA.id}\ndata: ${JSON.stringify({ cursor: cursorA, entry })}\n\n`,
+      ),
+    ).toThrow(ProtocolContractError);
+  });
+
   it('rejects oversized streams, frames, and unknown-event data', () => {
     expect(() => decodeSseFrames('x'.repeat(1_048_577))).toThrow(ProtocolContractError);
     expect(() =>
