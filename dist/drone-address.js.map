@@ -1,0 +1,1 @@
+{"version":3,"file":"drone-address.js","sourceRoot":"","sources":["../src/drone-address.ts"],"names":[],"mappings":"AAWA,MAAM,UAAU,YAAY,CAAC,OAAe;IAC1C,OAAO,OAAO,CAAC,KAAK,CAAC,CAAC,EAAE,CAAC,CAAC,CAAC,WAAW,EAAE,CAAC;AAC3C,CAAC;AASD,MAAM,UAAU,uBAAuB,CAAC,OAAe;IACrD,OAAO,QAAQ,YAAY,CAAC,OAAO,CAAC,IAAI,CAAC;AAC3C,CAAC"}
