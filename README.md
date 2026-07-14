@@ -118,11 +118,13 @@ and commit registry lockfiles. No registry token belongs in this repository,
 package metadata, lockfiles, or a committed `.npmrc`; publishing uses protected
 external credentials and provenance.
 
-Before that publication, consumers may temporarily pin the exact audited release
-tag. That exception is intentionally exact rather than ranged and is replaced
-with the registry dependency after publication. Public release requires the
-packed-artifact sensitivity audit, name ownership, account recovery and 2FA,
-provenance verification, and explicit release approval.
+Before that publication, consumers may temporarily pin an audited, immutable
+full commit SHA, using
+`git+ssh://git@github.com/Byte-Ventures/borg-mcp-shared.git#<40-hex-SHA>`.
+Tag, range, and local-path pins are prohibited. This exception is replaced with
+the registry dependency `borgmcp-shared@^0.2.0` after publication. Public release
+requires the packed-artifact sensitivity audit, name ownership, account recovery
+and 2FA, provenance verification, and explicit release approval.
 
 ## Security Posture
 
