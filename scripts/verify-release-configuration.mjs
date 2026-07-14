@@ -29,12 +29,17 @@ if (repository.private || repository.visibility !== 'public' || repository.defau
 for (const feature of [
   'secret_scanning',
   'secret_scanning_push_protection',
-  'secret_scanning_validity_checks',
-  'secret_scanning_non_provider_patterns',
   'dependabot_security_updates',
 ]) {
   if (repository.security_and_analysis?.[feature]?.status !== 'enabled') {
     throw new Error(`Public repository security control must be enabled: ${feature}`);
+  }
+}
+const organization = await github('/orgs/Byte-Ventures');
+for (const feature of ['secret_scanning_validity_checks', 'secret_scanning_non_provider_patterns']) {
+  const status = repository.security_and_analysis?.[feature]?.status;
+  if (status !== 'enabled' && !(status === 'disabled' && organization.plan?.name === 'free')) {
+    throw new Error(`${feature} must be enabled unless the organization plan is exactly free.`);
   }
 }
 const privateReporting = await github(`/repos/${REPOSITORY}/private-vulnerability-reporting`);
@@ -143,6 +148,7 @@ if (workflowPermissions.default_workflow_permissions !== 'read' ||
 console.log(JSON.stringify({
   repository: 'public',
   reporting: 'private-vulnerability-reporting-enabled',
+  organizationPlan: organization.plan?.name,
   environment: 'sole-operator-protected',
   deploymentTag: 'v*.*.*',
   releaseTag: EXPECTED_TAG_REF,

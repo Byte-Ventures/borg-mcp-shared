@@ -54,9 +54,15 @@ Configure these controls before creating a release tag:
    `actions/download-artifact`, each pinned in source. Keep workflow tokens
    read-only and prohibit them from approving pull requests.
 8. Enable GitHub private vulnerability reporting, secret scanning, push
-   protection, validity checks, non-provider pattern detection, and Dependabot
-   security updates. `SECURITY.md` directs reporters to the private reporting
-   path, so disabled reporting is a release-blocking documentation failure.
+   protection, and Dependabot security updates unconditionally. Enable secret
+   validity checks and non-provider pattern detection whenever the organization
+   plan licenses them. GitHub requires a paid plan with GitHub Secret Protection
+   for [validity checks](https://docs.github.com/en/code-security/how-tos/secure-your-secrets/customize-leak-detection/enable-validity-checks)
+   and [non-provider patterns](https://docs.github.com/en/code-security/secret-scanning/using-advanced-secret-scanning-and-push-protection-features/non-provider-patterns/enabling-secret-scanning-for-non-provider-patterns).
+   The configuration guard accepts those two controls as disabled only while the
+   live organization plan is exactly `free`; a plan change makes them mandatory.
+   `SECURITY.md` directs reporters to the private reporting path, so disabled
+   reporting is always a release-blocking documentation failure.
 
 The environment approval is the final technical control. Approval must remain
 pending while Security reviews the artifact produced by the `verify` job.
