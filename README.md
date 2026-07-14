@@ -112,7 +112,7 @@ the policy for introducing protocol changes.
 ## Distribution
 
 After the final source, security, conformance, and packed-artifact gates pass,
-`borgmcp-shared@0.2.0` is published publicly from the npm account that owns the
+`borgmcp-shared@0.2.1` is published publicly from the npm account that owns the
 existing `borgmcp` client package. Consumers then pin `borgmcp-shared@^0.2.0`
 and commit registry lockfiles. No registry token belongs in this repository,
 package metadata, lockfiles, or a committed `.npmrc`; publishing uses protected

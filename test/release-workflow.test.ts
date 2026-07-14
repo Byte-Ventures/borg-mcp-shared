@@ -34,6 +34,7 @@ describe('npm publish workflow', () => {
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
     expect(runbook).toContain('The failed `v0.2.0` tag is immutable and MUST\nNOT be moved, reused, or rerun.');
     expect(runbook).toContain('Recovery requires a separately Queen-authorized\nnew version and annotated tag.');
-    expect(runbook).toContain('No recovery version is currently selected.');
+    expect(runbook).toContain('`borgmcp-shared-v0.2.0-recovery` decision, `0.2.1` is the Queen-authorized\nrecovery version.');
+    expect(runbook).toContain('does not authorize creating or\npushing `v0.2.1`, and it does not authorize npm publication.');
   });
 });
