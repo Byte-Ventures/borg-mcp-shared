@@ -93,6 +93,13 @@ the checkout action replaced its local annotated-tag ref with the peeled commit.
 The remote `v0.2.1` tag remains valid and immutable and MUST NOT be moved, reused,
 or rerun. No recovery version is currently selected.
 
+The first protected-main verification-only proof run, `29356980492`, confirmed
+the repaired tag/source trust checks, then failed before artifact upload because
+npm 11 interpreted the bare `release/<tarball>` argument as a package/GitHub spec
+instead of a local file. It produced no auditable artifact and MUST NOT be rerun.
+The workflow now passes generated tarballs to both npm dry-run and publication as
+explicit `./release/<tarball>` filesystem paths.
+
 Before selecting another version, the Coordinator must dispatch the fixed
 workflow from protected `main` with the required existing tag input set to
 `v0.2.1`. A manual dispatch is verification-only: the publish job is restricted
@@ -104,7 +111,7 @@ tag input through the step environment rather than interpolating it into shell
 source. It then independently fetches the remote annotated tag object into an
 isolated ref, binds its peeled commit to the checked-out source, runs every source
 and artifact gate, and uploads the exact tarball for Security audit. This is a new
-proof run against the immutable tag, not a rerun of the failed workflow run. A
+proof run against the immutable tag, not a rerun of either failed workflow run. A
 failed proof run remains a stop condition.
 
 The eventual first publication will use one temporary credential while still

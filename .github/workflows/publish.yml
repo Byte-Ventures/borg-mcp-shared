@@ -116,7 +116,7 @@ jobs:
         run: sha512sum "${{ steps.pack.outputs.tarball }}" > SHA512SUMS
 
       - name: Exercise publish metadata without publishing
-        run: npm publish "release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org
+        run: npm publish "./release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org
 
       - name: Upload tarball for security audit
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -179,7 +179,7 @@ jobs:
           NPM_TOKEN_PRESENT: ${{ secrets.NPM_TOKEN != '' }}
 
       - name: Publish exact audited tarball with provenance
-        run: npm publish "release/${{ needs.verify.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org
+        run: npm publish "./release/${{ needs.verify.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

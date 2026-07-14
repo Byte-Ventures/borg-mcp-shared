@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -44,7 +44,10 @@ describe('npm publish workflow', () => {
     expect(workflow.match(/>> "\$\{GITHUB_PATH\}"/g)).toHaveLength(2);
     expect(workflow).not.toMatch(/npm install[^\n]*--global/);
     expect(workflow).not.toContain('npm install --global');
-    expect(workflow).toContain('npm publish "release/${{ needs.verify.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
+    expect(verificationJob).toContain('npm publish "./release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org');
+    expect(publishJob).toContain('npm publish "./release/${{ needs.verify.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
+    expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(2);
+    expect(workflow).not.toMatch(/npm publish "release\//);
     expect(verificationJob).toContain('Upload tarball for security audit');
     expect(publishJob).toContain('Download security-audited tarball');
     const prepublishStep = publishJob.slice(
@@ -59,6 +62,8 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('The failed `v0.2.0` tag is immutable and MUST\nNOT be moved, reused, or rerun.');
     expect(runbook).toContain('The remote `v0.2.1` tag remains valid and immutable and MUST NOT be moved, reused,\nor rerun.');
     expect(runbook).toContain('No recovery version is currently selected.');
+    expect(runbook).toContain('verification-only proof run, `29356980492`, confirmed\nthe repaired tag/source trust checks');
+    expect(runbook).toContain('explicit `./release/<tarball>` filesystem paths.');
     expect(runbook).toContain('A manual dispatch is verification-only: the publish job is restricted\nto tag-push events');
     expect(runbook).toContain('exact ref are protected `main`, requires the dispatch event SHA to remain in\na freshly fetched isolated `origin/main` verification ref');
     expect(runbook).toContain('and passes the required\ntag input through the step environment rather than interpolating it into shell\nsource');
@@ -89,6 +94,33 @@ describe('npm publish workflow', () => {
         env: { ...process.env, DISPATCH_TAG: `$(touch "${marker}")` },
       });
       await expect(access(marker)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes a generated tarball to npm as an explicit local file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'borgmcp-local-tarball-'));
+    const packageDir = join(root, 'package');
+    const releaseDir = join(root, 'release');
+    const tarball = join(releaseDir, 'local-file-spec-1.0.0.tgz');
+    try {
+      await mkdir(packageDir);
+      await mkdir(releaseDir);
+      await writeFile(join(packageDir, 'package.json'), JSON.stringify({
+        name: 'borgmcp-local-file-spec-regression',
+        version: '1.0.0',
+      }));
+      execFileSync('tar', ['-czf', tarball, '-C', root, 'package']);
+      execFileSync('npm', [
+        'publish',
+        './release/local-file-spec-1.0.0.tgz',
+        '--dry-run',
+        '--ignore-scripts',
+        '--access',
+        'public',
+        '--registry=https://registry.npmjs.org',
+      ], { cwd: root, stdio: 'pipe' });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
