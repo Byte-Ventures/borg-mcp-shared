@@ -30,6 +30,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
+      - name: Reject untrusted release inputs before npm bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'GitHub run evidence: run_id=%s run_attempt=%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+          test "${GITHUB_RUN_ATTEMPT}" = "1"
+          test ! -e .npmrc
+
       - name: Set up exact Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -41,8 +49,12 @@ jobs:
         run: |
           set -euo pipefail
           npm_prefix="${RUNNER_TEMP}/npm-11.18.0"
-          npm install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
+          npm_userconfig="${RUNNER_TEMP}/npm-bootstrap-user.npmrc"
+          npm_cache="${RUNNER_TEMP}/npm-bootstrap-cache"
+          : > "${npm_userconfig}"
+          npm --userconfig="${npm_userconfig}" --cache="${npm_cache}" --registry=https://registry.npmjs.org install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
           test "$("${npm_prefix}/node_modules/.bin/npm" --version)" = "11.18.0"
+          test "$("${npm_prefix}/node_modules/.bin/npm" --userconfig="${npm_userconfig}" --registry=https://registry.npmjs.org config get registry)" = "https://registry.npmjs.org/"
           echo "${npm_prefix}/node_modules/.bin" >> "${GITHUB_PATH}"
 
       - name: Verify release source and tag
@@ -105,6 +117,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release
+          printf 'run_id=%s\nrun_attempt=%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" > release/RUN_EVIDENCE
           npm pack --ignore-scripts --json --pack-destination release > release/pack-result.json
           node -e 'const fs=require("node:fs");const [result]=JSON.parse(fs.readFileSync("release/pack-result.json","utf8"));fs.appendFileSync(process.env.GITHUB_OUTPUT,`tarball=${result.filename}\n`);'
 
@@ -118,6 +131,36 @@ jobs:
       - name: Exercise publish metadata without publishing
         run: npm publish "./release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org
 
+      - name: Exercise exact tarball in a clean consumer
+        shell: bash
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          consumer="${RUNNER_TEMP}/borgmcp-shared-consumer"
+          mkdir "${consumer}"
+          printf '{"name":"borgmcp-shared-release-consumer","private":true,"version":"0.0.0","dependencies":{"borgmcp-shared":"%s"}}\n' "${VERSION}" > "${consumer}/package.json"
+          npm install --prefix "${consumer}" --ignore-scripts --no-save "./release/${TARBALL}"
+          npm ls --prefix "${consumer}" --omit=dev --all
+          (
+            cd "${consumer}"
+            node --input-type=module <<'NODE'
+          import { createRequire } from 'node:module';
+          for (const specifier of [
+            'borgmcp-shared',
+            'borgmcp-shared/templates',
+            'borgmcp-shared/role-section',
+            'borgmcp-shared/log-stream-hwm',
+            'borgmcp-shared/drone-address',
+            'borgmcp-shared/protocol',
+            'borgmcp-shared/domain',
+            'borgmcp-shared/conformance',
+          ]) await import(specifier);
+          createRequire(import.meta.url)('borgmcp-shared/package.json');
+          NODE
+          )
+
       - name: Upload tarball for security audit
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -126,6 +169,7 @@ jobs:
             release/${{ steps.pack.outputs.tarball }}
             release/artifact-report.json
             release/SHA512SUMS
+            release/RUN_EVIDENCE
           if-no-files-found: error
           retention-days: 7
 
@@ -143,6 +187,14 @@ jobs:
       - name: Check out tagged source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Reject untrusted release inputs before npm bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'GitHub run evidence: run_id=%s run_attempt=%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+          test "${GITHUB_RUN_ATTEMPT}" = "1"
+          test ! -e .npmrc
+
       - name: Set up exact Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -154,8 +206,12 @@ jobs:
         run: |
           set -euo pipefail
           npm_prefix="${RUNNER_TEMP}/npm-11.18.0"
-          npm install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
+          npm_userconfig="${RUNNER_TEMP}/npm-bootstrap-user.npmrc"
+          npm_cache="${RUNNER_TEMP}/npm-bootstrap-cache"
+          : > "${npm_userconfig}"
+          npm --userconfig="${npm_userconfig}" --cache="${npm_cache}" --registry=https://registry.npmjs.org install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
           test "$("${npm_prefix}/node_modules/.bin/npm" --version)" = "11.18.0"
+          test "$("${npm_prefix}/node_modules/.bin/npm" --userconfig="${npm_userconfig}" --registry=https://registry.npmjs.org config get registry)" = "https://registry.npmjs.org/"
           echo "${npm_prefix}/node_modules/.bin" >> "${GITHUB_PATH}"
 
       - name: Download security-audited tarball

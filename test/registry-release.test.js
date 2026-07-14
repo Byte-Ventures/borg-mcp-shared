@@ -11,21 +11,21 @@ function statement(path = '.github/workflows/publish.yml') {
     _type: 'https://in-toto.io/Statement/v1',
     predicateType: 'https://slsa.dev/provenance/v1',
     subject: [{
-      name: 'pkg:npm/borgmcp-shared@0.2.1',
+      name: 'pkg:npm/borgmcp-shared@0.2.2',
       digest: { sha512: digest },
     }],
     predicate: {
       buildDefinition: {
         externalParameters: {
           workflow: {
-            ref: 'refs/tags/v0.2.1',
+            ref: 'refs/tags/v0.2.2',
             repository: 'https://github.com/Byte-Ventures/borg-mcp-shared',
             path,
           },
         },
         internalParameters: { github: { event_name: 'push' } },
         resolvedDependencies: [{
-          uri: 'git+https://github.com/Byte-Ventures/borg-mcp-shared@refs/tags/v0.2.1',
+          uri: 'git+https://github.com/Byte-Ventures/borg-mcp-shared@refs/tags/v0.2.2',
           digest: { gitCommit: commit },
         }],
       },
@@ -42,7 +42,7 @@ describe('registry provenance verification', () => {
       statement(),
       'application/vnd.in-toto+json',
       'borgmcp-shared',
-      '0.2.1',
+      '0.2.2',
       integrity,
       commit,
     )).not.toThrow();
@@ -53,7 +53,7 @@ describe('registry provenance verification', () => {
       statement('/.github/workflows/publish.yml'),
       'application/vnd.in-toto+json',
       'borgmcp-shared',
-      '0.2.1',
+      '0.2.2',
       integrity,
       commit,
     )).toThrow(/workflow identity/);
@@ -71,7 +71,7 @@ describe('registry provenance verification', () => {
       value,
       payloadType,
       'borgmcp-shared',
-      '0.2.1',
+      '0.2.2',
       integrity,
       commit,
     )).toThrow(/in-toto Statement v1/);
