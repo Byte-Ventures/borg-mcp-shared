@@ -1,5 +1,7 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
 
+export * from './adapter.js';
+
 /** A portable input/output vector that can be consumed by any test runner. */
 export interface ConformanceVector<Input, Output> {
   name: string;

@@ -17,6 +17,11 @@ export enum ErrorCode {
   ROLE_HAS_FROZEN_DRONES = 'ROLE_HAS_FROZEN_DRONES',
   DRONE_EVICTED = 'DRONE_EVICTED',
   DRONE_FROZEN = 'DRONE_FROZEN',
+  UNSUPPORTED_PROTOCOL_VERSION = 'UNSUPPORTED_PROTOCOL_VERSION',
+  UNSUPPORTED_CAPABILITY = 'UNSUPPORTED_CAPABILITY',
+  CURSOR_INVALID = 'CURSOR_INVALID',
+  CURSOR_EXPIRED = 'CURSOR_EXPIRED',
+  SESSION_REVOKED = 'SESSION_REVOKED',
 }
 
 export interface ErrorResponse {
@@ -25,4 +30,6 @@ export interface ErrorResponse {
   details?: string;
   /** Number of seconds a rate-limited caller should wait. */
   retryAfter?: number;
+  requiredCapability?: string;
+  supportedVersions?: readonly string[];
 }
