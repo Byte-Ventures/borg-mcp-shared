@@ -87,11 +87,21 @@ tag or environment approval.
 npm trusted publishing cannot be configured until the unscoped package exists.
 The initial `v0.2.0` bootstrap failed during verification before producing an
 artifact or reaching publication. The failed `v0.2.0` tag is immutable and MUST
-NOT be moved, reused, or rerun. Recovery requires a separately Queen-authorized
-new version and annotated tag. Under the ratified
-`borgmcp-shared-v0.2.0-recovery` decision, `0.2.1` is the Queen-authorized
-recovery version. This source-bump authorization does not authorize creating or
-pushing `v0.2.1`, and it does not authorize npm publication.
+NOT be moved, reused, or rerun. The separately authorized `v0.2.1` tag also
+failed verification before dependency installation or artifact creation because
+the checkout action replaced its local annotated-tag ref with the peeled commit.
+The remote `v0.2.1` tag remains valid and immutable and MUST NOT be moved, reused,
+or rerun. No recovery version is currently selected.
+
+Before selecting another version, the Coordinator must dispatch the fixed
+workflow from protected `main` with the required existing tag input set to
+`v0.2.1`. A manual dispatch is verification-only: the publish job is restricted
+to tag-push events, so it cannot enter the protected environment or receive its
+bootstrap credential. The verify job independently fetches the remote annotated
+tag object into an isolated ref, binds its peeled commit to the checked-out
+source, runs every source and artifact gate, and uploads the exact tarball for
+Security audit. This is a new proof run against the immutable tag, not a rerun of
+the failed workflow run. A failed proof run remains a stop condition.
 
 The eventual first publication will use one temporary credential while still
 generating provenance from GitHub Actions.
@@ -113,11 +123,12 @@ never place it in repository variables, workflow files, shell history,
 `package.json`, a committed `.npmrc`, or an issue. Set the protected environment
 variable `ALLOW_UNCLAIMED_FIRST_PUBLISH` to `true` only for this bootstrap.
 
-After the `0.2.1` package, lockfile, runbook, and version assertions pass the full
-review gates and merge to protected `main`, the Coordinator must request separate
-Queen authorization to create and push the matching annotated `v0.2.1` tag. The
-tag starts the workflow but does not immediately publish. The unprivileged
-`verify` job performs the following gates first:
+After the proof run and exact-artifact Security audit pass, the Queen may select
+and separately authorize a new recovery version. Its package, lockfile, runbook,
+and version assertions must pass the full review gates and merge to protected
+`main` before the Coordinator requests separate authorization to create its
+matching annotated tag. The tag starts the workflow but does not immediately
+publish. The unprivileged `verify` job performs the following gates first:
 
 - verifies the public repository, annotated tag, exact package version, and
   ancestry on `main`;
@@ -134,8 +145,8 @@ approves the tarball, Release Quality confirms the operator procedure, and the
 Queen explicitly authorizes the public flip, an authorized reviewer may approve
 the waiting `npm-publish` environment deployment. The publish job downloads and
 checksum-verifies the same artifact, repeats the artifact verifier, checks that
-`0.2.1` is absent and the name is unclaimed as expected, and publishes only the
-downloaded tarball with `--access public --provenance`.
+the authorized recovery version is absent and the name is unclaimed as expected,
+and publishes only the downloaded tarball with `--access public --provenance`.
 
 Immediately after a successful first publish:
 
