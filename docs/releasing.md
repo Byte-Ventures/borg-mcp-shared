@@ -122,6 +122,37 @@ Under the ratified `borgmcp-shared-recovery-version` decision, `0.2.2` is the
 selected recovery version. The source bump does not itself authorize a tag,
 environment approval, or publication.
 
+Run `29360398007` published `borgmcp-shared@0.2.2` from the exact approved
+artifact, and the registry integrity and maintainer matched that artifact. The
+workflow then failed during immediate postpublish verification when the package
+ownership read returned HTTP 404 before registry propagation completed. The run
+and `v0.2.2` tag are immutable and MUST NOT be rerun, moved, or reused. Consumer
+migration was blocked until provenance and signatures were independently verified
+and Security approved the recovery evidence.
+
+Recover out of band without rerunning the workflow:
+
+1. Download artifact `8321897865` from run `29360398007` and recheck its recorded
+   ZIP digest, `RUN_EVIDENCE`, tarball SHA-512, and artifact verifier report.
+2. With `GITHUB_SHA=508f2dc88658d8e00ff036b7ce6913fcfbef239b` and
+   `NPM_EXPECTED_OWNER=byteventures`, run
+   `node scripts/verify-registry-release.mjs postpublish <audited-tarball>`. The
+   verifier retries only transient HTTP 404 propagation responses with bounded
+   backoff; non-404 failures and integrity, owner, or provenance mismatches remain
+   immediate terminal failures.
+3. Install exact `borgmcp-shared@0.2.2` from the registry into a clean temporary
+   prefix with scripts disabled and run `npm audit signatures` against that
+   prefix.
+4. Record the independent integrity, ownership, signed-provenance, and signature
+   evidence for a fresh Security verdict before changing any consumer dependency.
+
+That recovery completed successfully: the registry tarball is byte-identical to
+the audited artifact, its sole maintainer is `byteventures`, the signed in-toto
+SLSA provenance binds the protected workflow/tag/commit/run, and npm verified one
+registry signature plus one publish attestation. Security approved the recovery
+evidence. Complete the bootstrap credential and Trusted Publisher cleanup below
+before migrating consumers.
+
 The eventual first publication will use one temporary credential while still
 generating provenance from GitHub Actions.
 

@@ -95,6 +95,9 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('explicit `./release/<tarball>` filesystem paths.');
     expect(runbook).toContain('proof run, `29357632667`, passed every verification gate');
     expect(runbook).toContain('`borgmcp-shared-recovery-version` decision, `0.2.2` is the\nselected recovery version.');
+    expect(runbook).toContain('Run `29360398007` published `borgmcp-shared@0.2.2`');
+    expect(runbook).toContain('MUST NOT be rerun, moved, or reused. Consumer\nmigration was blocked');
+    expect(runbook).toContain('Security approved the recovery\nevidence.');
     expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
     expect(runbook).toContain('Both jobs reject a repository-root `.npmrc` before their first npm command.');
   });
