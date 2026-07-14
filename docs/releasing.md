@@ -88,7 +88,10 @@ npm trusted publishing cannot be configured until the unscoped package exists.
 The initial `v0.2.0` bootstrap failed during verification before producing an
 artifact or reaching publication. The failed `v0.2.0` tag is immutable and MUST
 NOT be moved, reused, or rerun. Recovery requires a separately Queen-authorized
-new version and annotated tag. No recovery version is currently selected.
+new version and annotated tag. Under the ratified
+`borgmcp-shared-v0.2.0-recovery` decision, `0.2.1` is the Queen-authorized
+recovery version. This source-bump authorization does not authorize creating or
+pushing `v0.2.1`, and it does not authorize npm publication.
 
 The eventual first publication will use one temporary credential while still
 generating provenance from GitHub Actions.
@@ -110,11 +113,11 @@ never place it in repository variables, workflow files, shell history,
 `package.json`, a committed `.npmrc`, or an issue. Set the protected environment
 variable `ALLOW_UNCLAIMED_FIRST_PUBLISH` to `true` only for this bootstrap.
 
-After the Queen selects and authorizes the new recovery version, the release
-operator updates the package version through the full review gates, then creates
-and pushes its matching annotated tag at the approved `main` commit. The tag
-starts the workflow but does not immediately publish. The unprivileged `verify`
-job performs the following gates first:
+After the `0.2.1` package, lockfile, runbook, and version assertions pass the full
+review gates and merge to protected `main`, the Coordinator must request separate
+Queen authorization to create and push the matching annotated `v0.2.1` tag. The
+tag starts the workflow but does not immediately publish. The unprivileged
+`verify` job performs the following gates first:
 
 - verifies the public repository, annotated tag, exact package version, and
   ancestry on `main`;
@@ -131,8 +134,8 @@ approves the tarball, Release Quality confirms the operator procedure, and the
 Queen explicitly authorizes the public flip, an authorized reviewer may approve
 the waiting `npm-publish` environment deployment. The publish job downloads and
 checksum-verifies the same artifact, repeats the artifact verifier, checks that
-the authorized recovery version is absent and the name is unclaimed as expected,
-and publishes only the downloaded tarball with `--access public --provenance`.
+`0.2.1` is absent and the name is unclaimed as expected, and publishes only the
+downloaded tarball with `--access public --provenance`.
 
 Immediately after a successful first publish:
 
