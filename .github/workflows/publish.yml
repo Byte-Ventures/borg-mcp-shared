@@ -3,6 +3,12 @@ name: Publish to npm
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable release tag to verify without publishing
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +28,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Set up exact Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -41,16 +48,37 @@ jobs:
       - name: Verify release source and tag
         id: release
         shell: bash
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           test "$(node --version)" = "v22.22.2"
           test "$(npm --version)" = "11.18.0"
           test "${{ github.event.repository.private }}" = "false"
           version="$(node -p "require('./package.json').version")"
-          test "${GITHUB_REF_TYPE}" = "tag"
-          test "${GITHUB_REF_NAME}" = "v${version}"
-          test "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" = "tag"
-          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
+          release_tag="${GITHUB_REF_NAME}"
+          if test "${GITHUB_EVENT_NAME}" = "workflow_dispatch"; then
+            test "${GITHUB_REF_TYPE}" = "branch"
+            test "${GITHUB_REF_NAME}" = "main"
+            test "${GITHUB_REF}" = "refs/heads/main"
+            protected_main_ref="refs/release-verification/main"
+            git fetch --no-tags origin "refs/heads/main:${protected_main_ref}"
+            git merge-base --is-ancestor "${GITHUB_SHA}" "${protected_main_ref}"
+            release_tag="${DISPATCH_TAG}"
+          else
+            test "${GITHUB_EVENT_NAME}" = "push"
+            test "${GITHUB_REF_TYPE}" = "tag"
+          fi
+          test "${release_tag}" = "v${version}"
+          verification_ref="refs/release-verification/${release_tag}"
+          git fetch --no-tags origin "refs/tags/${release_tag}:${verification_ref}"
+          test "$(git cat-file -t "${verification_ref}")" = "tag"
+          release_commit="$(git rev-parse "${verification_ref}^{commit}")"
+          test "$(git rev-parse HEAD)" = "${release_commit}"
+          if test "${GITHUB_EVENT_NAME}" = "push"; then
+            test "${release_commit}" = "${GITHUB_SHA}"
+          fi
+          git merge-base --is-ancestor "${release_commit}" origin/main
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install locked dependencies without lifecycle scripts
@@ -102,6 +130,7 @@ jobs:
           retention-days: 7
 
   publish:
+    if: github.event_name == 'push'
     needs: verify
     runs-on: ubuntu-latest
     environment:
