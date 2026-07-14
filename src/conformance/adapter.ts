@@ -424,13 +424,16 @@ export async function runAdapterConformance(
     const barrier = environment.admin.armReplayTransition();
     const openPromise = environment.operations.openStream(credentialA, cubeA, readCursor);
     await within(barrier.reached, 'Replay transition boundary', streamDeadlineMs);
-    const appendDelta = environment.operations.append(
-      credentialA,
-      cubeA,
-      createProtocolEnvelope('append-a4', { message: 'delta' }),
-    );
-    expectStatus(await appendDelta, 201, 'Transition append');
-    barrier.release();
+    try {
+      const appendDelta = environment.operations.append(
+        credentialA,
+        cubeA,
+        createProtocolEnvelope('append-a4', { message: 'delta' }),
+      );
+      expectStatus(await appendDelta, 201, 'Transition append');
+    } finally {
+      barrier.release();
+    }
     const opened = await within(openPromise, 'Cursor stream open', streamDeadlineMs);
     expectStatus(opened, 200, 'Cursor stream open');
     invariant(opened.stream, 'Successful stream response omitted its AsyncIterable.');
