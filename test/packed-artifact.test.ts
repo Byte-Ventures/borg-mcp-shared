@@ -62,18 +62,35 @@ describe('packed artifact', () => {
     expect(result.stderr).toContain('Source map target is not shipped');
   });
 
-  it('rejects consumer lifecycle hooks', async () => {
+  it.each(['prepare', 'prepublish'])('rejects the %s consumer lifecycle hook', async (hook) => {
     const tarball = await repack(async (root) => {
       const manifestPath = join(root, 'package.json');
       const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-      manifest.scripts.prepare = 'npm run build';
+      manifest.scripts[hook] = 'npm run build';
       await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     });
     const result = spawnSync('node', ['scripts/verify-packed-artifact.mjs', tarball], {
       encoding: 'utf8',
     });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('Forbidden consumer lifecycle hook: prepare');
+    expect(result.stderr).toContain(`Forbidden consumer lifecycle hook: ${hook}`);
+  });
+
+  it.each([
+    ['credential-shaped token', `npm_${'a'.repeat(32)}`],
+    ['private backend URL', 'https://api.borgmcp.ai/private'],
+  ])('rejects %s hidden in a source map', async (description, hiddenContent) => {
+    const tarball = await repack(async (root) => {
+      const mapPath = join(root, 'dist/protocol/version.js.map');
+      const sourceMap = JSON.parse(await readFile(mapPath, 'utf8'));
+      sourceMap.x_hidden = hiddenContent;
+      await writeFile(mapPath, JSON.stringify(sourceMap));
+    });
+    const result = spawnSync('node', ['scripts/verify-packed-artifact.mjs', tarball], {
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(description);
   });
 
   it('rejects registry redirects in package metadata', async () => {

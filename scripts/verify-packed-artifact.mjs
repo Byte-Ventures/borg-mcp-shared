@@ -21,7 +21,17 @@ const ALLOWED_ROOTS = new Set([
   'package.json',
   'src',
 ]);
-const FORBIDDEN_HOOKS = ['prepare', 'preinstall', 'install', 'postinstall', 'postpack'];
+const FORBIDDEN_HOOKS = [
+  'preinstall',
+  'install',
+  'postinstall',
+  'prepublish',
+  'preprepare',
+  'prepare',
+  'postprepare',
+  'dependencies',
+  'postpack',
+];
 const FORBIDDEN_CONTENT = [
   { pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, description: 'private key material' },
   { pattern: /\b(?:npm_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b/, description: 'credential-shaped token' },
@@ -101,12 +111,10 @@ export async function verifyPackedArtifact(tarballPath) {
       }
       const size = (await stat(file)).size;
       if (size > MAX_FILE_BYTES) throw new Error(`Packed file exceeds ${MAX_FILE_BYTES} bytes: ${path}`);
-      if (!path.endsWith('.map')) {
-        const content = await readFile(file, 'utf8');
-        for (const forbidden of FORBIDDEN_CONTENT) {
-          if (forbidden.pattern.test(content)) {
-            throw new Error(`Packed artifact contains ${forbidden.description}: ${path}`);
-          }
+      const content = await readFile(file, 'utf8');
+      for (const forbidden of FORBIDDEN_CONTENT) {
+        if (forbidden.pattern.test(content)) {
+          throw new Error(`Packed artifact contains ${forbidden.description}: ${path}`);
         }
       }
       unpackedBytes += size;
