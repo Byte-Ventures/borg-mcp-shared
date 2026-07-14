@@ -98,7 +98,7 @@ describe('Sprint 14: Template.cube_directive field', () => {
       'Input compatibility is only half the gate'
     );
     expect(coordinator?.detailed_description).toContain(
-      'Client-published behavior is not live until drones restart/adopt it'
+      'Published client behavior is not live until users or agents restart/adopt it'
     );
   });
 
@@ -123,10 +123,10 @@ describe('Sprint 14: Template.cube_directive field', () => {
     const t = getTemplate('software-dev');
     const coordinator = t!.roles.find((role) => role.name === 'Coordinator');
     expect(coordinator?.detailed_description).toContain(
-      'Refinement #16 — Disposition-thrash guard'
+      'Disposition-thrash guard'
     );
     expect(coordinator?.detailed_description).toContain(
-      'once SR / CR / PM / UX / QA posts `STARTING` on that concern'
+      'once SR / CR / PS / PD / RQ posts `STARTING` on that concern'
     );
     expect(coordinator?.detailed_description).toContain(
       'Key on the observable `STARTING` review signal'
@@ -143,10 +143,10 @@ describe('Sprint 14: Template.cube_directive field', () => {
     const t = getTemplate('software-dev');
     const builder = t!.roles.find((role) => role.name === 'Builder');
     expect(builder?.detailed_description).toContain('Worktree discipline');
-    expect(builder?.detailed_description).toContain('create + use your feature branch HERE off your `wt-` branch');
+    expect(builder?.detailed_description).toContain('create and use the feature branch in your assigned worktree');
     expect(builder?.detailed_description).toContain('Operate via your cwd / relative paths');
-    expect(builder?.detailed_description).toContain('NEVER operate on the shared primary checkout');
-    expect(builder?.detailed_description).toContain('work created in the primary won\'t reach your `wt-` branch without manual surgery (cherry-pick/merge)');
+    expect(builder?.detailed_description).toContain('NEVER operate on a shared primary checkout');
+    expect(builder?.detailed_description).toContain('work created there may not reach your assigned branch without manual surgery');
     expect(builder?.detailed_description).toContain('The Coordinator must not share an implementation checkout');
   });
 
@@ -160,7 +160,7 @@ describe('Sprint 14: Template.cube_directive field', () => {
       'Close resolved issue(s)'
     );
     expect(coordinator?.detailed_description).toContain(
-      '`Closes #N` in the PR body auto-closes on merge'
+      "use the repository host's merge-time issue-closing mechanism"
     );
   });
 
@@ -170,16 +170,53 @@ describe('Sprint 14: Template.cube_directive field', () => {
     for (const name of [
       'Coordinator',
       'Code Reviewer',
-      'QA Tester',
-      'UX Expert',
-      'UI Designer',
-      'Product Manager',
-      'Visionary',
+      'Release Quality',
+      'Product Design',
+      'Product Strategy',
       'Security Auditor',
     ]) {
       expect(byName.get(name)?.can_broadcast, name).toBe(true);
     }
     expect(byName.get('Builder')?.can_broadcast).not.toBe(true);
+  });
+
+  it('ships only the consolidated software-development roles', () => {
+    const roleNames = getTemplate('software-dev')!.roles.map((role) => role.name);
+    expect(roleNames).toEqual([
+      'Coordinator',
+      'Builder',
+      'Code Reviewer',
+      'Release Quality',
+      'Product Design',
+      'Product Strategy',
+      'Security Auditor',
+    ]);
+    for (const retired of [
+      'QA Tester',
+      'Documentation Expert',
+      'UX Expert',
+      'UI Designer',
+      'Product Manager',
+      'Visionary',
+    ]) {
+      expect(roleNames).not.toContain(retired);
+    }
+  });
+
+  it('keeps the public template free of private-project implementation lore', () => {
+    const text = JSON.stringify(getTemplate('software-dev'));
+    for (const forbidden of [
+      /gh#\d+/i,
+      /Sprint \d+/i,
+      /Refinement #\d+/i,
+      /CLAUDE\.md/i,
+      /origin\/main/i,
+      /Cloudflare/i,
+      /Neon/i,
+      /Stripe/i,
+    ]) {
+      expect(text).not.toMatch(forbidden);
+    }
   });
 
   it('starter marks Coordinator and Reviewer broadcast-capable but leaves Worker direct-first', () => {
@@ -206,9 +243,8 @@ describe('Sprint 14: Template.cube_directive field', () => {
       'queen',
       'code-reviewer',
       'security-auditor',
-      'qa-tester',
-      'ux-expert',
-      'documentation-expert', // gh#960: Documentation Expert gates user-facing merges
+      'release-quality',
+      'product-design',
     ]);
     // gh#16: only DECISION / HALT stay genuinely cube-wide.
     expect(byClass.get('cube-wide')).toMatchObject({ routing: 'broadcast' });

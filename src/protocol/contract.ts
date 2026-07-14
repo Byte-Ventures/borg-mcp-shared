@@ -8,6 +8,19 @@ export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange' as const;
 
+export const PROTOCOL_HTTP_CONTRACT = {
+  health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
+  protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: true, success_status: 200 },
+  enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
+  auth_missing_status: 401,
+  auth_invalid_status: 401,
+  cursor_expired_status: 410,
+  content_too_large_status: 413,
+  unsupported_protocol_status: 426,
+  unsupported_capability_status: 501,
+  redirect_policy: 'error',
+} as const;
+
 export const PROTOCOL_LIMIT_CEILINGS = {
   max_request_bytes: 10 * 1024 * 1024,
   max_log_message_bytes: 1024 * 1024,
@@ -30,7 +43,8 @@ export const KNOWN_CAPABILITIES = [
   'decisions',
 ] as const;
 
-export type Capability = (typeof KNOWN_CAPABILITIES)[number];
+export type KnownCapability = (typeof KNOWN_CAPABILITIES)[number];
+export type Capability = KnownCapability | (string & {});
 
 export const REQUIRED_SECURITY_CAPABILITIES = [
   'auth.bearer',
@@ -180,6 +194,22 @@ function opaqueToken(value: unknown, path: readonly (string | number)[]): string
   return token;
 }
 
+function decodeRequestId(value: unknown, path: readonly (string | number)[]): string {
+  const decoded = boundedString(value, 8, 128, path);
+  if (!/^[A-Za-z0-9._-]+$/.test(decoded)) {
+    fail('Request id contains unsupported characters.', path);
+  }
+  return decoded;
+}
+
+function capabilityName(value: unknown, path: readonly (string | number)[]): string {
+  const decoded = boundedString(value, 1, 64, path);
+  if (!/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(decoded)) {
+    fail('Capability name contains unsupported characters.', path);
+  }
+  return decoded;
+}
+
 export function decodeProtocolInfo(value: unknown): ProtocolInfo {
   const input = record(value);
   exactKeys(input, ['protocol_version', 'package', 'capabilities', 'limits'], [
@@ -208,11 +238,7 @@ export function decodeProtocolInfo(value: unknown): ProtocolInfo {
 
   if (!Array.isArray(input.capabilities)) fail('Expected an array.', ['capabilities']);
   const capabilities = input.capabilities.map((capability, index) => {
-    const decoded = boundedString(capability, 1, 64, ['capabilities', index]);
-    if (!(KNOWN_CAPABILITIES as readonly string[]).includes(decoded)) {
-      fail(`Unknown capability "${decoded}".`, ['capabilities', index]);
-    }
-    return decoded as Capability;
+    return capabilityName(capability, ['capabilities', index]) as Capability;
   });
   if (new Set(capabilities).size !== capabilities.length) {
     fail('Capabilities must be unique.', ['capabilities']);
@@ -268,10 +294,11 @@ export function negotiateProtocol(
 }
 
 export function createProtocolEnvelope<T>(requestId: string, payload: T): ProtocolEnvelope<T> {
-  if (!/^[A-Za-z0-9._-]{8,128}$/.test(requestId)) {
-    fail('Request id must be 8-128 URL-safe characters.', ['request_id']);
-  }
-  return { protocol_version: PROTOCOL_VERSION, request_id: requestId, payload };
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    request_id: decodeRequestId(requestId, ['request_id']),
+    payload,
+  };
 }
 
 export function decodeProtocolEnvelope<T>(
@@ -291,15 +318,16 @@ export function decodeProtocolEnvelope<T>(
       ['protocol_version'],
     );
   }
-  const requestId = boundedString(input.request_id, 8, 128, ['request_id']);
-  if (!/^[A-Za-z0-9._-]+$/.test(requestId)) {
-    fail('Request id contains unsupported characters.', ['request_id']);
-  }
+  const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
   return {
     protocol_version: PROTOCOL_VERSION,
-    request_id: requestId,
+    request_id: decodedRequestId,
     payload: decodePayload(input.payload),
   };
+}
+
+export function decodeProtocolInfoEnvelope(value: unknown): ProtocolEnvelope<ProtocolInfo> {
+  return decodeProtocolEnvelope(value, decodeProtocolInfo);
 }
 
 export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelope {
@@ -344,26 +372,26 @@ export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelo
     decodedError.retry_after = boundedPositiveInteger(error.retry_after, 86_400, ['error', 'retry_after']);
   }
   if (error.required_capability !== undefined) {
-    decodedError.required_capability = boundedString(
+    decodedError.required_capability = capabilityName(
       error.required_capability,
-      1,
-      64,
       ['error', 'required_capability'],
     );
   }
   if (error.supported_versions !== undefined) {
-    if (!Array.isArray(error.supported_versions) ||
-        !error.supported_versions.every((version) => version === PROTOCOL_VERSION)) {
+    if (!Array.isArray(error.supported_versions) || error.supported_versions.length === 0 ||
+        error.supported_versions.length > 16 ||
+        !error.supported_versions.every((version) => version === PROTOCOL_VERSION) ||
+        new Set(error.supported_versions).size !== error.supported_versions.length) {
       fail('Invalid supported protocol versions.', ['error', 'supported_versions']);
     }
     decodedError.supported_versions = [...error.supported_versions] as ProtocolVersion[];
   }
-  const requestId = input.request_id === undefined
+  const decodedRequestId = input.request_id === undefined
     ? undefined
-    : boundedString(input.request_id, 8, 128, ['request_id']);
-  return requestId === undefined
+    : decodeRequestId(input.request_id, ['request_id']);
+  return decodedRequestId === undefined
     ? { protocol_version: PROTOCOL_VERSION, error: decodedError }
-    : { protocol_version: PROTOCOL_VERSION, request_id: requestId, error: decodedError };
+    : { protocol_version: PROTOCOL_VERSION, request_id: decodedRequestId, error: decodedError };
 }
 
 export function decodeEnrollmentExchangeRequest(value: unknown): EnrollmentExchangeRequest {
@@ -377,6 +405,12 @@ export function decodeEnrollmentExchangeRequest(value: unknown): EnrollmentExcha
     fail('Client name contains unsupported characters.', ['client_name']);
   }
   return clientName === undefined ? { invitation } : { invitation, client_name: clientName };
+}
+
+export function decodeEnrollmentExchangeRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<EnrollmentExchangeRequest> {
+  return decodeProtocolEnvelope(value, decodeEnrollmentExchangeRequest);
 }
 
 export function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExchangeResponse {
@@ -396,6 +430,12 @@ export function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExch
   return expiresAt === undefined
     ? { client_id: clientId, credential }
     : { client_id: clientId, credential, credential_expires_at: expiresAt };
+}
+
+export function decodeEnrollmentExchangeResponseEnvelope(
+  value: unknown,
+): ProtocolEnvelope<EnrollmentExchangeResponse> {
+  return decodeProtocolEnvelope(value, decodeEnrollmentExchangeResponse);
 }
 
 export function decodeAppendLogRequest(value: unknown): import('./types.js').AppendLogRequest {
@@ -518,6 +558,9 @@ export function decodeOpaqueIdentifier(
 
 export function redactProtocolDiagnostic(value: string): string {
   return value
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+    )
     .replace(/\bBearer\s+[A-Za-z0-9_-]{20,}/gi, 'Bearer <REDACTED>')
     .replace(/\b[A-Za-z0-9_-]{43,}\b/g, '<REDACTED>');
 }

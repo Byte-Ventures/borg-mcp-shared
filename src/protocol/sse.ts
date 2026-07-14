@@ -162,6 +162,13 @@ export function encodeSseEvent(event: Exclude<StreamEvent, { type: 'unknown' }>)
       broadcast_hwm: event.broadcast_hwm === null ? null : decodeLogCursor(event.broadcast_hwm),
     };
   } else {
+    if (typeof event.replay_complete !== 'boolean') {
+      throw new ProtocolContractError('Bookmark replay_complete must be boolean.');
+    }
+    if (event.cursor_status !== undefined &&
+        !['valid', 'expired', 'unknown'].includes(event.cursor_status)) {
+      throw new ProtocolContractError('Invalid bookmark cursor_status.');
+    }
     data = {
       as_of: decodeCanonicalTimestamp(event.as_of, ['as_of']),
       replay_complete: event.replay_complete,
@@ -173,6 +180,11 @@ export function encodeSseEvent(event: Exclude<StreamEvent, { type: 'unknown' }>)
   return lines.join('\n');
 }
 
+/**
+ * Decode a bounded in-memory SSE batch. Network adapters MUST enforce the same
+ * limits while reading from the socket; this decoder is not a substitute for
+ * aborting an oversized response before it is fully buffered.
+ */
 export function decodeSseFrames(input: string): StreamEvent[] {
   if (utf8ByteLength(input) > SSE_LIMITS.total_bytes) {
     throw new ProtocolContractError('SSE input exceeds the total byte limit.');

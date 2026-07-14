@@ -38,16 +38,12 @@ export interface Role {
   is_human_seat: boolean;
   can_broadcast?: boolean;
   receives_all_direct?: boolean;
-  default_model?: string | null;
   role_class?: RoleClass;
   created_at: string;
   detailed_description_hash?: string;
 }
 
-export interface PublicRole extends Omit<Role, 'detailed_description' | 'detailed_description_hash'> {
-  /** Compatibility alias emitted during the model-field transition. */
-  default_backend?: string | null;
-}
+export type PublicRole = Omit<Role, 'detailed_description' | 'detailed_description_hash'>;
 
 export interface Drone {
   id: string;
@@ -66,7 +62,6 @@ export interface Drone {
   wake_path_client_monitor_armed?: boolean | null;
   wake_path_alert_class?: WakePathAlertClass | null;
   agent_kind?: AgentKind | null;
-  model?: string | null;
   reported_model?: string | null;
   working_repo_name?: string | null;
   working_repo_origin?: string | null;
@@ -81,8 +76,6 @@ export interface RosterDrone extends Drone {
   wake_path_deaf_streak?: number;
   wake_path_last_challenge_at?: string | null;
   wake_path_last_alert_at?: string | null;
-  /** Compatibility alias for the configured model descriptor. */
-  backend?: string | null;
 }
 
 export interface RegenIdentityDrone extends Drone {
@@ -112,9 +105,6 @@ export interface AssimilateRequest {
   prior_drone_id?: string;
   hostname?: string | null;
   agent_kind?: AgentKind | null;
-  model?: string | null;
-  /** Legacy compatibility alias for model. */
-  backend?: string | null;
 }
 
 export interface AssimilateResponse {
@@ -188,7 +178,7 @@ export interface Decision {
   decision: string;
   rationale: string | null;
   ratified_by?: string | null;
-  status?: 'active' | 'superseded';
+  status?: 'active' | 'superseded' | 'removed';
   supersedes?: string | null;
   created_at: string;
 }

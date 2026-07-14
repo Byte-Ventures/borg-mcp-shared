@@ -1,19 +1,22 @@
 # Protocol Compatibility
 
-`borgmcp-shared` versions the contracts shared by Borg MCP clients and server
+`@borgmcp/shared` versions the contracts shared by Borg MCP clients and server
 implementations. Package versions and protocol generations are related but are
 not interchangeable: a package release can add helpers without changing the
 wire protocol.
 
 | Package range | Protocol generation | Status |
 | --- | --- | --- |
-| `>=0.1.0 <1.0.0` | `1` | Initial hosted and self-hosted server contract |
+| `>=0.2.0 <0.3.0` | `1` | Versioned envelope, runtime codecs, and adapter conformance |
 
 ## Change Policy
 
-Additive TypeScript helpers and conformance vectors require a package minor
-version while the package is pre-1.0. A correction that does not change public
-behavior can use a patch version.
+Consumers must pin `^0.2.0`, which npm interprets as `>=0.2.0 <0.3.0`. During
+the pre-1.0 series, a breaking envelope or wire-contract change requires a
+minor release (`0.3.0`); additive compatible contracts and corrections use a
+patch release (`0.2.x`). Consumers widen the minor range only after deliberate
+compatibility review. A broad `<1.0.0` range is unsafe because pre-1.0 minor
+versions may break the wire contract.
 
 A wire-shape change must include all of the following:
 
@@ -28,3 +31,8 @@ Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
 successful build alone; they should check the declared protocol generation and
 run the shared conformance suite.
+
+Model/provider selection is intentionally absent from the `0.2.x` coordination
+contract. Agent CLIs own model configuration; Borg servers may expose the
+separate advisory `reported_model` field for session observability, but clients
+must not use it for routing, launch configuration, or authorization.

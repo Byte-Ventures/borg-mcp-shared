@@ -14,6 +14,7 @@ export type AdapterConformanceObservation = Record<string, unknown>;
 export interface AdapterConformanceFixture {
   id: string;
   area: AdapterConformanceArea;
+  action: string;
   description: string;
   expected: AdapterConformanceObservation;
 }
@@ -27,120 +28,140 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   {
     id: 'http.unauthenticated-liveness',
     area: 'http',
+    action: 'GET /healthz without authentication',
     description: 'GET /healthz is bodyless and non-identifying without authentication.',
     expected: { status: 204, body: '' },
   },
   {
     id: 'http.protocol-requires-authentication',
     area: 'http',
+    action: 'GET /api/protocol without authentication',
     description: 'GET /api/protocol rejects missing authentication without metadata.',
     expected: { status: 401, error_code: 'AUTH_MISSING', identifying_data: false },
   },
   {
     id: 'http.enrollment-body-only',
     area: 'http',
+    action: 'POST /api/enrollment/exchange with invitation in the envelope body',
     description: 'Enrollment exchanges an invitation in a bounded TLS body, never a URL.',
     expected: { status: 201, invitation_in_url: false, credential_exposed_once: true },
   },
   {
     id: 'errors.non-enumerating-auth-failure',
     area: 'errors',
+    action: 'request an unknown resource with invalid authentication',
     description: 'Invalid auth and unknown resources do not disclose tenant existence.',
     expected: { status: 401, error_code: 'AUTH_INVALID', resource_disclosed: false },
   },
   {
     id: 'security.expired-invitation',
     area: 'security',
+    action: 'exchange an expired enrollment invitation',
     description: 'Expired invitations fail without revealing whether a client exists.',
     expected: { accepted: false, error_code: 'AUTH_INVALID', resource_disclosed: false },
   },
   {
     id: 'security.reused-invitation',
     area: 'security',
+    action: 'exchange the same single-use invitation twice',
     description: 'A single-use invitation cannot be exchanged twice.',
     expected: { first_exchange: true, second_exchange: false, error_code: 'AUTH_INVALID' },
   },
   {
     id: 'security.revoked-credential-stream',
     area: 'security',
+    action: 'revoke a credential while its SSE stream is active',
     description: 'Revocation rejects requests and terminates the active SSE stream.',
     expected: { request_rejected: true, stream_terminated: true, error_code: 'SESSION_REVOKED' },
   },
   {
     id: 'security.cross-cube-isolation',
     area: 'security',
+    action: 'read a foreign cube with an authenticated principal',
     description: 'Cross-cube access is denied without confirming the foreign resource.',
     expected: { status: 404, error_code: 'NOT_FOUND', resource_disclosed: false },
   },
   {
     id: 'security.oversize-request',
     area: 'security',
+    action: 'send a request body above the advertised byte limit',
     description: 'Oversize bodies are rejected before parsing or persistence.',
     expected: { status: 413, error_code: 'CONTENT_TOO_LARGE' },
   },
   {
     id: 'security.redirect-strips-authorization',
     area: 'security',
+    action: 'receive a redirect while using bearer authentication',
     description: 'Authorization is never forwarded across redirects.',
     expected: { followed_redirect: false, authorization_forwarded: false },
   },
   {
     id: 'security.secret-redaction',
     area: 'security',
+    action: 'trigger errors and diagnostics with known synthetic credentials',
     description: 'Credentials never appear in errors, events, cursors, or diagnostics.',
     expected: { secret_occurrences: 0 },
   },
   {
     id: 'sse.replay-and-live-order',
     area: 'sse',
+    action: 'reconnect from a cursor while appending during replay transition',
     description: 'Replay and live delivery preserve tuple order and deliver transition writes once.',
     expected: { ordered: true, duplicates: 0, transition_losses: 0, replay_complete: true },
   },
   {
     id: 'sse.control-character-injection',
     area: 'sse',
+    action: 'encode cursor and entry ids containing CR, LF, and NUL',
     description: 'CR, LF, and NUL cursor or log ids are rejected before SSE framing.',
     expected: { cr_rejected: true, lf_rejected: true, nul_rejected: true },
   },
   {
     id: 'sse.payload-bounds',
     area: 'sse',
+    action: 'stream over-limit total, frame, data, count, and unknown payloads',
     description: 'Total input, frame, data, count, and unknown-event limits are enforced.',
     expected: { total_bounded: true, frame_bounded: true, data_bounded: true, count_bounded: true, unknown_bounded: true },
   },
   {
     id: 'sse.strict-event-codecs',
     area: 'sse',
+    action: 'decode malformed, extra-field, and oversized log events',
     description: 'Malformed, extra-field, and oversized log-entry payloads are rejected.',
     expected: { malformed_rejected: true, extra_fields_rejected: true, oversized_entry_rejected: true },
   },
   {
     id: 'cursor.expired-is-explicit',
     area: 'cursor',
+    action: 'read and replay from an expired cursor',
     description: 'Expired cursors fail explicitly instead of silently returning a recent window.',
     expected: { status: 410, error_code: 'CURSOR_EXPIRED' },
   },
   {
     id: 'acks.idempotent-durable-noncursor',
     area: 'acks',
+    action: 'ack the same entry twice and reconnect from the prior cursor',
     description: 'Repeated acks remain one durable state and never advance the SSE cursor.',
     expected: { durable_count: 1, cursor_advanced: false },
   },
   {
     id: 'claims.advisory-durable-noncursor',
     area: 'claims',
+    action: 'claim an entry, lose the live event, then read durable claim state',
     description: 'Claims are advisory, recoverable through reads, and never cursor-bearing.',
     expected: { approval_granted: false, recoverable: true, cursor_advanced: false },
   },
   {
     id: 'decisions.topic-supersession',
     area: 'decisions',
+    action: 'record two decisions under one topic and list active decisions',
     description: 'Recording a topic supersedes the prior value and leaves one active decision.',
     expected: { active_count: 1, prior_status: 'superseded', current_status: 'active' },
   },
   {
     id: 'capabilities.unsupported-fails-closed',
     area: 'capabilities',
+    action: 'require an unadvertised capability before starting an operation',
     description: 'A missing required capability fails before an operation or cloud fallback.',
     expected: { status: 501, error_code: 'UNSUPPORTED_CAPABILITY', operation_started: false, cloud_fallback: false },
   },

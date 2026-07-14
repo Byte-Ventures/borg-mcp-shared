@@ -1,24 +1,8 @@
-// gh#496-A(b) + gh#513 — SINGLE canonical role-section parser, shared by BOTH
-// the client and the worker (the prior two-copy drift is eliminated). The
-// client render compression (`regen-format.ts`) splits role text with this
-// parser to decide which `… rationale:` sections to stub; the worker's
-// `getRoleRationale` (cubes.ts) resolves those stub headings and `sync-plan.ts`
-// diffs role sections — all import THIS module, so heading derivation
-// (sans-colon, isLabelLine rules) is identical by construction (no parity
-// test needed; agreement is structural).
-//
-// The worker imports this via `../client/src/role-section` (mirrors the
-// existing `workers/mcp-server.ts → ../client/src/templates` precedent). KEEP
-// THIS MODULE SELF-CONTAINED (no runtime imports) so the worker bundle
-// resolves it cleanly; the client tsconfig `rootDir: ./src` also requires the
-// shared canonical to live under `client/src/`.
-
 /**
- * Role-text section parsing + granular section patching (gh#473 PR1).
+ * Role-text section parsing and granular section patching.
  *
- * Platform-dependency-free, same shape as `message-taxonomy.ts`: pure
- * string logic so the worker DB layer AND unit tests can both import it
- * without dragging in Cloudflare / Neon types.
+ * This module remains platform-dependency-free so clients, servers, and tests
+ * all use one canonical parser without importing runtime or storage adapters.
  *
  * ## Why not markdown `##` headings
  *

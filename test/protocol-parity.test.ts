@@ -19,7 +19,6 @@ const role = {
   is_human_seat: false,
   can_broadcast: false,
   receives_all_direct: false,
-  default_model: null,
   role_class: 'worker',
   created_at: '2026-01-01T00:00:00.000Z',
   detailed_description_hash: '0123456789abcdef',
@@ -42,7 +41,6 @@ const drone = {
   wake_path_client_monitor_armed: true,
   wake_path_alert_class: 'independent',
   agent_kind: 'opencode',
-  model: null,
   reported_model: null,
   working_repo_name: 'example',
   working_repo_origin: 'https://example.invalid/repository.git',
@@ -51,20 +49,18 @@ const drone = {
 
 const { detailed_description: _description, detailed_description_hash: _hash, ...publicRoleBase } =
   role;
-const publicRole = { ...publicRoleBase, default_backend: null };
+const publicRole = { ...publicRoleBase };
 
 describe('current public response contracts', () => {
-  it('represents current and legacy assimilation model fields', () => {
+  it('represents implementation-neutral assimilation selectors', () => {
     const request = {
       cube_name: 'example',
       hostname: 'host.example',
       agent_kind: 'opencode',
-      model: 'provider:model',
-      backend: null,
     } satisfies AssimilateRequest;
 
-    expect(request.model).toBe('provider:model');
-    expect(request.backend).toBeNull();
+    expect(request.cube_name).toBe('example');
+    expect(request.agent_kind).toBe('opencode');
   });
 
   it('represents roster role, repository, model, and wake-path fields', () => {
@@ -77,7 +73,6 @@ describe('current public response contracts', () => {
           wake_path_deaf_streak: 0,
           wake_path_last_challenge_at: null,
           wake_path_last_alert_at: null,
-          backend: null,
         },
       ],
       roles: [publicRole],

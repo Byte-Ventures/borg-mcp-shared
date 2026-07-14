@@ -19,9 +19,9 @@ export interface CompatibilityEntry {
  */
 export const COMPATIBILITY_MATRIX: readonly CompatibilityEntry[] = [
   {
-    packageRange: '>=0.1.0 <1.0.0',
+    packageRange: '>=0.2.0 <0.3.0',
     protocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
-    notes: 'Initial shared contract for hosted and self-hosted Borg MCP servers.',
+    notes: 'Versioned envelope, codecs, and adapter conformance for Borg MCP servers.',
   },
 ];
 

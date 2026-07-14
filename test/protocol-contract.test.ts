@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ENROLLMENT_EXCHANGE_PATH,
   HEALTH_PATH,
+  COMPATIBILITY_MATRIX,
   PROTOCOL_INFO_PATH,
+  PROTOCOL_HTTP_CONTRACT,
   REQUIRED_SECURITY_CAPABILITIES,
   SHARED_PACKAGE_NAME,
   SHARED_PACKAGE_VERSION,
@@ -12,10 +14,13 @@ import {
   decodeAckLogRequest,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequest,
+  decodeEnrollmentExchangeRequestEnvelope,
   decodeEnrollmentExchangeResponse,
+  decodeEnrollmentExchangeResponseEnvelope,
   decodeProtocolEnvelope,
   decodeProtocolErrorEnvelope,
   decodeProtocolInfo,
+  decodeProtocolInfoEnvelope,
   decodeRecordDecisionRequest,
   decodeRemoveDecisionRequest,
   negotiateProtocol,
@@ -62,12 +67,19 @@ describe('package and handshake contract', () => {
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
     });
+    expect(COMPATIBILITY_MATRIX[0]?.packageRange).toBe('>=0.2.0 <0.3.0');
   });
 
   it('uses one bodyless health path and authenticated protocol/enrollment paths', () => {
     expect(HEALTH_PATH).toBe('/healthz');
     expect(PROTOCOL_INFO_PATH).toBe('/api/protocol');
     expect(ENROLLMENT_EXCHANGE_PATH).toBe('/api/enrollment/exchange');
+    expect(PROTOCOL_HTTP_CONTRACT).toMatchObject({
+      health: { success_status: 204, bodyless: true, authenticated: false },
+      protocol: { success_status: 200, authenticated: true },
+      enrollment: { success_status: 201, authenticated: 'invitation' },
+      redirect_policy: 'error',
+    });
   });
 
   it('decodes an exact protocol manifest and rejects unknown fields', () => {
@@ -104,6 +116,14 @@ describe('package and handshake contract', () => {
     expect(negotiateProtocol(protocolInfo, ['claims'])).toEqual(protocolInfo);
   });
 
+  it('preserves safe additive capability names for forward compatibility', () => {
+    const withFutureCapability = {
+      ...protocolInfo,
+      capabilities: [...protocolInfo.capabilities, 'future.optional'],
+    };
+    expect(decodeProtocolInfo(withFutureCapability).capabilities).toContain('future.optional');
+  });
+
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
     expect(createProtocolEnvelope('req-12345678', { ok: true })).toEqual({
       protocol_version: '1',
@@ -115,6 +135,7 @@ describe('package and handshake contract', () => {
   it('decodes the same versioned envelope at every JSON boundary', () => {
     const envelope = createProtocolEnvelope('req-12345678', protocolInfo);
     expect(decodeProtocolEnvelope(envelope, decodeProtocolInfo)).toEqual(envelope);
+    expect(decodeProtocolInfoEnvelope(envelope)).toEqual(envelope);
     expect(() =>
       decodeProtocolEnvelope({ ...envelope, protocol_version: '2' }, decodeProtocolInfo),
     ).toThrowError(expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }));
@@ -153,6 +174,40 @@ describe('package and handshake contract', () => {
       }).error.message,
     ).toBe('Credential <REDACTED> failed.');
   });
+
+  it('normalizes terminal controls and validates error metadata', () => {
+    const normalized = redactProtocolDiagnostic('line1\r\nline2\0\u001b[31mred');
+    expect(normalized).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(normalized).toContain('\\u000d\\u000a');
+
+    expect(() =>
+      decodeProtocolErrorEnvelope({
+        protocol_version: '1',
+        request_id: 'valid-id\r\nInjected',
+        error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
+      }),
+    ).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeProtocolErrorEnvelope({
+        protocol_version: '1',
+        error: {
+          code: 'UNSUPPORTED_CAPABILITY',
+          message: 'Unsupported.',
+          required_capability: 'claims\r\nInjected',
+        },
+      }),
+    ).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeProtocolErrorEnvelope({
+        protocol_version: '1',
+        error: {
+          code: 'UNSUPPORTED_PROTOCOL_VERSION',
+          message: 'Unsupported.',
+          supported_versions: Array(17).fill('1'),
+        },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
 });
 
 describe('enrollment codecs', () => {
@@ -166,6 +221,11 @@ describe('enrollment codecs', () => {
         client_name: 'operator-laptop',
       }),
     ).toEqual({ invitation, client_name: 'operator-laptop' });
+    expect(
+      decodeEnrollmentExchangeRequestEnvelope(
+        createProtocolEnvelope('req-enroll-1', { invitation }),
+      ).payload,
+    ).toEqual({ invitation });
   });
 
   it('rejects weak, oversized, and ambiguous invitation bodies', () => {
@@ -195,6 +255,14 @@ describe('enrollment codecs', () => {
       credential,
       credential_expires_at: null,
     });
+    expect(
+      decodeEnrollmentExchangeResponseEnvelope(
+        createProtocolEnvelope('req-enroll-1', {
+          client_id: 'client-12345678',
+          credential,
+        }),
+      ).payload,
+    ).toEqual({ client_id: 'client-12345678', credential });
 
     expect(() =>
       decodeEnrollmentExchangeResponse({
