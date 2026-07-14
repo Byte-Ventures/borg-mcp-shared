@@ -1,5 +1,5 @@
 {
-  "name": "@borgmcp/shared",
+  "name": "borgmcp-shared",
   "version": "0.2.0",
   "description": "Shared protocol, domain, templates, and conformance contracts for Borg MCP implementations.",
   "type": "module",
@@ -73,7 +73,7 @@
     "url": "https://github.com/Byte-Ventures/borg-mcp-shared/issues"
   },
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

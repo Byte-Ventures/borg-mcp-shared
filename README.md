@@ -1,6 +1,6 @@
-# @borgmcp/shared
+# borgmcp-shared
 
-`@borgmcp/shared` is the implementation-neutral contract package for Borg MCP.
+`borgmcp-shared` is the implementation-neutral contract package for Borg MCP.
 It contains protocol types, domain helpers, built-in cube templates, and
 portable conformance vectors used by Borg MCP clients and server implementations.
 Its pure ESM helpers and generated TypeScript declarations run consistently
@@ -9,7 +9,7 @@ across host environments with zero runtime dependencies.
 ## Installation
 
 ```sh
-npm install @borgmcp/shared
+npm install borgmcp-shared
 ```
 
 The package is ESM-only and supports Node.js 20 or newer.
@@ -24,32 +24,32 @@ import {
   TEMPLATES,
   compareBroadcastHwm,
   parseRoleSections,
-} from '@borgmcp/shared';
+} from 'borgmcp-shared';
 ```
 
 Focused subpath exports let consumers keep their dependency boundary explicit:
 
 ```ts
-import { TEMPLATES } from '@borgmcp/shared/templates';
-import { patchRoleSectionText } from '@borgmcp/shared/role-section';
-import { compareBroadcastHwm } from '@borgmcp/shared/log-stream-hwm';
-import { formatDroneAddressToken } from '@borgmcp/shared/drone-address';
-import type { AppendLogRequest } from '@borgmcp/shared/protocol';
-import { ADAPTER_CONFORMANCE_FIXTURES } from '@borgmcp/shared/conformance';
+import { TEMPLATES } from 'borgmcp-shared/templates';
+import { patchRoleSectionText } from 'borgmcp-shared/role-section';
+import { compareBroadcastHwm } from 'borgmcp-shared/log-stream-hwm';
+import { formatDroneAddressToken } from 'borgmcp-shared/drone-address';
+import type { AppendLogRequest } from 'borgmcp-shared/protocol';
+import { ADAPTER_CONFORMANCE_FIXTURES } from 'borgmcp-shared/conformance';
 ```
 
 The supported subpaths are:
 
-- `@borgmcp/shared/protocol`: wire entities, requests, responses, errors, and
+- `borgmcp-shared/protocol`: wire entities, requests, responses, errors, and
   protocol compatibility metadata.
-- `@borgmcp/shared/domain`: pure role-section, address, and high-water-mark
+- `borgmcp-shared/domain`: pure role-section, address, and high-water-mark
   helpers plus shared domain types.
-- `@borgmcp/shared/conformance`: test-runner-independent behavior vectors and
+- `borgmcp-shared/conformance`: test-runner-independent behavior vectors and
   the adapter conformance runner.
-- `@borgmcp/shared/templates`: built-in cube templates, template schemas, and helpers.
-- `@borgmcp/shared/role-section`: lossless role-text parsing and patching.
-- `@borgmcp/shared/log-stream-hwm`: broadcast cursor ordering.
-- `@borgmcp/shared/drone-address`: stable short drone-address rendering.
+- `borgmcp-shared/templates`: built-in cube templates, template schemas, and helpers.
+- `borgmcp-shared/role-section`: lossless role-text parsing and patching.
+- `borgmcp-shared/log-stream-hwm`: broadcast cursor ordering.
+- `borgmcp-shared/drone-address`: stable short drone-address rendering.
 
 Generated declaration files are included in every published package. Public
 functions and contracts include API documentation in their TypeScript sources.
@@ -80,7 +80,7 @@ validate the operation-specific payload without accepting ambiguous fields.
 ## Conformance
 
 Server and client implementations should run the vectors exported from
-`@borgmcp/shared/conformance` against their adapters. The vectors and runner are
+`borgmcp-shared/conformance` against their adapters. The vectors and runner are
 readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
@@ -109,20 +109,20 @@ minor version while compatible additions and corrections increment the patch.
 See [docs/compatibility.md](docs/compatibility.md) for the current matrix and
 the policy for introducing protocol changes.
 
-## Distribution Before Public Release
+## Distribution
 
 After the final source, security, conformance, and packed-artifact gates pass,
-`0.2.0` is published as a restricted package under the organization-controlled
-`@borgmcp` npm scope. Consumers then pin `^0.2.0` and commit registry lockfiles.
-No registry token belongs in this repository, package metadata, lockfiles, or a
-committed `.npmrc`; publishing and consumer reads use least-privilege external
-credentials.
+`borgmcp-shared@0.2.0` is published publicly from the npm account that owns the
+existing `borgmcp` client package. Consumers then pin `borgmcp-shared@^0.2.0`
+and commit registry lockfiles. No registry token belongs in this repository,
+package metadata, lockfiles, or a committed `.npmrc`; publishing uses protected
+external credentials and provenance.
 
-If restricted scoped publishing is unavailable, consumers may temporarily pin
-the exact audited release tag. That exception is intentionally exact rather
-than ranged and is replaced with the registry dependency before public release.
-Publishing publicly is not a fallback: it requires a separate artifact audit,
-namespace controls, provenance verification, and explicit release approval.
+Before that publication, consumers may temporarily pin the exact audited release
+tag. That exception is intentionally exact rather than ranged and is replaced
+with the registry dependency after publication. Public release requires the
+packed-artifact sensitivity audit, name ownership, account recovery and 2FA,
+provenance verification, and explicit release approval.
 
 ## Security Posture
 

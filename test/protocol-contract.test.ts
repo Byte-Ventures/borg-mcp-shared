@@ -33,7 +33,7 @@ import {
 const protocolInfo = {
   protocol_version: '1',
   package: {
-    name: '@borgmcp/shared',
+    name: 'borgmcp-shared',
     version: '0.2.0',
   },
   capabilities: [
@@ -64,12 +64,12 @@ describe('package and handshake contract', () => {
       await readFile(new URL('../package.json', import.meta.url), 'utf8'),
     ) as { name: string; version: string; publishConfig: { access: string } };
 
-    expect(SHARED_PACKAGE_NAME).toBe('@borgmcp/shared');
+    expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
     expect(SHARED_PACKAGE_VERSION).toBe('0.2.0');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
-      publishConfig: { access: 'restricted' },
+      publishConfig: { access: 'public' },
     });
     expect(COMPATIBILITY_MATRIX[0]?.packageRange).toBe('>=0.2.0 <0.3.0');
   });
@@ -306,13 +306,13 @@ describe('coordination request codecs', () => {
     expect(
       decodeProtocolInfo({
         ...protocolInfo,
-        package: { name: '@borgmcp/shared', version: '0.2.0+build.1' },
+        package: { name: 'borgmcp-shared', version: '0.2.0+build.1' },
       }).package.version,
     ).toBe('0.2.0+build.1');
     expect(() =>
       decodeProtocolInfo({
         ...protocolInfo,
-        package: { name: '@borgmcp/shared', version: '0.2.0-01' },
+        package: { name: 'borgmcp-shared', version: '0.2.0-01' },
       }),
     ).toThrow(ProtocolContractError);
   });
