@@ -26,7 +26,11 @@ import {
   type ReadLogClaim,
 } from '../src/index.js';
 
-type Fault = 'cross-cube-leak' | 'ignore-stream-cursor' | 'keep-stream-after-revoke';
+type Fault =
+  | 'cross-cube-leak'
+  | 'ignore-stream-cursor'
+  | 'drop-transition-write'
+  | 'keep-stream-after-revoke';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -82,6 +86,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private cubes = new Map<string, CubeState>();
   private invitations = new Map<string, { principalId: string; used: boolean }>();
   private streams = new Set<{ principalId: string; cubeId: string; queue: AsyncQueue }>();
+  private replayBarrier: {
+    reached: Promise<void>;
+    markReached: () => void;
+    released: Promise<void>;
+    release: () => void;
+  } | null = null;
   private sequence = 1;
 
   constructor(private readonly fault?: Fault) {}
@@ -93,6 +103,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cubes.clear();
       this.invitations.clear();
       this.streams.clear();
+      this.replayBarrier?.release();
+      this.replayBarrier = null;
       this.sequence = 1;
     },
     createPrincipal: async (name: string): Promise<ConformancePrincipal> => {
@@ -126,14 +138,20 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     expireCursor: async (cube: ConformanceCube, cursor: LogCursor): Promise<void> => {
       this.cube(cube.id).expired.add(this.cursorKey(cursor));
     },
+    armReplayTransition: () => {
+      if (this.replayBarrier) throw new Error('Replay transition already armed.');
+      let markReached!: () => void;
+      let release!: () => void;
+      const reached = new Promise<void>((resolve) => { markReached = resolve; });
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      this.replayBarrier = { reached, markReached, released, release };
+      return { reached, release };
+    },
   };
 
   readonly operations = {
     health: async (): Promise<ConformanceHttpResponse> => ({ status: 204, body: '' }),
-    protocol: async (
-      credential: string | null,
-      requiredCapabilities: readonly string[] = [],
-    ): Promise<ConformanceHttpResponse> => {
+    protocol: async (credential: string | null): Promise<ConformanceHttpResponse> => {
       const auth = this.authenticate(credential);
       if (auth.error) return auth.error;
       const supported = new Set([
@@ -146,9 +164,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         'claims',
         'decisions',
       ]);
-      if (requiredCapabilities.some((capability) => !supported.has(capability))) {
-        return this.error(501, ErrorCode.UNSUPPORTED_CAPABILITY);
-      }
       return {
         status: 200,
         body: createProtocolEnvelope('protocol', {
@@ -312,8 +327,23 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       const queue = new AsyncQueue();
       const replayCursor = this.fault === 'ignore-stream-cursor' ? null : cursor;
-      for (const entry of this.afterCursor(cube.entries, replayCursor)) {
+      const initialReplay = this.afterCursor(cube.entries, replayCursor);
+      for (const entry of initialReplay) {
         queue.push(encodeSseEvent({ type: 'log', cursor: this.cursor(entry), entry }));
+      }
+      const replayHighWater = initialReplay.length > 0
+        ? this.cursor(initialReplay.at(-1)!)
+        : replayCursor;
+      if (this.replayBarrier) {
+        const barrier = this.replayBarrier;
+        barrier.markReached();
+        await barrier.released;
+        this.replayBarrier = null;
+        if (this.fault !== 'drop-transition-write') {
+          for (const entry of this.afterCursor(cube.entries, replayHighWater)) {
+            queue.push(encodeSseEvent({ type: 'log', cursor: this.cursor(entry), entry }));
+          }
+        }
       }
       queue.push(encodeSseEvent({
         type: 'bookmark',
@@ -422,6 +452,7 @@ describe('executable adapter conformance', () => {
   it.each([
     ['cross-cube leak', 'cross-cube-leak', 'security.cross-cube-isolation'],
     ['ignored replay cursor', 'ignore-stream-cursor', 'sse.replay-live-transition'],
+    ['dropped replay-transition write', 'drop-transition-write', 'sse.replay-live-transition'],
     ['unterminated revoked stream', 'keep-stream-after-revoke', 'security.active-stream-revocation'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(

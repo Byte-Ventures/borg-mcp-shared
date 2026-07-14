@@ -1,5 +1,6 @@
 import {
   ErrorCode,
+  ProtocolContractError,
   compareLogCursor,
   createProtocolEnvelope,
   decodeAppendLogResultEnvelope,
@@ -29,6 +30,12 @@ export interface ConformanceCube {
   readonly id: string;
 }
 
+export interface ConformanceReplayBarrier {
+  /** Resolves after the replay snapshot is read but before live delivery is active. */
+  readonly reached: Promise<void>;
+  release(): void;
+}
+
 export interface ConformanceStreamResponse extends ConformanceHttpResponse {
   /** Present only for a successful streaming response. Chunks are raw SSE wire text. */
   stream: AsyncIterable<string> | null;
@@ -46,15 +53,13 @@ export interface ConformanceAdmin {
   issueSingleUseInvitation(principal: ConformancePrincipal): Promise<string>;
   revokePrincipal(principal: ConformancePrincipal): Promise<void>;
   expireCursor(cube: ConformanceCube, cursor: LogCursor): Promise<void>;
+  armReplayTransition(): ConformanceReplayBarrier;
 }
 
 /** Raw, authenticated adapter operations driven entirely by the shared runner. */
 export interface ConformanceOperations {
   health(): Promise<ConformanceHttpResponse>;
-  protocol(
-    credential: string | null,
-    requiredCapabilities?: readonly Capability[],
-  ): Promise<ConformanceHttpResponse>;
+  protocol(credential: string | null): Promise<ConformanceHttpResponse>;
   enroll(request: unknown): Promise<ConformanceHttpResponse>;
   append(
     credential: string,
@@ -169,12 +174,28 @@ async function within<T>(
   description: string,
   deadlineMs: number,
 ): Promise<T> {
-  return Promise.race([
-    promise,
-    delay(deadlineMs).then(() => {
-      throw new Error(`${description} did not settle within ${deadlineMs}ms.`);
-    }),
-  ]);
+  const timers = globalThis as unknown as {
+    setTimeout?: (callback: () => void, delay: number) => unknown;
+    clearTimeout?: (timer: unknown) => void;
+  };
+  if (!timers.setTimeout || !timers.clearTimeout) {
+    throw new Error('Conformance runner requires timer cancellation support.');
+  }
+  return new Promise<T>((resolve, reject) => {
+    const timer = timers.setTimeout!(() => {
+      reject(new Error(`${description} did not settle within ${deadlineMs}ms.`));
+    }, deadlineMs);
+    promise.then(
+      (value) => {
+        timers.clearTimeout!(timer);
+        resolve(value);
+      },
+      (error) => {
+        timers.clearTimeout!(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function provePending<T>(
@@ -400,7 +421,17 @@ export async function runAdapterConformance(
   let liveCursor: LogCursor | null = null;
   await record('sse.replay-live-transition', async () => {
     invariant(readCursor, 'Cursor fixture did not produce a cursor.');
-    const opened = await environment.operations.openStream(credentialA, cubeA, readCursor);
+    const barrier = environment.admin.armReplayTransition();
+    const openPromise = environment.operations.openStream(credentialA, cubeA, readCursor);
+    await within(barrier.reached, 'Replay transition boundary', streamDeadlineMs);
+    const appendDelta = environment.operations.append(
+      credentialA,
+      cubeA,
+      createProtocolEnvelope('append-a4', { message: 'delta' }),
+    );
+    expectStatus(await appendDelta, 201, 'Transition append');
+    barrier.release();
+    const opened = await within(openPromise, 'Cursor stream open', streamDeadlineMs);
     expectStatus(opened, 200, 'Cursor stream open');
     invariant(opened.stream, 'Successful stream response omitted its AsyncIterable.');
     const reader = new SseEventReader(opened.stream);
@@ -408,19 +439,11 @@ export async function runAdapterConformance(
       const replay = logEvent(await within(reader.next(), 'Replay event', streamDeadlineMs), 'Replay');
       invariant(replay.entry.message === 'gamma', 'Stream ignored its cursor or replayed the wrong entry.');
       invariant(compareLogCursor(readCursor, replay.cursor) < 0, 'Replay cursor did not advance.');
-
-      const transition = reader.next();
-      const appendDelta = environment.operations.append(
-        credentialA,
-        cubeA,
-        createProtocolEnvelope('append-a4', { message: 'delta' }),
-      );
-      const bookmark = await within(transition, 'Replay-complete bookmark', streamDeadlineMs);
+      const delta = logEvent(await within(reader.next(), 'Transition delta event', streamDeadlineMs), 'Replay transition');
+      invariant(delta.entry.message === 'delta', 'Entry appended at the replay/live boundary was lost.');
+      invariant(compareLogCursor(replay.cursor, delta.cursor) < 0, 'Transition cursor did not advance.');
+      const bookmark = await within(reader.next(), 'Replay-complete bookmark', streamDeadlineMs);
       invariant(bookmark.type === 'bookmark' && bookmark.replay_complete, 'Stream omitted its replay-complete bookmark.');
-      expectStatus(await appendDelta, 201, 'Transition append');
-
-      const delta = logEvent(await within(reader.next(), 'Live delta event', streamDeadlineMs), 'Live transition');
-      invariant(delta.entry.message === 'delta', 'Entry appended during replay transition was lost.');
       const noDuplicate = reader.next();
       await provePending(noDuplicate, 'Live stream after delta', pendingProbeMs);
       const epsilonResponse = await environment.operations.append(
@@ -449,7 +472,10 @@ export async function runAdapterConformance(
       createProtocolEnvelope('read-expired', { cursor: readCursor, limit: 10 }),
     );
     expectError(response, 410, ErrorCode.CURSOR_EXPIRED, 'Expired cursor read');
-    return { status: 410, code: ErrorCode.CURSOR_EXPIRED };
+    const stream = await environment.operations.openStream(credentialA, cubeA, readCursor);
+    expectError(stream, 410, ErrorCode.CURSOR_EXPIRED, 'Expired cursor stream');
+    invariant(stream.stream === null, 'Expired cursor stream exposed a body stream.');
+    return { read_status: 410, stream_status: 410, code: ErrorCode.CURSOR_EXPIRED };
   });
 
   await record('acks.idempotent', async () => {
@@ -512,12 +538,19 @@ export async function runAdapterConformance(
   });
 
   await record('capabilities.unsupported-fails-closed', async () => {
-    const response = await environment.operations.protocol(
-      credentialA,
-      ['future.required' as Capability],
-    );
-    expectError(response, 501, ErrorCode.UNSUPPORTED_CAPABILITY, 'Unsupported capability request');
-    return { status: 501, code: ErrorCode.UNSUPPORTED_CAPABILITY };
+    invariant(protocolBody, 'Protocol fixture did not produce an envelope.');
+    let code: ErrorCode | null = null;
+    try {
+      negotiateProtocol(
+        decodeProtocolInfoEnvelope(protocolBody).payload,
+        ['future.required' as Capability],
+      );
+    } catch (error) {
+      if (error instanceof ProtocolContractError) code = error.code;
+      else throw error;
+    }
+    invariant(code === ErrorCode.UNSUPPORTED_CAPABILITY, 'Unsupported capability did not fail closed client-side.');
+    return { code };
   });
 
   await record('security.active-stream-revocation', async () => {
