@@ -155,3 +155,5 @@ npm pack --dry-run
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change.
+Release operators must follow the protected [publishing runbook](docs/releasing.md);
+the runbook does not authorize a release.

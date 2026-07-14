@@ -42,6 +42,7 @@
   },
   "files": [
     "dist",
+    "src",
     "README.md",
     "LICENSE",
     "NOTICE",
@@ -54,6 +55,7 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
+    "verify:artifact": "node scripts/verify-packed-artifact.mjs",
     "prepack": "npm run check && npm test && npm run build"
   },
   "keywords": [
