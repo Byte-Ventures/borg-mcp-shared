@@ -459,7 +459,3 @@ describe('gh#468: resolveMessageTaxonomyForCreate', () => {
     expect(resolveMessageTaxonomyForCreate(null, templateWithTaxonomy)).toBeNull();
   });
 });
-
-// gh#473 PR2: resolveMessageTaxonomyForApply (formerly gh#468) was removed
-// as orphaned — non-clobbering taxonomy merge now lives server-side in
-// CubeStore.syncRolesNonClobber. No client production caller remained.

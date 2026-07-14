@@ -201,13 +201,9 @@ describe('patchRoleSectionText — insert', () => {
     ).toThrow(/does not exist/i);
   });
 
-  // gh#473 newline-gluing regression: real role text ends WITHOUT a
-  // trailing newline (it closes on woven ${...DISCIPLINE} constants), so
-  // a plain append/insert-after-last must NOT fuse the new heading onto
-  // the prior section's final line — that would make the heading a
-  // non-flush-left line and the inserted section would be LOST on
-  // re-parse.
-  describe('preceding text without a trailing newline (gh#473)', () => {
+  // Role text may end without a trailing newline. An appended heading must
+  // remain flush-left so it survives a subsequent parse.
+  describe('preceding text without a trailing newline', () => {
     it('append-at-end (no `after`) keeps the new heading on its own line', () => {
       const noNewline = 'Pre.\n\nWorkflow:\n- step'; // NB: no trailing '\n'
       const out = patchRoleSectionText(noNewline, {
