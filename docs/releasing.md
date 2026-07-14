@@ -82,6 +82,18 @@ The token is read from the operator's credential store and must not be written
 to the repository, an artifact, or workflow output. Any guard failure blocks the
 tag or environment approval.
 
+Every release and verification-only run must be a first attempt. The workflow
+logs `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`, rejects any attempt other than `1`
+before dependency installation, and includes the same values in the uploaded
+`RUN_EVIDENCE` file. Never use the Actions rerun controls to advance a failed
+immutable tag or proof run.
+
+Both jobs reject a repository-root `.npmrc` before their first npm command. The
+exact npm bootstrap uses isolated runner-temp prefix, user config, and cache
+paths, forces `https://registry.npmjs.org`, disables scripts, and verifies both
+the installed npm version and registry before adding its bin directory to
+`GITHUB_PATH`.
+
 ## First-Publish Bootstrap
 
 npm trusted publishing cannot be configured until the unscoped package exists.
@@ -145,6 +157,8 @@ first:
 - enforces the explicit public file allowlist, legal files, dependency and
   lifecycle policy, size limits, and resolvable source maps;
 - exercises npm's publish metadata in dry-run mode; and
+- installs the exact tarball with scripts disabled in a clean consumer, verifies
+  its production tree, and imports every reviewed public export; and
 - uploads the tarball, verifier report, and SHA-512 checksum for seven days.
 
 Security must download and audit that exact workflow artifact. After Security
@@ -186,6 +200,7 @@ Stop without approving the environment when any of these conditions occurs:
 - the repository is private, the tag is lightweight or unprotected, the tag
   does not exactly match `v<package version>`, or its commit is not on `main`;
 - the approved commit, tag target, tarball checksum, or audit artifact differs;
+- `GITHUB_RUN_ATTEMPT` is not `1`, or run/attempt evidence is missing;
 - tests, audit, build, tracked output, artifact policy, legal metadata, or dry
   run fails;
 - the npm name, expected owner, account 2FA, recovery methods, credential scope,

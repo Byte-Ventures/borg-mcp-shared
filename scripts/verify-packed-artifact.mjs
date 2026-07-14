@@ -10,6 +10,17 @@ const MAX_UNPACKED_BYTES = 1024 * 1024;
 const MAX_FILES = 128;
 const MAX_FILE_BYTES = 256 * 1024;
 const REQUIRED_FILES = ['LICENSE', 'NOTICE', 'README.md', 'SECURITY.md', 'package.json'];
+const EXPECTED_EXPORTS = {
+  '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+  './templates': { types: './dist/templates.d.ts', import: './dist/templates.js' },
+  './role-section': { types: './dist/role-section.d.ts', import: './dist/role-section.js' },
+  './log-stream-hwm': { types: './dist/log-stream-hwm.d.ts', import: './dist/log-stream-hwm.js' },
+  './drone-address': { types: './dist/drone-address.d.ts', import: './dist/drone-address.js' },
+  './protocol': { types: './dist/protocol/index.d.ts', import: './dist/protocol/index.js' },
+  './domain': { types: './dist/domain/index.d.ts', import: './dist/domain/index.js' },
+  './conformance': { types: './dist/conformance/index.d.ts', import: './dist/conformance/index.js' },
+  './package.json': './package.json',
+};
 const ALLOWED_ROOTS = new Set([
   'CONTRIBUTING.md',
   'LICENSE',
@@ -57,6 +68,10 @@ async function walk(root, directory = root) {
 function isInside(root, candidate) {
   const path = relative(root, candidate);
   return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
+}
+
+function isPortableAbsolute(path) {
+  return isAbsolute(path) || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\');
 }
 
 export async function verifyPackedArtifact(tarballPath) {
@@ -134,6 +149,17 @@ export async function verifyPackedArtifact(tarballPath) {
     if (manifest.repository?.url !== 'git+https://github.com/Byte-Ventures/borg-mcp-shared.git') {
       throw new Error('package.json repository must match the public provenance repository exactly.');
     }
+    if (manifest.main !== './dist/index.js' || manifest.types !== './dist/index.d.ts' ||
+        JSON.stringify(manifest.exports) !== JSON.stringify(EXPECTED_EXPORTS)) {
+      throw new Error('Package entrypoints do not match the reviewed public exports.');
+    }
+    for (const value of Object.values(EXPECTED_EXPORTS)) {
+      for (const target of typeof value === 'string' ? [value] : Object.values(value)) {
+        if (!relativeFiles.has(target.slice(2))) {
+          throw new Error(`Public export target is not shipped: ${target}`);
+        }
+      }
+    }
     if (!manifest.publishConfig ||
         !sameValues(Object.keys(manifest.publishConfig), ['access']) ||
         manifest.publishConfig.access !== 'public') {
@@ -164,10 +190,31 @@ export async function verifyPackedArtifact(tarballPath) {
       sourceMapCount += 1;
       const mapPath = join(root, ...path.split('/'));
       const sourceMap = JSON.parse(await readFile(mapPath, 'utf8'));
+      if (!sourceMap || Array.isArray(sourceMap) || sourceMap.version !== 3) {
+        throw new Error(`Source map must use the version 3 object format: ${path}`);
+      }
+      if (Object.hasOwn(sourceMap, 'sections')) {
+        throw new Error(`Indexed source maps are forbidden: ${path}`);
+      }
       if (sourceMap.sourcesContent !== undefined) {
         throw new Error(`Source map embeds sourcesContent: ${path}`);
       }
-      for (const source of sourceMap.sources ?? []) {
+      if (!Array.isArray(sourceMap.sources) || sourceMap.sources.some((source) => (
+        typeof source !== 'string' || source.length === 0
+      ))) {
+        throw new Error(`Source map sources must be non-empty strings: ${path}`);
+      }
+      if (sourceMap.sourceRoot !== undefined && (
+        typeof sourceMap.sourceRoot !== 'string' ||
+        isPortableAbsolute(sourceMap.sourceRoot) ||
+        sourceMap.sourceRoot.includes('\\')
+      )) {
+        throw new Error(`Source map sourceRoot must be relative: ${path}`);
+      }
+      for (const source of sourceMap.sources) {
+        if (isPortableAbsolute(source) || source.includes('\\')) {
+          throw new Error(`Source map source must be relative: ${path} -> ${source}`);
+        }
         const target = resolve(dirname(mapPath), sourceMap.sourceRoot ?? '', source);
         if (!isInside(root, target) || !relativeFiles.has(relative(root, target).split(sep).join('/'))) {
           throw new Error(`Source map target is not shipped: ${path} -> ${source}`);
