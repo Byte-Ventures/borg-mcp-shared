@@ -231,9 +231,16 @@ Before a separately authorized `v0.3.0` tag is created:
 2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, compatibility matrix,
    packed-artifact verifier, and version assertions must all identify `0.3.0`.
 3. The protected workflow must build one exact tarball and pass its full source,
-   test, audit, public-export, source-map, install/import, dry-run, integrity, and
-   provenance gates. Security must approve that exact workflow artifact.
-4. The tag and publication each require their own explicit authorization. A
+   test, audit, public-export, source-map, install/import, dry-run, lock-derived
+   CycloneDX SBOM, integrity, and provenance gates. Security must approve that
+   exact workflow artifact.
+4. The `0.3.0` workflow must generate a CycloneDX SBOM, canonicalize npm's
+   checkout-derived root display name to the already-verified manifest name,
+   and validate every component's official-registry source, purl, and lock
+   SHA-512 plus the exact installed dependency graph and zero package runtime
+   dependencies. The tarball, SBOM, and SBOM validation report must be
+   checksummed and uploaded together for Security audit.
+5. The tag and publication each require their own explicit authorization. A
    source-version approval, merge, or successful verification run grants neither.
 
 After registry publication and independent integrity/provenance verification,

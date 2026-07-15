@@ -62,6 +62,13 @@ describe('npm publish workflow', () => {
     expect(workflow).not.toMatch(/npm publish "release\//);
     expect(verificationJob).toContain('Upload tarball for security audit');
     expect(verificationJob).toContain('release/RUN_EVIDENCE');
+    expect(verificationJob).toContain('npm sbom --sbom-format cyclonedx');
+    expect(verificationJob).toContain('node scripts/normalize-release-sbom.mjs "${raw_sbom}" "${sbom}"');
+    expect(verificationJob).toContain('rm "${raw_sbom}"');
+    expect(verificationJob).toContain('npm run verify:sbom -- "${sbom}" > release/sbom-report.json');
+    expect(verificationJob).toContain('release/borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json');
+    expect(verificationJob).toContain('release/sbom-report.json');
+    expect(verificationJob).toContain('"borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json" sbom-report.json > SHA512SUMS');
     expect(verificationJob).toContain('Exercise exact tarball in a clean consumer');
     expect(verificationJob).toContain('"dependencies":{"borgmcp-shared":"%s"}');
     expect(verificationJob).toContain('npm install --prefix "${consumer}" --ignore-scripts --no-save "./release/${TARBALL}"');
