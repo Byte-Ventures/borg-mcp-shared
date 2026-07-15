@@ -60,10 +60,12 @@ The first-slice HTTP contract has three shared paths:
 
 - `GET /healthz` is the only unauthenticated liveness probe. Success is `204`
   with no body or identifying metadata.
-- `POST /api/enrollment/exchange` accepts a single-use invitation in a bounded
-  JSON body over verified TLS and returns the client credential once. Secrets
-  never belong in a URL, query string, command-line argument, diagnostic, or
-  serializable domain entity.
+- `POST /api/enrollment/exchange` accepts a single-use invitation, canonical
+  retry key, and client-generated 256-bit bearer in a bounded JSON body over
+  verified TLS. It returns only stable non-secret identities; an exact
+  credential-proven retry is non-mutating, and a mismatched replay fails
+  uniformly. Secrets never belong in a response, URL, query string, command-line
+  argument, diagnostic, or serializable domain entity.
 - `GET /api/protocol` requires authentication and returns the protocol version,
   package version, capabilities, and bounded limits in the shared envelope.
 
@@ -76,6 +78,8 @@ Every JSON coordination request and successful JSON response is carried inside
 exceptions are the `204` liveness and acknowledgement responses. Payload codecs
 are exported separately so adapters can validate the envelope first and then
 validate the operation-specific payload without accepting ambiguous fields.
+See [docs/enrollment.md](docs/enrollment.md) for the purpose-bound bootstrap,
+ordinary ungranted enrollment, pending-keychain, and retry contract.
 
 ## Conformance
 
@@ -84,7 +88,8 @@ Server and client implementations should run the vectors exported from
 readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
-acks, claims, decisions, and unsupported-capability failures.
+enrollment retry/mismatch/redaction, acks, claims, decisions, and
+unsupported-capability failures.
 
 Implement `AdapterConformanceDriver` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,

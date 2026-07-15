@@ -32,6 +32,7 @@ export const KNOWN_CAPABILITIES = [
   'coordination.core',
   'auth.bearer',
   'auth.revocation',
+  'auth.retry-safe-enrollment',
   'scope.cube-isolation',
   'transport.tls',
   'authority.no-cloud-fallback',
@@ -49,6 +50,7 @@ export type Capability = KnownCapability | (string & {});
 export const REQUIRED_SECURITY_CAPABILITIES = [
   'auth.bearer',
   'auth.revocation',
+  'auth.retry-safe-enrollment',
   'scope.cube-isolation',
   'transport.tls',
   'authority.no-cloud-fallback',
@@ -90,18 +92,33 @@ export interface ProtocolErrorEnvelope {
   };
 }
 
-/** Invitation and returned bearer values are opaque secrets, never identifiers. */
+/** All secret values are generated and persisted pending by the client before send. */
 export interface EnrollmentExchangeRequest {
   invitation: string;
+  retry_key: string;
+  client_credential: string;
   client_name?: string;
 }
 
-/** The credential is returned once and must not be persisted by server adapters. */
-export interface EnrollmentExchangeResponse {
+/** Ordinary enrollment creates an ungranted client and never returns a bearer. */
+export interface ClientEnrollmentExchangeResponse {
+  purpose: 'client';
   client_id: string;
-  credential: string;
-  credential_expires_at?: string | null;
 }
+
+/** Bootstrap claim returns only the stable identities created by the atomic claim. */
+export interface BootstrapEnrollmentExchangeResponse {
+  purpose: 'bootstrap';
+  client_id: string;
+  cube_id: string;
+  human_seat_role_id: string;
+  default_worker_role_id: string;
+  access: 'manage';
+}
+
+export type EnrollmentExchangeResponse =
+  | ClientEnrollmentExchangeResponse
+  | BootstrapEnrollmentExchangeResponse;
 
 export interface AckLogRequest {
   entry_id: string;
@@ -424,15 +441,29 @@ export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelo
 
 export function decodeEnrollmentExchangeRequest(value: unknown): EnrollmentExchangeRequest {
   const input = record(value);
-  exactKeys(input, ['invitation', 'client_name'], ['invitation']);
+  exactKeys(
+    input,
+    ['invitation', 'retry_key', 'client_credential', 'client_name'],
+    ['invitation', 'retry_key', 'client_credential'],
+  );
   const invitation = opaqueToken(input.invitation, ['invitation']);
+  const retryKey = decodeUuid(input.retry_key, ['retry_key']);
+  const clientCredential = decodeEnrollmentClientCredential(
+    input.client_credential,
+    ['client_credential'],
+  );
   const clientName = input.client_name === undefined
     ? undefined
     : boundedString(input.client_name, 1, 120, ['client_name']);
   if (clientName !== undefined && !/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(clientName)) {
     fail('Client name contains unsupported characters.', ['client_name']);
   }
-  return clientName === undefined ? { invitation } : { invitation, client_name: clientName };
+  const request = {
+    invitation,
+    retry_key: retryKey,
+    client_credential: clientCredential,
+  };
+  return clientName === undefined ? request : { ...request, client_name: clientName };
 }
 
 export function decodeEnrollmentExchangeRequestEnvelope(
@@ -443,21 +474,42 @@ export function decodeEnrollmentExchangeRequestEnvelope(
 
 export function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExchangeResponse {
   const input = record(value);
+  if (input.purpose === 'client') {
+    exactKeys(input, ['purpose', 'client_id'], ['purpose', 'client_id']);
+    return {
+      purpose: 'client',
+      client_id: decodeUuid(input.client_id, ['client_id']),
+    };
+  }
+  if (input.purpose !== 'bootstrap') fail('Invalid enrollment purpose.', ['purpose']);
   exactKeys(
     input,
-    ['client_id', 'credential', 'credential_expires_at'],
-    ['client_id', 'credential'],
+    [
+      'purpose',
+      'client_id',
+      'cube_id',
+      'human_seat_role_id',
+      'default_worker_role_id',
+      'access',
+    ],
+    [
+      'purpose',
+      'client_id',
+      'cube_id',
+      'human_seat_role_id',
+      'default_worker_role_id',
+      'access',
+    ],
   );
-  const clientId = opaqueIdentifier(input.client_id, ['client_id']);
-  const credential = opaqueToken(input.credential, ['credential']);
-  let expiresAt: string | null | undefined;
-  if (input.credential_expires_at === null) expiresAt = null;
-  else if (input.credential_expires_at !== undefined) {
-    expiresAt = decodeCanonicalTimestamp(input.credential_expires_at, ['credential_expires_at']);
-  }
-  return expiresAt === undefined
-    ? { client_id: clientId, credential }
-    : { client_id: clientId, credential, credential_expires_at: expiresAt };
+  if (input.access !== 'manage') fail('Bootstrap enrollment access must be manage.', ['access']);
+  return {
+    purpose: 'bootstrap',
+    client_id: decodeUuid(input.client_id, ['client_id']),
+    cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    human_seat_role_id: decodeUuid(input.human_seat_role_id, ['human_seat_role_id']),
+    default_worker_role_id: decodeUuid(input.default_worker_role_id, ['default_worker_role_id']),
+    access: 'manage',
+  };
 }
 
 export function decodeEnrollmentExchangeResponseEnvelope(
@@ -575,6 +627,17 @@ export function decodeUuid(value: unknown, path: readonly (string | number)[] = 
     fail('Expected a canonical UUID.', path);
   }
   return id.toLowerCase();
+}
+
+export function decodeEnrollmentClientCredential(
+  value: unknown,
+  path: readonly (string | number)[] = [],
+): string {
+  const credential = boundedString(value, 43, 43, path);
+  if (!/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(credential)) {
+    fail('Expected an unpadded base64url encoding of exactly 256 bits.', path);
+  }
+  return credential;
 }
 
 export function decodeOpaqueIdentifier(

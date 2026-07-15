@@ -342,26 +342,43 @@ export async function runAdapterConformance(
 
   await record('protocol.enrollment-auth', async () => {
     expectError(await environment.operations.protocol(null), 401, ErrorCode.AUTH_MISSING, 'Unauthenticated protocol request');
+    credentialA = 'A'.repeat(43);
+    credentialB = 'E'.repeat(43);
     const enrollmentARequest = createProtocolEnvelope('enroll-a1', {
       invitation: invitationA,
+      retry_key: '00000000-0000-4000-8000-000000000201',
+      client_credential: credentialA,
       client_name: 'conformance-a',
     });
     const enrollmentBRequest = createProtocolEnvelope('enroll-b1', {
       invitation: invitationB,
+      retry_key: '00000000-0000-4000-8000-000000000202',
+      client_credential: credentialB,
       client_name: 'conformance-b',
     });
     const enrolledAResponse = await environment.operations.enroll(enrollmentARequest);
     const enrolledBResponse = await environment.operations.enroll(enrollmentBRequest);
     expectStatus(enrolledAResponse, 201, 'Principal A enrollment');
     expectStatus(enrolledBResponse, 201, 'Principal B enrollment');
-    credentialA = decodeEnrollmentExchangeResponseEnvelope(enrolledAResponse.body).payload.credential;
-    credentialB = decodeEnrollmentExchangeResponseEnvelope(enrolledBResponse.body).payload.credential;
-    invariant(credentialA !== credentialB, 'Enrollment issued the same credential to two principals.');
+    const enrolledA = decodeEnrollmentExchangeResponseEnvelope(enrolledAResponse.body).payload;
+    const enrolledB = decodeEnrollmentExchangeResponseEnvelope(enrolledBResponse.body).payload;
+    invariant(enrolledA.purpose === 'client' && enrolledB.purpose === 'client', 'Ordinary enrollment returned bootstrap authority.');
+    invariant(!('credential' in enrolledA) && !('credential' in enrolledB), 'Enrollment response returned a bearer.');
+    const retriedAResponse = await environment.operations.enroll(enrollmentARequest);
+    expectStatus(retriedAResponse, 201, 'Exact enrollment retry');
+    invariant(
+      JSON.stringify(decodeEnrollmentExchangeResponseEnvelope(retriedAResponse.body).payload) ===
+      JSON.stringify(enrolledA),
+      'Exact enrollment retry returned different identities.',
+    );
     expectError(
-      await environment.operations.enroll(enrollmentARequest),
+      await environment.operations.enroll(createProtocolEnvelope('enroll-a-mismatch', {
+        ...enrollmentARequest.payload,
+        retry_key: '00000000-0000-4000-8000-000000000203',
+      })),
       401,
       ErrorCode.AUTH_INVALID,
-      'Invitation reuse',
+      'Enrollment retry mismatch',
     );
     const protocolResponse = await environment.operations.protocol(credentialA);
     expectStatus(protocolResponse, 200, 'Authenticated protocol request');
@@ -377,7 +394,9 @@ export async function runAdapterConformance(
     return {
       unauthenticated: ErrorCode.AUTH_MISSING,
       enrollment_status: 201,
-      invitation_reuse: ErrorCode.AUTH_INVALID,
+      exact_retry_status: 201,
+      mismatched_retry: ErrorCode.AUTH_INVALID,
+      response_secret_free: true,
       protocol_version: protocolInfo.protocol_version,
     };
   });

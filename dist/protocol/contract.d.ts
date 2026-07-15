@@ -39,10 +39,10 @@ export declare const PROTOCOL_LIMIT_CEILINGS: {
     readonly max_read_page_size: 500;
     readonly max_replay_page_size: 1000;
 };
-export declare const KNOWN_CAPABILITIES: readonly ["coordination.core", "auth.bearer", "auth.revocation", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback", "log.cursor", "stream.sse", "stream.replay", "acks", "claims", "decisions"];
+export declare const KNOWN_CAPABILITIES: readonly ["coordination.core", "auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback", "log.cursor", "stream.sse", "stream.replay", "acks", "claims", "decisions"];
 export type KnownCapability = (typeof KNOWN_CAPABILITIES)[number];
 export type Capability = KnownCapability | (string & {});
-export declare const REQUIRED_SECURITY_CAPABILITIES: readonly ["auth.bearer", "auth.revocation", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback"];
+export declare const REQUIRED_SECURITY_CAPABILITIES: readonly ["auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback"];
 export interface ProtocolLimits {
     max_request_bytes: number;
     max_log_message_bytes: number;
@@ -77,13 +77,23 @@ export interface ProtocolErrorEnvelope {
 }
 export interface EnrollmentExchangeRequest {
     invitation: string;
+    retry_key: string;
+    client_credential: string;
     client_name?: string;
 }
-export interface EnrollmentExchangeResponse {
+export interface ClientEnrollmentExchangeResponse {
+    purpose: 'client';
     client_id: string;
-    credential: string;
-    credential_expires_at?: string | null;
 }
+export interface BootstrapEnrollmentExchangeResponse {
+    purpose: 'bootstrap';
+    client_id: string;
+    cube_id: string;
+    human_seat_role_id: string;
+    default_worker_role_id: string;
+    access: 'manage';
+}
+export type EnrollmentExchangeResponse = ClientEnrollmentExchangeResponse | BootstrapEnrollmentExchangeResponse;
 export interface AckLogRequest {
     entry_id: string;
     kind: 'ack' | 'claim';
@@ -120,6 +130,7 @@ export declare function decodeRemoveDecisionRequest(value: unknown): RemoveDecis
 export declare function decodeCanonicalTimestamp(value: unknown, path?: readonly (string | number)[]): string;
 export declare function decodeLogCursor(value: unknown, path?: readonly (string | number)[]): LogCursor;
 export declare function decodeUuid(value: unknown, path?: readonly (string | number)[]): string;
+export declare function decodeEnrollmentClientCredential(value: unknown, path?: readonly (string | number)[]): string;
 export declare function decodeOpaqueIdentifier(value: unknown, path?: readonly (string | number)[]): string;
 export declare function redactProtocolDiagnostic(value: string): string;
 export declare function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1;

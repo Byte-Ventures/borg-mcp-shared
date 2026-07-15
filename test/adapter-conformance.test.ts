@@ -94,7 +94,15 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   } as const;
   private principals = new Map<string, PrincipalState>();
   private cubes = new Map<string, CubeState>();
-  private invitations = new Map<string, { principalId: string; used: boolean }>();
+  private invitations = new Map<string, {
+    principalId: string;
+    binding: {
+      retryKey: string;
+      credential: string;
+      clientName?: string;
+      response: { purpose: 'client'; client_id: string };
+    } | null;
+  }>();
   private streams = new Set<{ principalId: string; cubeId: string; queue: AsyncQueue }>();
   private replayBarrier: {
     reached: Promise<void>;
@@ -134,7 +142,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     issueSingleUseInvitation: async (principal: ConformancePrincipal): Promise<string> => {
       const invitation = this.token('invitation', this.sequence++);
-      this.invitations.set(invitation, { principalId: principal.id, used: false });
+      this.invitations.set(invitation, { principalId: principal.id, binding: null });
       return invitation;
     },
     revokePrincipal: async (principal: ConformancePrincipal): Promise<void> => {
@@ -189,16 +197,34 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     enroll: async (request: unknown): Promise<ConformanceHttpResponse> => {
       const envelope = decodeEnrollmentExchangeRequestEnvelope(request);
       const invitation = this.invitations.get(envelope.payload.invitation);
-      if (!invitation || invitation.used) return this.error(401, ErrorCode.AUTH_INVALID);
-      invitation.used = true;
+      if (!invitation) return this.error(401, ErrorCode.AUTH_INVALID);
+      const clientName = envelope.payload.client_name;
+      if (invitation.binding) {
+        if (invitation.binding.retryKey !== envelope.payload.retry_key ||
+            invitation.binding.credential !== envelope.payload.client_credential ||
+            invitation.binding.clientName !== clientName) {
+          return this.error(401, ErrorCode.AUTH_INVALID);
+        }
+        return {
+          status: 201,
+          body: createProtocolEnvelope(envelope.request_id, invitation.binding.response),
+        };
+      }
       const principal = this.principal(invitation.principalId);
-      principal.credential = this.token('credential', this.sequence++);
+      principal.credential = envelope.payload.client_credential;
+      const response = {
+        purpose: 'client' as const,
+        client_id: principal.handle.id,
+      };
+      invitation.binding = {
+        retryKey: envelope.payload.retry_key,
+        credential: envelope.payload.client_credential,
+        clientName,
+        response,
+      };
       return {
         status: 201,
-        body: createProtocolEnvelope(envelope.request_id, {
-          client_id: principal.handle.id,
-          credential: principal.credential,
-        }),
+        body: createProtocolEnvelope(envelope.request_id, response),
       };
     },
     append: async (
