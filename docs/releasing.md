@@ -216,6 +216,32 @@ Immediately after a successful first publish:
 
 ## Later Releases
 
+### 0.3.0 Enrollment Contract
+
+The ratified `borgmcp-shared-enrollment-version` decision selects `0.3.0` for
+the breaking retry-safe enrollment and idempotent multi-cube contract. Updating
+package metadata, lockfiles, assertions, compatibility documentation, and this
+runbook does not authorize creating `v0.3.0` or publishing the package.
+
+Before a separately authorized `v0.3.0` tag is created:
+
+1. The exact `0.3.0` source commit must be merged to protected `main` after Code
+   Review, Security, and Release Quality approve the package identity, public
+   API, conformance behavior, generated output, and release documentation.
+2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, compatibility matrix,
+   packed-artifact verifier, and version assertions must all identify `0.3.0`.
+3. The protected workflow must build one exact tarball and pass its full source,
+   test, audit, public-export, source-map, install/import, dry-run, integrity, and
+   provenance gates. Security must approve that exact workflow artifact.
+4. The tag and publication each require their own explicit authorization. A
+   source-version approval, merge, or successful verification run grants neither.
+
+After registry publication and independent integrity/provenance verification,
+the first borgmcp client and borgmcp-server releases may replace their temporary
+development dependency with the reviewed registry range `^0.3.0`. They must not
+ship a Git dependency or fall back to the incompatible `0.2.x` enrollment
+response.
+
 Later releases follow the same source gates, annotated protected tag, exact
 tarball audit, Queen authorization, and environment approval. The registry
 preflight requires the package to be owned by `NPM_EXPECTED_OWNER` and rejects
@@ -241,11 +267,11 @@ Stop without approving the environment when any of these conditions occurs:
 - final CR, Security, Release Quality, exact-tarball Security approval, or Queen
   authorization is missing.
 
-npm versions are immutable. Never retry by overwriting `0.2.0`, moving the tag,
-force-pushing a branch, or publishing from a local rebuild. A failed verification
-before publication requires fixing the source and beginning again with a new
-reviewed version/tag plan. If npm accepted the version but integrity or
-provenance verification failed, block every consumer migration, preserve the
-workflow logs and artifact, and escalate as a release incident. Do not unpublish,
+npm versions are immutable. Never retry by overwriting any published version,
+moving a release tag, force-pushing a branch, or publishing from a local rebuild.
+A failed verification before publication requires fixing the source and
+beginning again with a new reviewed version/tag plan. If npm accepted the version
+but integrity or provenance verification failed, block every consumer migration,
+preserve the workflow logs and artifact, and escalate as a release incident. Do not unpublish,
 deprecate, or publish a replacement version without a separately reviewed and
 authorized recovery decision.

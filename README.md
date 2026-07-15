@@ -114,7 +114,7 @@ response shapes.
 describe the compatibility contract. During the pre-1.0 package series, new
 contracts may be added, but an existing wire shape will not change without a
 documented migration path and corresponding conformance coverage. Consumers pin
-`^0.2.0` (`>=0.2.0 <0.3.0`): before 1.0, breaking wire changes increment the
+`^0.3.0` (`>=0.3.0 <0.4.0`): before 1.0, breaking wire changes increment the
 minor version while compatible additions and corrections increment the patch.
 
 See [docs/compatibility.md](docs/compatibility.md) for the current matrix and
@@ -122,20 +122,18 @@ the policy for introducing protocol changes.
 
 ## Distribution
 
-After the final source, security, conformance, and packed-artifact gates pass,
-`borgmcp-shared@0.2.2` is published publicly from the npm account that owns the
-existing `borgmcp` client package. Consumers then pin `borgmcp-shared@^0.2.0`
-and commit registry lockfiles. No registry token belongs in this repository,
-package metadata, lockfiles, or a committed `.npmrc`; publishing uses protected
-external credentials and provenance.
+`borgmcp-shared@0.2.2` is the published legacy baseline. This source prepares
+`0.3.0` for the breaking retry-safe enrollment and multi-cube creation contract;
+the version change does not authorize a tag or publication. After a separately
+authorized registry release, consumers adopting this contract pin
+`borgmcp-shared@^0.3.0` and commit registry lockfiles. No registry token belongs
+in this repository, package metadata, lockfiles, or a committed `.npmrc`;
+publishing uses protected external credentials and provenance.
 
-Before that publication, consumers may temporarily pin an audited, immutable
-full commit SHA, using
-`git+ssh://git@github.com/Byte-Ventures/borg-mcp-shared.git#<40-hex-SHA>`.
-Tag, range, and local-path pins are prohibited. This exception is replaced with
-the registry dependency `borgmcp-shared@^0.2.0` after publication. Public release
-requires the packed-artifact sensitivity audit, name ownership, account recovery
-and 2FA, provenance verification, and explicit release approval.
+The first client and server releases must consume the reviewed registry release,
+not a Git, tag, or local-path dependency. Public release requires the
+packed-artifact sensitivity audit, ownership and Trusted Publisher checks,
+provenance verification, and explicit release approval.
 
 ## Security Posture
 

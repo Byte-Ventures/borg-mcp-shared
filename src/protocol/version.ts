@@ -19,9 +19,14 @@ export interface CompatibilityEntry {
  */
 export const COMPATIBILITY_MATRIX: readonly CompatibilityEntry[] = [
   {
+    packageRange: '>=0.3.0 <0.4.0',
+    protocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
+    notes: 'Retry-safe owner enrollment and idempotent multi-cube creation.',
+  },
+  {
     packageRange: '>=0.2.0 <0.3.0',
     protocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
-    notes: 'Versioned envelope, codecs, and adapter conformance for Borg MCP servers.',
+    notes: 'Legacy server-generated enrollment credential response.',
   },
 ];
 
