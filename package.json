@@ -1,6 +1,6 @@
 {
   "name": "borgmcp-shared",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Shared protocol, domain, templates, and conformance contracts for Borg MCP implementations.",
   "type": "module",
   "main": "./dist/index.js",
@@ -56,6 +56,7 @@
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "verify:artifact": "node scripts/verify-packed-artifact.mjs",
+    "verify:sbom": "node scripts/verify-release-sbom.mjs",
     "prepack": "npm run check && npm test && npm run build"
   },
   "keywords": [

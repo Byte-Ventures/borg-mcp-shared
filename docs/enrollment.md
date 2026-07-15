@@ -6,10 +6,10 @@ database transactions, or keychain APIs, but implementations must preserve the
 security properties below.
 
 This contract replaces the server-generated bearer response used by
-`borgmcp-shared@0.2.2`. It is an unreleased breaking wire change and requires a
-coordinated client/server migration and an authorized package version before
-publication. There is no compatibility path that returns a bearer from the
-server.
+`borgmcp-shared@0.2.2`. It is selected for `0.3.0` as a breaking wire change and
+requires a coordinated client/server migration. Version preparation does not
+authorize a tag or publication. There is no compatibility path that returns a
+bearer from the server.
 
 Servers implementing this contract advertise the required
 `auth.retry-safe-enrollment` capability. Negotiation fails closed when it is

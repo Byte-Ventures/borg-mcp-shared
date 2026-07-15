@@ -39,7 +39,7 @@ const protocolInfo = {
   protocol_version: '1',
   package: {
     name: 'borgmcp-shared',
-    version: '0.2.2',
+    version: '0.3.0',
   },
   capabilities: [
     'coordination.core',
@@ -71,13 +71,14 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.2.2');
+    expect(SHARED_PACKAGE_VERSION).toBe('0.3.0');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
       publishConfig: { access: 'public' },
     });
-    expect(COMPATIBILITY_MATRIX[0]?.packageRange).toBe('>=0.2.0 <0.3.0');
+    expect(COMPATIBILITY_MATRIX[0]?.packageRange).toBe('>=0.3.0 <0.4.0');
+    expect(COMPATIBILITY_MATRIX[1]?.packageRange).toBe('>=0.2.0 <0.3.0');
   });
 
   it('uses one bodyless health path and authenticated protocol/enrollment paths', () => {
@@ -433,13 +434,13 @@ describe('coordination request codecs', () => {
     expect(
       decodeProtocolInfo({
         ...protocolInfo,
-        package: { name: 'borgmcp-shared', version: '0.2.2+build.1' },
+        package: { name: 'borgmcp-shared', version: '0.3.0+build.1' },
       }).package.version,
-    ).toBe('0.2.2+build.1');
+    ).toBe('0.3.0+build.1');
     expect(() =>
       decodeProtocolInfo({
         ...protocolInfo,
-        package: { name: 'borgmcp-shared', version: '0.2.2-01' },
+        package: { name: 'borgmcp-shared', version: '0.3.0-01' },
       }),
     ).toThrow(ProtocolContractError);
   });

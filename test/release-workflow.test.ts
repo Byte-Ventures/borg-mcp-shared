@@ -62,6 +62,13 @@ describe('npm publish workflow', () => {
     expect(workflow).not.toMatch(/npm publish "release\//);
     expect(verificationJob).toContain('Upload tarball for security audit');
     expect(verificationJob).toContain('release/RUN_EVIDENCE');
+    expect(verificationJob).toContain('npm sbom --sbom-format cyclonedx');
+    expect(verificationJob).toContain('node scripts/normalize-release-sbom.mjs "${raw_sbom}" "${sbom}"');
+    expect(verificationJob).toContain('rm "${raw_sbom}"');
+    expect(verificationJob).toContain('npm run verify:sbom -- "${sbom}" > release/sbom-report.json');
+    expect(verificationJob).toContain('release/borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json');
+    expect(verificationJob).toContain('release/sbom-report.json');
+    expect(verificationJob).toContain('"borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json" sbom-report.json > SHA512SUMS');
     expect(verificationJob).toContain('Exercise exact tarball in a clean consumer');
     expect(verificationJob).toContain('"dependencies":{"borgmcp-shared":"%s"}');
     expect(verificationJob).toContain('npm install --prefix "${consumer}" --ignore-scripts --no-save "./release/${TARBALL}"');
@@ -98,6 +105,9 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('Run `29360398007` published `borgmcp-shared@0.2.2`');
     expect(runbook).toContain('MUST NOT be rerun, moved, or reused. Consumer\nmigration was blocked');
     expect(runbook).toContain('Security approved the recovery\nevidence.');
+    expect(runbook).toContain('`borgmcp-shared-enrollment-version` decision selects `0.3.0`');
+    expect(runbook).toContain('does not authorize creating `v0.3.0` or publishing the package.');
+    expect(runbook).toContain('reviewed registry range `^0.3.0`');
     expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
     expect(runbook).toContain('Both jobs reject a repository-root `.npmrc` before their first npm command.');
   });

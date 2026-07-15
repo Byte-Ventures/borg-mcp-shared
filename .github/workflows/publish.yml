@@ -124,9 +124,20 @@ jobs:
       - name: Verify exact release tarball
         run: npm run verify:artifact -- "release/${{ steps.pack.outputs.tarball }}" > release/artifact-report.json
 
-      - name: Record exact release checksum
+      - name: Generate and verify locked release SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw_sbom="release/borgmcp-shared-${{ steps.release.outputs.version }}.raw.cdx.json"
+          sbom="release/borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json"
+          npm sbom --sbom-format cyclonedx > "${raw_sbom}"
+          node scripts/normalize-release-sbom.mjs "${raw_sbom}" "${sbom}"
+          rm "${raw_sbom}"
+          npm run verify:sbom -- "${sbom}" > release/sbom-report.json
+
+      - name: Record exact release checksums
         working-directory: release
-        run: sha512sum "${{ steps.pack.outputs.tarball }}" > SHA512SUMS
+        run: sha512sum "${{ steps.pack.outputs.tarball }}" "borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json" sbom-report.json > SHA512SUMS
 
       - name: Exercise publish metadata without publishing
         run: npm publish "./release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org
@@ -168,6 +179,8 @@ jobs:
           path: |
             release/${{ steps.pack.outputs.tarball }}
             release/artifact-report.json
+            release/borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json
+            release/sbom-report.json
             release/SHA512SUMS
             release/RUN_EVIDENCE
           if-no-files-found: error
