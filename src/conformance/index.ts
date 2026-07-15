@@ -169,24 +169,22 @@ export const ENROLLMENT_RETRY_CONFORMANCE: readonly EnrollmentRetryConformanceVe
 
 export const ENROLLMENT_AUTHORITY_CONFORMANCE = [
   {
-    name: 'ordinary enrollment creates no grant',
+    name: 'ordinary enrollment creates no authority or cube state',
     response: {
       purpose: 'client',
       client_id: '00000000-0000-4000-8000-000000000111',
+      server_capabilities: [],
     },
-    expected_created_grants: 0,
+    expected_state_delta: { cubes: 0, roles: 0, grants: 0, server_capabilities: 0 },
   },
   {
-    name: 'bootstrap claim returns one cube-scoped parent grant and two role identities',
+    name: 'owner enrollment grants create-cube authority without cube state',
     response: {
-      purpose: 'bootstrap',
+      purpose: 'owner',
       client_id: '00000000-0000-4000-8000-000000000111',
-      cube_id: '00000000-0000-4000-8000-000000000112',
-      human_seat_role_id: '00000000-0000-4000-8000-000000000113',
-      default_worker_role_id: '00000000-0000-4000-8000-000000000114',
-      access: 'manage',
+      server_capabilities: ['create_cube'],
     },
-    expected_created_grants: 1,
+    expected_state_delta: { cubes: 0, roles: 0, grants: 0, server_capabilities: 1 },
   },
 ] as const;
 
@@ -195,5 +193,15 @@ export const ENROLLMENT_REDACTION_CONFORMANCE: readonly ConformanceVector<string
     name: 'redacts invitation and client credential from diagnostics',
     input: `invitation=${ENROLLMENT_INVITATION} client_credential=${ENROLLMENT_CREDENTIAL}`,
     expected: 'invitation=<REDACTED> client_credential=<REDACTED>',
+  },
+  {
+    name: 'redacts a contextual enrollment retry key',
+    input: `retry_key=${ENROLLMENT_RETRY_KEY}`,
+    expected: 'retry_key=<REDACTED>',
+  },
+  {
+    name: 'preserves unrelated public UUIDs',
+    input: `cube_id=${ENROLLMENT_RETRY_KEY}`,
+    expected: `cube_id=${ENROLLMENT_RETRY_KEY}`,
   },
 ];

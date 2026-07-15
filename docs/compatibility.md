@@ -34,13 +34,16 @@ run the shared conformance suite.
 
 ## Unreleased Enrollment Migration
 
-The source contract for server bootstrap enrollment now uses a client-generated
-credential and retry key and returns only non-secret stable identities. This
-replaces the server-generated credential response in `0.2.2` and is therefore a
-breaking wire change. It must not be published as another `0.2.x` patch or
-silently accepted as a compatibility path. Client and server consumers must
-migrate together, and an authorized future package/protocol version must record
-the boundary before release.
+The source contract for purpose-bound owner enrollment now uses a
+client-generated credential and retry key and returns only the stable client ID
+plus `create_cube`; ordinary enrollment returns no server capability. Setup and
+enrollment create zero cubes. The separate authenticated, idempotent
+`POST /api/cubes` creates the selected cube template and creator grant. These
+shapes replace the server-generated credential response in `0.2.2` and are
+therefore a breaking wire change. They must not be published as another `0.2.x`
+patch or silently accepted as a compatibility path. Client and server consumers
+must migrate together, and an authorized future package/protocol version must
+record the boundary before release.
 
 Model/provider selection is intentionally absent from the `0.2.x` coordination
 contract. Agent CLIs own model configuration; Borg servers may expose the

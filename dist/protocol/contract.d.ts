@@ -5,6 +5,7 @@ export declare const SHARED_PACKAGE_VERSION: "0.2.2";
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
+export declare const CUBES_PATH: "/api/cubes";
 export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly health: {
         readonly method: "GET";
@@ -23,6 +24,12 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly method: "POST";
         readonly path: "/api/enrollment/exchange";
         readonly authenticated: "invitation";
+        readonly success_status: 201;
+    };
+    readonly cubes: {
+        readonly method: "POST";
+        readonly path: "/api/cubes";
+        readonly authenticated: true;
         readonly success_status: 201;
     };
     readonly auth_missing_status: 401;
@@ -81,19 +88,32 @@ export interface EnrollmentExchangeRequest {
     client_credential: string;
     client_name?: string;
 }
+export declare const SERVER_CAPABILITIES: readonly ["create_cube"];
+export type ServerCapability = (typeof SERVER_CAPABILITIES)[number];
 export interface ClientEnrollmentExchangeResponse {
     purpose: 'client';
     client_id: string;
+    server_capabilities: [];
 }
-export interface BootstrapEnrollmentExchangeResponse {
-    purpose: 'bootstrap';
+export interface OwnerEnrollmentExchangeResponse {
+    purpose: 'owner';
     client_id: string;
+    server_capabilities: ['create_cube'];
+}
+export type EnrollmentExchangeResponse = ClientEnrollmentExchangeResponse | OwnerEnrollmentExchangeResponse;
+export declare const CUBE_TEMPLATES: readonly ["default"];
+export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
+export interface CreateCubeRequest {
+    retry_key: string;
+    name: string;
+    template: CubeTemplate;
+}
+export interface CreateCubeResponse {
     cube_id: string;
     human_seat_role_id: string;
     default_worker_role_id: string;
     access: 'manage';
 }
-export type EnrollmentExchangeResponse = ClientEnrollmentExchangeResponse | BootstrapEnrollmentExchangeResponse;
 export interface AckLogRequest {
     entry_id: string;
     kind: 'ack' | 'claim';
@@ -123,6 +143,10 @@ export declare function decodeEnrollmentExchangeRequest(value: unknown): Enrollm
 export declare function decodeEnrollmentExchangeRequestEnvelope(value: unknown): ProtocolEnvelope<EnrollmentExchangeRequest>;
 export declare function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExchangeResponse;
 export declare function decodeEnrollmentExchangeResponseEnvelope(value: unknown): ProtocolEnvelope<EnrollmentExchangeResponse>;
+export declare function decodeCreateCubeRequest(value: unknown): CreateCubeRequest;
+export declare function decodeCreateCubeRequestEnvelope(value: unknown): ProtocolEnvelope<CreateCubeRequest>;
+export declare function decodeCreateCubeResponse(value: unknown): CreateCubeResponse;
+export declare function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse>;
 export declare function decodeAppendLogRequest(value: unknown): import('./types.js').AppendLogRequest;
 export declare function decodeAckLogRequest(value: unknown): AckLogRequest;
 export declare function decodeRecordDecisionRequest(value: unknown): import('./types.js').RecordDecisionRequest;

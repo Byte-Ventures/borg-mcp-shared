@@ -10,6 +10,7 @@ import {
   decodeAckLogRequest,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
+  decodeCreateCubeRequestEnvelope,
   decodeProtocolEnvelope,
   decodeReadLogRequest,
   decodeRecordDecisionRequest,
@@ -34,13 +35,26 @@ type Fault =
   | 'drop-transition-write'
   | 'keep-stream-after-revoke'
   | 'interpret-injection-input'
-  | 'accept-oversize-request';
+  | 'accept-oversize-request'
+  | 'accept-retry-key-mismatch'
+  | 'accept-credential-mismatch'
+  | 'accept-client-name-mismatch'
+  | 'leak-retry-diagnostic'
+  | 'mutate-exact-enrollment-retry'
+  | 'grant-ordinary-create-cube'
+  | 'create-state-during-owner-enrollment'
+  | 'omit-owner-create-cube'
+  | 'allow-ordinary-cube-create'
+  | 'duplicate-exact-cube-retry'
+  | 'grant-created-cube-to-wrong-client'
+  | 'swap-created-role-identities';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
   grants: Set<string>;
   credential: string | null;
   revoked: boolean;
+  serverCapabilities: Set<'create_cube'>;
 }
 
 interface CubeState {
@@ -49,6 +63,7 @@ interface CubeState {
   claims: ReadLogClaim[];
   decisions: Decision[];
   expired: Set<string>;
+  roles: Map<string, 'human_seat' | 'default_worker'>;
 }
 
 class AsyncQueue implements AsyncIterable<string> {
@@ -96,12 +111,25 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private cubes = new Map<string, CubeState>();
   private invitations = new Map<string, {
     principalId: string;
+    purpose: 'owner' | 'client';
     binding: {
       retryKey: string;
       credential: string;
       clientName?: string;
-      response: { purpose: 'client'; client_id: string };
+      response:
+        | { purpose: 'client'; client_id: string; server_capabilities: [] }
+        | { purpose: 'owner'; client_id: string; server_capabilities: ['create_cube'] };
     } | null;
+  }>();
+  private cubeCreateBindings = new Map<string, {
+    name: string;
+    template: 'default';
+    response: {
+      cube_id: string;
+      human_seat_role_id: string;
+      default_worker_role_id: string;
+      access: 'manage';
+    };
   }>();
   private streams = new Set<{ principalId: string; cubeId: string; queue: AsyncQueue }>();
   private replayBarrier: {
@@ -120,6 +148,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.principals.clear();
       this.cubes.clear();
       this.invitations.clear();
+      this.cubeCreateBindings.clear();
       this.streams.clear();
       this.replayBarrier?.release();
       this.replayBarrier = null;
@@ -127,23 +156,64 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     createPrincipal: async (name: string): Promise<ConformancePrincipal> => {
       const handle = { id: this.uuid() };
-      this.principals.set(handle.id, { handle, grants: new Set(), credential: null, revoked: false });
+      this.principals.set(handle.id, {
+        handle,
+        grants: new Set(),
+        credential: null,
+        revoked: false,
+        serverCapabilities: new Set(),
+      });
       void name;
       return handle;
     },
     createCube: async (name: string): Promise<ConformanceCube> => {
       const handle = { id: this.uuid() };
-      this.cubes.set(handle.id, { handle, entries: [], claims: [], decisions: [], expired: new Set() });
+      this.cubes.set(handle.id, { handle, entries: [], claims: [], decisions: [], expired: new Set(), roles: new Map() });
       void name;
       return handle;
     },
     grantCube: async (principal: ConformancePrincipal, cube: ConformanceCube): Promise<void> => {
       this.principal(principal.id).grants.add(cube.id);
     },
-    issueSingleUseInvitation: async (principal: ConformancePrincipal): Promise<string> => {
+    issueSingleUseInvitation: async (
+      principal: ConformancePrincipal,
+      purpose: 'owner' | 'client',
+    ): Promise<string> => {
       const invitation = this.token('invitation', this.sequence++);
-      this.invitations.set(invitation, { principalId: principal.id, binding: null });
+      this.invitations.set(invitation, { principalId: principal.id, purpose, binding: null });
       return invitation;
+    },
+    observeAuthorityState: async () => ({
+      enrolled_clients: [...this.principals.values()].filter((principal) => principal.credential !== null).length,
+      enrollment_claims: [...this.invitations.values()].filter((invitation) => invitation.binding !== null).length,
+      cubes: this.cubes.size,
+      roles: [...this.cubes.values()].reduce((count, cube) => count + cube.roles.size, 0),
+      grants: [...this.principals.values()].reduce((count, principal) => count + principal.grants.size, 0),
+      server_capabilities: [...this.principals.values()].reduce(
+        (count, principal) => count + principal.serverCapabilities.size,
+        0,
+      ),
+      cube_create_bindings: this.cubeCreateBindings.size,
+    }),
+    inspectCreatedCube: async (
+      creator: ConformancePrincipal,
+      response: {
+        cube_id: string;
+        human_seat_role_id: string;
+        default_worker_role_id: string;
+      },
+    ) => {
+      const cube = this.cubes.get(response.cube_id);
+      return {
+        cube_exists: cube !== undefined,
+        creator_has_grant: this.principal(creator.id).grants.has(response.cube_id),
+        grant_count: [...this.principals.values()].filter(
+          (principal) => principal.grants.has(response.cube_id),
+        ).length,
+        role_count: cube?.roles.size ?? 0,
+        human_seat_role_matches: cube?.roles.get(response.human_seat_role_id) === 'human_seat',
+        default_worker_role_matches: cube?.roles.get(response.default_worker_role_id) === 'default_worker',
+      };
     },
     revokePrincipal: async (principal: ConformancePrincipal): Promise<void> => {
       this.principal(principal.id).revoked = true;
@@ -200,10 +270,34 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (!invitation) return this.error(401, ErrorCode.AUTH_INVALID);
       const clientName = envelope.payload.client_name;
       if (invitation.binding) {
-        if (invitation.binding.retryKey !== envelope.payload.retry_key ||
-            invitation.binding.credential !== envelope.payload.client_credential ||
-            invitation.binding.clientName !== clientName) {
+        const retryKeyMatches = invitation.binding.retryKey === envelope.payload.retry_key ||
+          this.fault === 'accept-retry-key-mismatch';
+        const credentialMatches = invitation.binding.credential === envelope.payload.client_credential ||
+          this.fault === 'accept-credential-mismatch';
+        const clientNameMatches = invitation.binding.clientName === clientName ||
+          this.fault === 'accept-client-name-mismatch';
+        if (!retryKeyMatches || !credentialMatches || !clientNameMatches) {
+          if (this.fault === 'leak-retry-diagnostic') {
+            return {
+              status: 401,
+              body: {
+                protocol_version: '1',
+                error: {
+                  code: ErrorCode.AUTH_INVALID,
+                  message: `retry_key=${envelope.payload.retry_key}`,
+                  details: `invitation=${envelope.payload.invitation} client_credential=${envelope.payload.client_credential}`,
+                },
+              },
+            };
+          }
           return this.error(401, ErrorCode.AUTH_INVALID);
+        }
+        if (this.fault === 'mutate-exact-enrollment-retry' &&
+            invitation.binding.retryKey === envelope.payload.retry_key &&
+            invitation.binding.credential === envelope.payload.client_credential &&
+            invitation.binding.clientName === clientName) {
+          const handle = { id: this.uuid() };
+          this.cubes.set(handle.id, { handle, entries: [], claims: [], decisions: [], expired: new Set(), roles: new Map() });
         }
         return {
           status: 201,
@@ -212,10 +306,38 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       const principal = this.principal(invitation.principalId);
       principal.credential = envelope.payload.client_credential;
-      const response = {
-        purpose: 'client' as const,
-        client_id: principal.handle.id,
-      };
+      if (invitation.purpose === 'owner' && this.fault !== 'omit-owner-create-cube') {
+        principal.serverCapabilities.add('create_cube');
+      }
+      if (invitation.purpose === 'client' && this.fault === 'grant-ordinary-create-cube') {
+        principal.serverCapabilities.add('create_cube');
+      }
+      if (invitation.purpose === 'owner' && this.fault === 'create-state-during-owner-enrollment') {
+        const handle = { id: this.uuid() };
+        this.cubes.set(handle.id, {
+          handle,
+          entries: [],
+          claims: [],
+          decisions: [],
+          expired: new Set(),
+          roles: new Map([
+            [this.uuid(), 'human_seat'],
+            [this.uuid(), 'default_worker'],
+          ]),
+        });
+        principal.grants.add(handle.id);
+      }
+      const response = invitation.purpose === 'owner'
+        ? {
+            purpose: 'owner' as const,
+            client_id: principal.handle.id,
+            server_capabilities: (this.fault === 'omit-owner-create-cube' ? [] : ['create_cube']) as ['create_cube'],
+          }
+        : {
+            purpose: 'client' as const,
+            client_id: principal.handle.id,
+            server_capabilities: [] as [],
+          };
       invitation.binding = {
         retryKey: envelope.payload.retry_key,
         credential: envelope.payload.client_credential,
@@ -226,6 +348,56 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         status: 201,
         body: createProtocolEnvelope(envelope.request_id, response),
       };
+    },
+    createCube: async (credential: string | null, request: unknown): Promise<ConformanceHttpResponse> => {
+      const auth = this.authenticate(credential);
+      if (auth.error) return auth.error;
+      if (!auth.principal.serverCapabilities.has('create_cube') &&
+          this.fault !== 'allow-ordinary-cube-create') {
+        return this.error(403, ErrorCode.ACCESS_DENIED);
+      }
+      const envelope = decodeCreateCubeRequestEnvelope(request);
+      const bindingKey = `${auth.principal.handle.id}/${envelope.payload.retry_key}`;
+      const binding = this.cubeCreateBindings.get(bindingKey);
+      if (binding && this.fault !== 'duplicate-exact-cube-retry') {
+        if (binding.name !== envelope.payload.name || binding.template !== envelope.payload.template) {
+          return this.error(409, ErrorCode.INVALID_INPUT);
+        }
+        return { status: 201, body: createProtocolEnvelope(envelope.request_id, binding.response) };
+      }
+      const handle = { id: this.uuid() };
+      const humanSeatRoleId = this.uuid();
+      const defaultWorkerRoleId = this.uuid();
+      this.cubes.set(handle.id, {
+        handle,
+        entries: [],
+        claims: [],
+        decisions: [],
+        expired: new Set(),
+        roles: new Map([
+          [humanSeatRoleId, 'human_seat'],
+          [defaultWorkerRoleId, 'default_worker'],
+        ]),
+      });
+      if (this.fault === 'grant-created-cube-to-wrong-client') {
+        const other = [...this.principals.values()].find((principal) => principal !== auth.principal);
+        if (!other) throw new Error('Wrong-client grant fault requires another principal.');
+        other.grants.add(handle.id);
+      } else {
+        auth.principal.grants.add(handle.id);
+      }
+      const response = {
+        cube_id: handle.id,
+        human_seat_role_id: this.fault === 'swap-created-role-identities' ? defaultWorkerRoleId : humanSeatRoleId,
+        default_worker_role_id: this.fault === 'swap-created-role-identities' ? humanSeatRoleId : defaultWorkerRoleId,
+        access: 'manage' as const,
+      };
+      this.cubeCreateBindings.set(bindingKey, {
+        name: envelope.payload.name,
+        template: envelope.payload.template,
+        response,
+      });
+      return { status: 201, body: createProtocolEnvelope(envelope.request_id, response) };
     },
     append: async (
       credential: string,
@@ -512,6 +684,18 @@ describe('executable adapter conformance', () => {
     ['unterminated revoked stream', 'keep-stream-after-revoke', 'security.active-stream-revocation'],
     ['interpreted adapter-boundary injection', 'interpret-injection-input', 'security.adapter-boundary-injection'],
     ['accepted oversized request body', 'accept-oversize-request', 'security.oversize-request'],
+    ['accepted enrollment retry-key mismatch', 'accept-retry-key-mismatch', 'protocol.enrollment-auth'],
+    ['accepted enrollment credential mismatch', 'accept-credential-mismatch', 'protocol.enrollment-auth'],
+    ['accepted enrollment client-name mismatch', 'accept-client-name-mismatch', 'protocol.enrollment-auth'],
+    ['leaked retry tuple in diagnostics', 'leak-retry-diagnostic', 'protocol.enrollment-auth'],
+    ['mutated exact enrollment retry', 'mutate-exact-enrollment-retry', 'protocol.enrollment-auth'],
+    ['granted create-cube to ordinary enrollment', 'grant-ordinary-create-cube', 'protocol.enrollment-auth'],
+    ['created cube state during owner enrollment', 'create-state-during-owner-enrollment', 'protocol.enrollment-auth'],
+    ['omitted owner create-cube authority', 'omit-owner-create-cube', 'protocol.enrollment-auth'],
+    ['allowed ordinary cube creation', 'allow-ordinary-cube-create', 'protocol.enrollment-auth'],
+    ['duplicated exact cube-create retry', 'duplicate-exact-cube-retry', 'protocol.enrollment-auth'],
+    ['granted created cube to wrong client', 'grant-created-cube-to-wrong-client', 'protocol.enrollment-auth'],
+    ['swapped created role identities', 'swap-created-role-identities', 'protocol.enrollment-auth'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

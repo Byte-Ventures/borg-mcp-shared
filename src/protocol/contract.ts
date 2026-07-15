@@ -7,11 +7,13 @@ export const SHARED_PACKAGE_VERSION = '0.2.2' as const;
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange' as const;
+export const CUBES_PATH = '/api/cubes' as const;
 
 export const PROTOCOL_HTTP_CONTRACT = {
   health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
   protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: true, success_status: 200 },
   enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
+  cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
   auth_missing_status: 401,
   auth_invalid_status: 401,
   cursor_expired_status: 410,
@@ -100,25 +102,42 @@ export interface EnrollmentExchangeRequest {
   client_name?: string;
 }
 
+export const SERVER_CAPABILITIES = ['create_cube'] as const;
+export type ServerCapability = (typeof SERVER_CAPABILITIES)[number];
+
 /** Ordinary enrollment creates an ungranted client and never returns a bearer. */
 export interface ClientEnrollmentExchangeResponse {
   purpose: 'client';
   client_id: string;
+  server_capabilities: [];
 }
 
-/** Bootstrap claim returns only the stable identities created by the atomic claim. */
-export interface BootstrapEnrollmentExchangeResponse {
-  purpose: 'bootstrap';
+/** Owner enrollment grants only the narrow authority to create cubes. */
+export interface OwnerEnrollmentExchangeResponse {
+  purpose: 'owner';
   client_id: string;
+  server_capabilities: ['create_cube'];
+}
+
+export type EnrollmentExchangeResponse =
+  | ClientEnrollmentExchangeResponse
+  | OwnerEnrollmentExchangeResponse;
+
+export const CUBE_TEMPLATES = ['default'] as const;
+export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
+
+export interface CreateCubeRequest {
+  retry_key: string;
+  name: string;
+  template: CubeTemplate;
+}
+
+export interface CreateCubeResponse {
   cube_id: string;
   human_seat_role_id: string;
   default_worker_role_id: string;
   access: 'manage';
 }
-
-export type EnrollmentExchangeResponse =
-  | ClientEnrollmentExchangeResponse
-  | BootstrapEnrollmentExchangeResponse;
 
 export interface AckLogRequest {
   entry_id: string;
@@ -475,40 +494,21 @@ export function decodeEnrollmentExchangeRequestEnvelope(
 export function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExchangeResponse {
   const input = record(value);
   if (input.purpose === 'client') {
-    exactKeys(input, ['purpose', 'client_id'], ['purpose', 'client_id']);
+    exactKeys(input, ['purpose', 'client_id', 'server_capabilities'], ['purpose', 'client_id', 'server_capabilities']);
+    decodeExactServerCapabilities(input.server_capabilities, [], ['server_capabilities']);
     return {
       purpose: 'client',
       client_id: decodeUuid(input.client_id, ['client_id']),
+      server_capabilities: [],
     };
   }
-  if (input.purpose !== 'bootstrap') fail('Invalid enrollment purpose.', ['purpose']);
-  exactKeys(
-    input,
-    [
-      'purpose',
-      'client_id',
-      'cube_id',
-      'human_seat_role_id',
-      'default_worker_role_id',
-      'access',
-    ],
-    [
-      'purpose',
-      'client_id',
-      'cube_id',
-      'human_seat_role_id',
-      'default_worker_role_id',
-      'access',
-    ],
-  );
-  if (input.access !== 'manage') fail('Bootstrap enrollment access must be manage.', ['access']);
+  if (input.purpose !== 'owner') fail('Invalid enrollment purpose.', ['purpose']);
+  exactKeys(input, ['purpose', 'client_id', 'server_capabilities'], ['purpose', 'client_id', 'server_capabilities']);
+  decodeExactServerCapabilities(input.server_capabilities, ['create_cube'], ['server_capabilities']);
   return {
-    purpose: 'bootstrap',
+    purpose: 'owner',
     client_id: decodeUuid(input.client_id, ['client_id']),
-    cube_id: decodeUuid(input.cube_id, ['cube_id']),
-    human_seat_role_id: decodeUuid(input.human_seat_role_id, ['human_seat_role_id']),
-    default_worker_role_id: decodeUuid(input.default_worker_role_id, ['default_worker_role_id']),
-    access: 'manage',
+    server_capabilities: ['create_cube'],
   };
 }
 
@@ -516,6 +516,58 @@ export function decodeEnrollmentExchangeResponseEnvelope(
   value: unknown,
 ): ProtocolEnvelope<EnrollmentExchangeResponse> {
   return decodeProtocolEnvelope(value, decodeEnrollmentExchangeResponse);
+}
+
+function decodeExactServerCapabilities(
+  value: unknown,
+  expected: readonly ServerCapability[],
+  path: readonly (string | number)[],
+): void {
+  if (!Array.isArray(value) || value.length !== expected.length ||
+      value.some((capability, index) => capability !== expected[index])) {
+    fail(`Expected server capabilities [${expected.join(', ')}].`, path);
+  }
+}
+
+export function decodeCreateCubeRequest(value: unknown): CreateCubeRequest {
+  const input = record(value);
+  exactKeys(input, ['retry_key', 'name', 'template'], ['retry_key', 'name', 'template']);
+  const name = boundedString(input.name, 1, 120, ['name']);
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
+    fail('Cube name contains unsupported characters.', ['name']);
+  }
+  if (!CUBE_TEMPLATES.includes(input.template as CubeTemplate)) {
+    fail('Unsupported cube template.', ['template']);
+  }
+  return {
+    retry_key: decodeUuid(input.retry_key, ['retry_key']),
+    name,
+    template: input.template as CubeTemplate,
+  };
+}
+
+export function decodeCreateCubeRequestEnvelope(value: unknown): ProtocolEnvelope<CreateCubeRequest> {
+  return decodeProtocolEnvelope(value, decodeCreateCubeRequest);
+}
+
+export function decodeCreateCubeResponse(value: unknown): CreateCubeResponse {
+  const input = record(value);
+  exactKeys(
+    input,
+    ['cube_id', 'human_seat_role_id', 'default_worker_role_id', 'access'],
+    ['cube_id', 'human_seat_role_id', 'default_worker_role_id', 'access'],
+  );
+  if (input.access !== 'manage') fail('Created cube access must be manage.', ['access']);
+  return {
+    cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    human_seat_role_id: decodeUuid(input.human_seat_role_id, ['human_seat_role_id']),
+    default_worker_role_id: decodeUuid(input.default_worker_role_id, ['default_worker_role_id']),
+    access: 'manage',
+  };
+}
+
+export function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse> {
+  return decodeProtocolEnvelope(value, decodeCreateCubeResponse);
 }
 
 export function decodeAppendLogRequest(value: unknown): import('./types.js').AppendLogRequest {
@@ -652,6 +704,7 @@ export function redactProtocolDiagnostic(value: string): string {
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, (character) =>
       `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
     )
+    .replace(/(\bretry[_-]?key\b["']?\s*(?:=|:)\s*["']?)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '$1<REDACTED>')
     .replace(/\bBearer\s+[A-Za-z0-9_-]{20,}/gi, 'Bearer <REDACTED>')
     .replace(/[A-Za-z0-9_-]{43,}/g, '<REDACTED>');
 }

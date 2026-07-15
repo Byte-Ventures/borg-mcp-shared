@@ -34,23 +34,31 @@ export interface EnrollmentRetryConformanceVector {
 }
 export declare const ENROLLMENT_RETRY_CONFORMANCE: readonly EnrollmentRetryConformanceVector[];
 export declare const ENROLLMENT_AUTHORITY_CONFORMANCE: readonly [{
-    readonly name: "ordinary enrollment creates no grant";
+    readonly name: "ordinary enrollment creates no authority or cube state";
     readonly response: {
         readonly purpose: "client";
         readonly client_id: "00000000-0000-4000-8000-000000000111";
+        readonly server_capabilities: readonly [];
     };
-    readonly expected_created_grants: 0;
+    readonly expected_state_delta: {
+        readonly cubes: 0;
+        readonly roles: 0;
+        readonly grants: 0;
+        readonly server_capabilities: 0;
+    };
 }, {
-    readonly name: "bootstrap claim returns one cube-scoped parent grant and two role identities";
+    readonly name: "owner enrollment grants create-cube authority without cube state";
     readonly response: {
-        readonly purpose: "bootstrap";
+        readonly purpose: "owner";
         readonly client_id: "00000000-0000-4000-8000-000000000111";
-        readonly cube_id: "00000000-0000-4000-8000-000000000112";
-        readonly human_seat_role_id: "00000000-0000-4000-8000-000000000113";
-        readonly default_worker_role_id: "00000000-0000-4000-8000-000000000114";
-        readonly access: "manage";
+        readonly server_capabilities: readonly ["create_cube"];
     };
-    readonly expected_created_grants: 1;
+    readonly expected_state_delta: {
+        readonly cubes: 0;
+        readonly roles: 0;
+        readonly grants: 0;
+        readonly server_capabilities: 1;
+    };
 }];
 export declare const ENROLLMENT_REDACTION_CONFORMANCE: readonly ConformanceVector<string, string>[];
 //# sourceMappingURL=index.d.ts.map
