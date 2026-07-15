@@ -46,6 +46,28 @@ function expectedPurl(name, version) {
   return `pkg:npm/${encodedName}@${encodeURIComponent(version)}`;
 }
 
+function expectedTarballUrl(name, version) {
+  const unscopedName = name.startsWith('@') ? name.slice(name.indexOf('/') + 1) : name;
+  return `https://registry.npmjs.org/${name}/-/${unscopedName}-${version}.tgz`;
+}
+
+function requireCanonicalTarballUrl(value, name, version, description) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    fail(`${description} is not a valid URL.`);
+  }
+  const expected = expectedTarballUrl(name, version);
+  if (value !== expected || parsed.protocol !== 'https:' ||
+      parsed.hostname !== 'registry.npmjs.org' || parsed.port !== '' ||
+      parsed.username !== '' || parsed.password !== '' ||
+      parsed.search !== '' || parsed.hash !== '') {
+    fail(`${description} is not the exact canonical npm registry tarball URL: ${name}@${version}`);
+  }
+  return expected;
+}
+
 export async function verifyReleaseSbom(sbomPath) {
   if (!sbomPath) fail('Usage: verify-release-sbom.mjs <cyclonedx-json>');
   const raw = await readFile(resolve(sbomPath));
@@ -80,10 +102,11 @@ export async function verifyReleaseSbom(sbomPath) {
   }
 
   for (const [path, locked] of Object.entries(lock.packages).filter(([path]) => path !== '')) {
-    if (typeof locked.resolved !== 'string' ||
-        !locked.resolved.startsWith('https://registry.npmjs.org/')) {
-      fail(`Lock component is not sourced from the canonical npm registry: ${path}`);
+    const name = packageNameFromLockPath(path);
+    if (typeof locked.resolved !== 'string') {
+      fail(`Lock component has no canonical npm registry tarball URL: ${path}`);
     }
+    requireCanonicalTarballUrl(locked.resolved, name, locked.version, `Lock component ${path}`);
     if (typeof locked.integrity !== 'string' ||
         !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(locked.integrity)) {
       fail(`Lock component has no canonical SHA-512 integrity: ${path}`);
@@ -137,6 +160,23 @@ export async function verifyReleaseSbom(sbomPath) {
     }
     if (componentRefs.has(expectedRef)) fail(`Duplicate SBOM component: ${expectedRef}`);
     componentRefs.add(expectedRef);
+
+    const distributionReferences = component.externalReferences?.filter(
+      (reference) => reference?.type === 'distribution',
+    ) ?? [];
+    if (distributionReferences.length !== 1 ||
+        typeof distributionReferences[0].url !== 'string') {
+      fail(`SBOM component must have exactly one distribution reference: ${expectedRef}`);
+    }
+    const distributionUrl = requireCanonicalTarballUrl(
+      distributionReferences[0].url,
+      name,
+      locked.version,
+      `SBOM distribution reference ${expectedRef}`,
+    );
+    if (distributionUrl !== locked.resolved) {
+      fail(`SBOM distribution reference does not match package-lock.json: ${expectedRef}`);
+    }
 
     const expectedHash = Buffer.from(locked.integrity.slice('sha512-'.length), 'base64')
       .toString('hex');

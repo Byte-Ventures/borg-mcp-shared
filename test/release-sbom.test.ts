@@ -87,6 +87,47 @@ describe('release SBOM', () => {
     expect(result.stderr).toContain('lock entry');
   });
 
+  it.each([
+    ['wrong package', (url: URL) => { url.pathname = '/substituted/-/substituted-999.0.0.tgz'; }],
+    ['wrong version', (url: URL) => { url.pathname = url.pathname.replace(/-[^-]+\.tgz$/, '-999.0.0.tgz'); }],
+    ['userinfo', (url: URL) => { url.username = 'attacker'; }],
+    ['port', (url: URL) => { url.port = '444'; }],
+    ['query', (url: URL) => { url.search = '?attacker=1'; }],
+    ['fragment', (url: URL) => { url.hash = '#attacker'; }],
+  ] as const)('rejects a component distribution URL with %s substitution', async (name, mutate) => {
+    const result = await verify(`distribution-${name}`, (sbom) => {
+      const reference = sbom.components[0].externalReferences.find(
+        (candidate: { type: string }) => candidate.type === 'distribution',
+      );
+      const url = new URL(reference.url);
+      mutate(url);
+      reference.url = url.href;
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('distribution reference');
+  });
+
+  it('rejects a missing component distribution reference', async () => {
+    const result = await verify('missing-distribution', (sbom) => {
+      sbom.components[0].externalReferences = sbom.components[0].externalReferences.filter(
+        (reference: { type: string }) => reference.type !== 'distribution',
+      );
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('exactly one distribution reference');
+  });
+
+  it('rejects duplicate component distribution references', async () => {
+    const result = await verify('duplicate-distribution', (sbom) => {
+      const reference = sbom.components[0].externalReferences.find(
+        (candidate: { type: string }) => candidate.type === 'distribution',
+      );
+      sbom.components[0].externalReferences.push(structuredClone(reference));
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('exactly one distribution reference');
+  });
+
   it('rejects a dependency graph that diverges from the installed locked tree', async () => {
     const result = await verify('wrong-graph', (sbom) => {
       const root = sbom.dependencies.find(
@@ -100,7 +141,13 @@ describe('release SBOM', () => {
 
   it.each([
     ['missing integrity', (lock: Record<string, any>, path: string) => delete lock.packages[path].integrity, 'SHA-512 integrity'],
-    ['non-registry source', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved = 'git+https://example.invalid/dependency.git'; }, 'canonical npm registry'],
+    ['non-registry source', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved = 'git+https://example.invalid/dependency.git'; }, 'canonical npm registry tarball URL'],
+    ['wrong registry package', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved = 'https://registry.npmjs.org/substituted/-/substituted-999.0.0.tgz'; }, 'canonical npm registry tarball URL'],
+    ['wrong registry version', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved = lock.packages[path].resolved.replace(/-[^-]+\.tgz$/, '-999.0.0.tgz'); }, 'canonical npm registry tarball URL'],
+    ['registry userinfo', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved = lock.packages[path].resolved.replace('https://', 'https://attacker@'); }, 'canonical npm registry tarball URL'],
+    ['registry port', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved = lock.packages[path].resolved.replace('registry.npmjs.org', 'registry.npmjs.org:444'); }, 'canonical npm registry tarball URL'],
+    ['registry query', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved += '?attacker=1'; }, 'canonical npm registry tarball URL'],
+    ['registry fragment', (lock: Record<string, any>, path: string) => { lock.packages[path].resolved += '#attacker'; }, 'canonical npm registry tarball URL'],
   ] as const)('rejects a lock component with %s', async (_name, mutate, diagnostic) => {
     const caseDirectory = join(directory, _name.replaceAll(' ', '-'));
     await mkdir(caseDirectory);
