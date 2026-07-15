@@ -701,10 +701,10 @@ export function decodeOpaqueIdentifier(
 
 export function redactProtocolDiagnostic(value: string): string {
   return value
+    .replace(/(\bretry[_-]?key\b["']?\s*(?:=|:)\s*["']?)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '$1<REDACTED>')
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, (character) =>
       `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
     )
-    .replace(/(\bretry[_-]?key\b["']?\s*(?:=|:)\s*["']?)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '$1<REDACTED>')
     .replace(/\bBearer\s+[A-Za-z0-9_-]{20,}/gi, 'Bearer <REDACTED>')
     .replace(/[A-Za-z0-9_-]{43,}/g, '<REDACTED>');
 }

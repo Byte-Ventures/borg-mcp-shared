@@ -200,17 +200,23 @@ describe('package and handshake contract', () => {
     expect(redactProtocolDiagnostic(`"retry_key":"${retryKey}" client_id=${publicId}`)).toBe(
       `"retry_key":"<REDACTED>" client_id=${publicId}`,
     );
+    expect(redactProtocolDiagnostic(`retry_key\n=${retryKey} cube_id=${publicId}`)).toBe(
+      `retry_key\\u000a=<REDACTED> cube_id=${publicId}`,
+    );
+    expect(redactProtocolDiagnostic(`retry_key\t:${retryKey} cube_id=${publicId}`)).toBe(
+      `retry_key\\u0009:<REDACTED> cube_id=${publicId}`,
+    );
     expect(decodeProtocolErrorEnvelope({
       protocol_version: '1',
       error: {
         code: 'AUTH_INVALID',
-        message: `retry-key: ${retryKey}`,
-        details: `retry_key=${retryKey} cube_id=${publicId}`,
+        message: `retry-key\n: ${retryKey}`,
+        details: `retry_key\t=${retryKey} cube_id=${publicId}`,
       },
     }).error).toEqual({
       code: 'AUTH_INVALID',
-      message: 'retry-key: <REDACTED>',
-      details: `retry_key=<REDACTED> cube_id=${publicId}`,
+      message: 'retry-key\\u000a: <REDACTED>',
+      details: `retry_key\\u0009=<REDACTED> cube_id=${publicId}`,
     });
   });
 

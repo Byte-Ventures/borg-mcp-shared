@@ -26,6 +26,10 @@ export interface ConformanceCreatedCubeState {
     human_seat_role_matches: boolean;
     default_worker_role_matches: boolean;
 }
+export interface ConformanceEnrollmentPrincipalState {
+    response_client_matches: boolean;
+    active_credential_bindings: number;
+}
 export interface ConformanceReplayBarrier {
     readonly reached: Promise<void>;
     release(): void;
@@ -38,9 +42,12 @@ export interface ConformanceAdmin {
     createPrincipal(name: string): Promise<ConformancePrincipal>;
     createCube(name: string): Promise<ConformanceCube>;
     grantCube(principal: ConformancePrincipal, cube: ConformanceCube): Promise<void>;
+    grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
+    issueDroneSession(principal: ConformancePrincipal): Promise<string>;
     issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
     observeAuthorityState(): Promise<ConformanceAuthorityState>;
     inspectCreatedCube(creator: ConformancePrincipal, response: CreateCubeResponse): Promise<ConformanceCreatedCubeState>;
+    inspectEnrollmentPrincipal(principal: ConformancePrincipal, responseClientId: string): Promise<ConformanceEnrollmentPrincipalState>;
     revokePrincipal(principal: ConformancePrincipal): Promise<void>;
     expireCursor(cube: ConformanceCube, cursor: LogCursor): Promise<void>;
     armReplayTransition(): ConformanceReplayBarrier;

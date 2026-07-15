@@ -47,12 +47,19 @@ type Fault =
   | 'allow-ordinary-cube-create'
   | 'duplicate-exact-cube-retry'
   | 'grant-created-cube-to-wrong-client'
-  | 'swap-created-role-identities';
+  | 'swap-created-role-identities'
+  | 'overwrite-credential-on-reject'
+  | 'owner-only-overwrite-on-reject'
+  | 'owner-only-accept-mismatch'
+  | 'owner-only-retry-mutation'
+  | 'global-cube-retry-binding'
+  | 'allow-drone-cube-create';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
   grants: Set<string>;
   credential: string | null;
+  droneCredential: string | null;
   revoked: boolean;
   serverCapabilities: Set<'create_cube'>;
 }
@@ -160,6 +167,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         handle,
         grants: new Set(),
         credential: null,
+        droneCredential: null,
         revoked: false,
         serverCapabilities: new Set(),
       });
@@ -174,6 +182,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     grantCube: async (principal: ConformancePrincipal, cube: ConformanceCube): Promise<void> => {
       this.principal(principal.id).grants.add(cube.id);
+    },
+    grantCreateCubeCapability: async (principal: ConformancePrincipal): Promise<void> => {
+      this.principal(principal.id).serverCapabilities.add('create_cube');
+    },
+    issueDroneSession: async (principal: ConformancePrincipal): Promise<string> => {
+      const credential = this.token('drone', this.sequence++);
+      this.principal(principal.id).droneCredential = credential;
+      return credential;
     },
     issueSingleUseInvitation: async (
       principal: ConformancePrincipal,
@@ -213,6 +229,19 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         role_count: cube?.roles.size ?? 0,
         human_seat_role_matches: cube?.roles.get(response.human_seat_role_id) === 'human_seat',
         default_worker_role_matches: cube?.roles.get(response.default_worker_role_id) === 'default_worker',
+      };
+    },
+    inspectEnrollmentPrincipal: async (
+      principal: ConformancePrincipal,
+      responseClientId: string,
+    ) => {
+      const matchingClaims = [...this.invitations.values()].filter(
+        (invitation) => invitation.principalId === principal.id &&
+          invitation.binding?.response.client_id === responseClientId,
+      );
+      return {
+        response_client_matches: principal.id === responseClientId,
+        active_credential_bindings: matchingClaims.length,
       };
     },
     revokePrincipal: async (principal: ConformancePrincipal): Promise<void> => {
@@ -271,12 +300,19 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const clientName = envelope.payload.client_name;
       if (invitation.binding) {
         const retryKeyMatches = invitation.binding.retryKey === envelope.payload.retry_key ||
-          this.fault === 'accept-retry-key-mismatch';
+          this.fault === 'accept-retry-key-mismatch' ||
+          (this.fault === 'owner-only-accept-mismatch' && invitation.purpose === 'owner');
         const credentialMatches = invitation.binding.credential === envelope.payload.client_credential ||
-          this.fault === 'accept-credential-mismatch';
+          this.fault === 'accept-credential-mismatch' ||
+          (this.fault === 'owner-only-accept-mismatch' && invitation.purpose === 'owner');
         const clientNameMatches = invitation.binding.clientName === clientName ||
-          this.fault === 'accept-client-name-mismatch';
+          this.fault === 'accept-client-name-mismatch' ||
+          (this.fault === 'owner-only-accept-mismatch' && invitation.purpose === 'owner');
         if (!retryKeyMatches || !credentialMatches || !clientNameMatches) {
+          if (this.fault === 'overwrite-credential-on-reject' ||
+              (this.fault === 'owner-only-overwrite-on-reject' && invitation.purpose === 'owner')) {
+            this.principal(invitation.principalId).credential = envelope.payload.client_credential;
+          }
           if (this.fault === 'leak-retry-diagnostic') {
             return {
               status: 401,
@@ -292,7 +328,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           }
           return this.error(401, ErrorCode.AUTH_INVALID);
         }
-        if (this.fault === 'mutate-exact-enrollment-retry' &&
+        if ((this.fault === 'mutate-exact-enrollment-retry' ||
+             (this.fault === 'owner-only-retry-mutation' && invitation.purpose === 'owner')) &&
             invitation.binding.retryKey === envelope.payload.retry_key &&
             invitation.binding.credential === envelope.payload.client_credential &&
             invitation.binding.clientName === clientName) {
@@ -352,12 +389,18 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     createCube: async (credential: string | null, request: unknown): Promise<ConformanceHttpResponse> => {
       const auth = this.authenticate(credential);
       if (auth.error) return auth.error;
-      if (!auth.principal.serverCapabilities.has('create_cube') &&
+      const isDroneSession = auth.principal.droneCredential === credential;
+      if (isDroneSession && this.fault !== 'allow-drone-cube-create') {
+        return this.error(403, ErrorCode.ACCESS_DENIED);
+      }
+      if (!isDroneSession && !auth.principal.serverCapabilities.has('create_cube') &&
           this.fault !== 'allow-ordinary-cube-create') {
         return this.error(403, ErrorCode.ACCESS_DENIED);
       }
       const envelope = decodeCreateCubeRequestEnvelope(request);
-      const bindingKey = `${auth.principal.handle.id}/${envelope.payload.retry_key}`;
+      const bindingKey = this.fault === 'global-cube-retry-binding'
+        ? envelope.payload.retry_key
+        : `${auth.principal.handle.id}/${envelope.payload.retry_key}`;
       const binding = this.cubeCreateBindings.get(bindingKey);
       if (binding && this.fault !== 'duplicate-exact-cube-retry') {
         if (binding.name !== envelope.payload.name || binding.template !== envelope.payload.template) {
@@ -586,7 +629,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private authenticate(credential: string | null):
     { principal: PrincipalState; error?: undefined } | { principal?: undefined; error: ConformanceHttpResponse } {
     if (credential === null) return { error: this.error(401, ErrorCode.AUTH_MISSING) };
-    const principal = [...this.principals.values()].find((item) => item.credential === credential);
+    const principal = [...this.principals.values()].find(
+      (item) => item.credential === credential || item.droneCredential === credential,
+    );
     if (!principal) return { error: this.error(401, ErrorCode.AUTH_INVALID) };
     if (principal.revoked) return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
     return { principal };
@@ -696,6 +741,12 @@ describe('executable adapter conformance', () => {
     ['duplicated exact cube-create retry', 'duplicate-exact-cube-retry', 'protocol.enrollment-auth'],
     ['granted created cube to wrong client', 'grant-created-cube-to-wrong-client', 'protocol.enrollment-auth'],
     ['swapped created role identities', 'swap-created-role-identities', 'protocol.enrollment-auth'],
+    ['overwrote credential on rejected mismatch', 'overwrite-credential-on-reject', 'protocol.enrollment-auth'],
+    ['accepted owner-only enrollment mismatch', 'owner-only-accept-mismatch', 'protocol.enrollment-auth'],
+    ['overwrote owner credential on rejected mismatch', 'owner-only-overwrite-on-reject', 'protocol.enrollment-auth'],
+    ['mutated owner-only exact retry', 'owner-only-retry-mutation', 'protocol.enrollment-auth'],
+    ['used a global cube-create retry binding', 'global-cube-retry-binding', 'protocol.enrollment-auth'],
+    ['allowed drone-session cube creation', 'allow-drone-cube-create', 'protocol.enrollment-auth'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),
