@@ -349,12 +349,31 @@ function assertStateDelta(
 
 function assertEnrollmentErrorIsSecretFree(
   response: ConformanceHttpResponse,
-  request: { invitation: string; retry_key: string; client_credential: string },
+  requests: readonly { invitation: string; retry_key: string; client_credential: string }[],
   description: string,
 ): void {
   const diagnostic = JSON.stringify(response.body);
-  for (const secret of [request.invitation, request.retry_key, request.client_credential]) {
+  const secrets = new Set(requests.flatMap((request) => [
+    request.invitation,
+    request.retry_key,
+    request.client_credential,
+  ]));
+  for (const secret of secrets) {
     invariant(!diagnostic.includes(secret), `${description} exposed enrollment retry material.`);
+  }
+}
+
+function expectSecretFreeError(
+  response: ConformanceHttpResponse,
+  status: number,
+  code: ErrorCode,
+  operation: string,
+  secrets: readonly string[],
+): void {
+  expectError(response, status, code, operation);
+  const diagnostic = JSON.stringify(response.body);
+  for (const secret of new Set(secrets)) {
+    invariant(!diagnostic.includes(secret), `${operation} exposed retry material.`);
   }
 }
 
@@ -448,7 +467,11 @@ export async function runAdapterConformance(
             }
           } else {
             expectError(retryResponse, vector.expected.status, ErrorCode.AUTH_INVALID, `${purpose} ${vector.name}`);
-            assertEnrollmentErrorIsSecretFree(retryResponse, retryPayload, `${purpose} ${vector.name}`);
+            assertEnrollmentErrorIsSecretFree(
+              retryResponse,
+              [initialPayload, retryPayload],
+              `${purpose} ${vector.name}`,
+            );
           }
           assertStateDelta(beforeRetry, await environment.admin.observeAuthorityState(), {}, `${purpose} ${vector.name} retry`);
           expectStatus(
@@ -520,29 +543,33 @@ export async function runAdapterConformance(
     };
     const droneCredential = await environment.admin.issueDroneSession(ownerPrincipal);
     const beforeDeniedCreate = await environment.admin.observeAuthorityState();
-    expectError(
+    expectSecretFreeError(
       await environment.operations.createCube(null, createProtocolEnvelope('cube-missing-auth', cubeRequest)),
       401,
       ErrorCode.AUTH_MISSING,
       'Missing-auth cube create',
+      [cubeRequest.retry_key],
     );
-    expectError(
+    expectSecretFreeError(
       await environment.operations.createCube('invalid-credential', createProtocolEnvelope('cube-invalid-auth', cubeRequest)),
       401,
       ErrorCode.AUTH_INVALID,
       'Invalid-auth cube create',
+      [cubeRequest.retry_key],
     );
-    expectError(
+    expectSecretFreeError(
       await environment.operations.createCube(ordinaryCredential, createProtocolEnvelope('cube-denied', cubeRequest)),
       403,
       ErrorCode.ACCESS_DENIED,
       'Ordinary cube create',
+      [cubeRequest.retry_key],
     );
-    expectError(
+    expectSecretFreeError(
       await environment.operations.createCube(droneCredential, createProtocolEnvelope('cube-drone-denied', cubeRequest)),
       403,
       ErrorCode.ACCESS_DENIED,
       'Drone-session cube create',
+      [cubeRequest.retry_key],
     );
     assertStateDelta(beforeDeniedCreate, await environment.admin.observeAuthorityState(), {}, 'Denied ordinary cube create');
     const beforeCreate = await environment.admin.observeAuthorityState();
@@ -567,11 +594,12 @@ export async function runAdapterConformance(
     invariant(same(decodeCreateCubeResponseEnvelope(retriedCreateResponse.body).payload, created), 'Exact cube-create retry returned different identities.');
     assertStateDelta(beforeCreateRetry, await environment.admin.observeAuthorityState(), {}, 'Exact cube-create retry');
     const beforeCreateMismatch = await environment.admin.observeAuthorityState();
-    expectError(
+    expectSecretFreeError(
       await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-mismatch', { ...cubeRequest, name: 'repository-two' })),
       409,
       ErrorCode.INVALID_INPUT,
       'Cube-create retry mismatch',
+      [cubeRequest.retry_key],
     );
     assertStateDelta(beforeCreateMismatch, await environment.admin.observeAuthorityState(), {}, 'Cube-create retry mismatch');
     await environment.admin.grantCreateCubeCapability(ordinaryPrincipal);
@@ -622,7 +650,7 @@ export async function runAdapterConformance(
     );
     await environment.admin.revokePrincipal(ownerPrincipal);
     const beforeRevokedCreate = await environment.admin.observeAuthorityState();
-    expectError(
+    expectSecretFreeError(
       await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-revoked', {
         ...cubeRequest,
         retry_key: '00000000-0000-4000-8000-000000000215',
@@ -630,6 +658,7 @@ export async function runAdapterConformance(
       401,
       ErrorCode.SESSION_REVOKED,
       'Revoked owner cube create',
+      ['00000000-0000-4000-8000-000000000215'],
     );
     assertStateDelta(beforeRevokedCreate, await environment.admin.observeAuthorityState(), {}, 'Revoked owner cube create');
 

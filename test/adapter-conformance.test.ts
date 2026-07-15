@@ -53,7 +53,11 @@ type Fault =
   | 'owner-only-accept-mismatch'
   | 'owner-only-retry-mutation'
   | 'global-cube-retry-binding'
-  | 'allow-drone-cube-create';
+  | 'allow-drone-cube-create'
+  | 'leak-original-invitation'
+  | 'leak-original-retry-key'
+  | 'leak-original-credential'
+  | 'leak-cube-retry-diagnostic';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -326,6 +330,22 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
               },
             };
           }
+          const leakedOriginal = this.fault === 'leak-original-invitation'
+            ? envelope.payload.invitation
+            : this.fault === 'leak-original-retry-key'
+              ? invitation.binding.retryKey
+              : this.fault === 'leak-original-credential'
+                ? invitation.binding.credential
+                : null;
+          if (leakedOriginal !== null) {
+            return {
+              status: 401,
+              body: {
+                protocol_version: '1',
+                error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
+              },
+            };
+          }
           return this.error(401, ErrorCode.AUTH_INVALID);
         }
         if ((this.fault === 'mutate-exact-enrollment-retry' ||
@@ -395,6 +415,19 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       if (!isDroneSession && !auth.principal.serverCapabilities.has('create_cube') &&
           this.fault !== 'allow-ordinary-cube-create') {
+        if (this.fault === 'leak-cube-retry-diagnostic') {
+          const envelope = decodeCreateCubeRequestEnvelope(request);
+          return {
+            status: 403,
+            body: {
+              protocol_version: '1',
+              error: {
+                code: ErrorCode.ACCESS_DENIED,
+                message: `retry_key=${envelope.payload.retry_key}`,
+              },
+            },
+          };
+        }
         return this.error(403, ErrorCode.ACCESS_DENIED);
       }
       const envelope = decodeCreateCubeRequestEnvelope(request);
@@ -747,6 +780,10 @@ describe('executable adapter conformance', () => {
     ['mutated owner-only exact retry', 'owner-only-retry-mutation', 'protocol.enrollment-auth'],
     ['used a global cube-create retry binding', 'global-cube-retry-binding', 'protocol.enrollment-auth'],
     ['allowed drone-session cube creation', 'allow-drone-cube-create', 'protocol.enrollment-auth'],
+    ['leaked original invitation', 'leak-original-invitation', 'protocol.enrollment-auth'],
+    ['leaked original retry key', 'leak-original-retry-key', 'protocol.enrollment-auth'],
+    ['leaked original credential', 'leak-original-credential', 'protocol.enrollment-auth'],
+    ['leaked cube-create retry key', 'leak-cube-retry-diagnostic', 'protocol.enrollment-auth'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),
