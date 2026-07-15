@@ -1,4 +1,5 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
+import type { EnrollmentExchangeRequest } from '../protocol/contract.js';
 
 export * from './adapter.js';
 
@@ -65,4 +66,142 @@ export const ROLE_SECTION_ROUND_TRIP_CONFORMANCE: readonly string[] = [
   'Preamble only.',
   'Preamble.\n\nWorkflow:\n- step one\n\nProject conventions:\n- TDD.\n',
   '**Markdown heading:**\nMust remain part of the preamble.\n',
+];
+
+export interface EnrollmentRetryConformanceVector {
+  name: string;
+  initial: EnrollmentExchangeRequest;
+  retry: EnrollmentExchangeRequest;
+  expected:
+    | {
+      outcome: 'stable_non_secret_identity';
+      status: 201;
+      forbidden_response_fields: readonly [
+        'credential',
+        'client_credential',
+        'invitation',
+        'retry_key',
+      ];
+    }
+    | {
+      outcome: 'uniform_auth_invalid';
+      status: 401;
+      error: 'AUTH_INVALID';
+    };
+}
+
+const ENROLLMENT_INVITATION = 'I'.repeat(43);
+const ENROLLMENT_CREDENTIAL = 'A'.repeat(43);
+const ENROLLMENT_RETRY_KEY = '00000000-0000-4000-8000-000000000101';
+
+/** Stateful vectors: adapters must compare the complete canonical retry tuple. */
+export const ENROLLMENT_RETRY_CONFORMANCE: readonly EnrollmentRetryConformanceVector[] = [
+  {
+    name: 'exact credential-proven retry returns stable non-secret identities',
+    initial: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: ENROLLMENT_RETRY_KEY,
+      client_credential: ENROLLMENT_CREDENTIAL,
+      client_name: 'operator-laptop',
+    },
+    retry: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: ENROLLMENT_RETRY_KEY,
+      client_credential: ENROLLMENT_CREDENTIAL,
+      client_name: 'operator-laptop',
+    },
+    expected: {
+      outcome: 'stable_non_secret_identity',
+      status: 201,
+      forbidden_response_fields: [
+        'credential',
+        'client_credential',
+        'invitation',
+        'retry_key',
+      ],
+    },
+  },
+  {
+    name: 'retry-key mismatch is uniformly invalid',
+    initial: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: ENROLLMENT_RETRY_KEY,
+      client_credential: ENROLLMENT_CREDENTIAL,
+    },
+    retry: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: '00000000-0000-4000-8000-000000000102',
+      client_credential: ENROLLMENT_CREDENTIAL,
+    },
+    expected: { outcome: 'uniform_auth_invalid', status: 401, error: 'AUTH_INVALID' },
+  },
+  {
+    name: 'credential mismatch is uniformly invalid',
+    initial: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: ENROLLMENT_RETRY_KEY,
+      client_credential: ENROLLMENT_CREDENTIAL,
+    },
+    retry: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: ENROLLMENT_RETRY_KEY,
+      client_credential: 'E'.repeat(43),
+    },
+    expected: { outcome: 'uniform_auth_invalid', status: 401, error: 'AUTH_INVALID' },
+  },
+  {
+    name: 'client-name mismatch is uniformly invalid',
+    initial: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: ENROLLMENT_RETRY_KEY,
+      client_credential: ENROLLMENT_CREDENTIAL,
+      client_name: 'operator-laptop',
+    },
+    retry: {
+      invitation: ENROLLMENT_INVITATION,
+      retry_key: ENROLLMENT_RETRY_KEY,
+      client_credential: ENROLLMENT_CREDENTIAL,
+      client_name: 'different-client',
+    },
+    expected: { outcome: 'uniform_auth_invalid', status: 401, error: 'AUTH_INVALID' },
+  },
+];
+
+export const ENROLLMENT_AUTHORITY_CONFORMANCE = [
+  {
+    name: 'ordinary enrollment creates no authority or cube state',
+    response: {
+      purpose: 'client',
+      client_id: '00000000-0000-4000-8000-000000000111',
+      server_capabilities: [],
+    },
+    expected_state_delta: { cubes: 0, roles: 0, grants: 0, server_capabilities: 0 },
+  },
+  {
+    name: 'owner enrollment grants create-cube authority without cube state',
+    response: {
+      purpose: 'owner',
+      client_id: '00000000-0000-4000-8000-000000000111',
+      server_capabilities: ['create_cube'],
+    },
+    expected_state_delta: { cubes: 0, roles: 0, grants: 0, server_capabilities: 1 },
+  },
+] as const;
+
+export const ENROLLMENT_REDACTION_CONFORMANCE: readonly ConformanceVector<string, string>[] = [
+  {
+    name: 'redacts invitation and client credential from diagnostics',
+    input: `invitation=${ENROLLMENT_INVITATION} client_credential=${ENROLLMENT_CREDENTIAL}`,
+    expected: 'invitation=<REDACTED> client_credential=<REDACTED>',
+  },
+  {
+    name: 'redacts a contextual enrollment retry key',
+    input: `retry_key=${ENROLLMENT_RETRY_KEY}`,
+    expected: 'retry_key=<REDACTED>',
+  },
+  {
+    name: 'preserves unrelated public UUIDs',
+    input: `cube_id=${ENROLLMENT_RETRY_KEY}`,
+    expected: `cube_id=${ENROLLMENT_RETRY_KEY}`,
+  },
 ];

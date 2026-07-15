@@ -1,4 +1,4 @@
-import { type LogCursor } from '../protocol/index.js';
+import { type CreateCubeResponse, type LogCursor } from '../protocol/index.js';
 export interface ConformanceHttpResponse {
     status: number;
     body: unknown;
@@ -8,6 +8,27 @@ export interface ConformancePrincipal {
 }
 export interface ConformanceCube {
     readonly id: string;
+}
+export interface ConformanceAuthorityState {
+    enrolled_clients: number;
+    enrollment_claims: number;
+    cubes: number;
+    roles: number;
+    grants: number;
+    server_capabilities: number;
+    cube_create_bindings: number;
+}
+export interface ConformanceCreatedCubeState {
+    cube_exists: boolean;
+    creator_has_grant: boolean;
+    grant_count: number;
+    role_count: number;
+    human_seat_role_matches: boolean;
+    default_worker_role_matches: boolean;
+}
+export interface ConformanceEnrollmentPrincipalState {
+    response_client_matches: boolean;
+    active_credential_bindings: number;
 }
 export interface ConformanceReplayBarrier {
     readonly reached: Promise<void>;
@@ -21,7 +42,12 @@ export interface ConformanceAdmin {
     createPrincipal(name: string): Promise<ConformancePrincipal>;
     createCube(name: string): Promise<ConformanceCube>;
     grantCube(principal: ConformancePrincipal, cube: ConformanceCube): Promise<void>;
-    issueSingleUseInvitation(principal: ConformancePrincipal): Promise<string>;
+    grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
+    issueDroneSession(principal: ConformancePrincipal): Promise<string>;
+    issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
+    observeAuthorityState(): Promise<ConformanceAuthorityState>;
+    inspectCreatedCube(creator: ConformancePrincipal, response: CreateCubeResponse): Promise<ConformanceCreatedCubeState>;
+    inspectEnrollmentPrincipal(principal: ConformancePrincipal, responseClientId: string): Promise<ConformanceEnrollmentPrincipalState>;
     revokePrincipal(principal: ConformancePrincipal): Promise<void>;
     expireCursor(cube: ConformanceCube, cursor: LogCursor): Promise<void>;
     armReplayTransition(): ConformanceReplayBarrier;
@@ -30,6 +56,7 @@ export interface ConformanceOperations {
     health(): Promise<ConformanceHttpResponse>;
     protocol(credential: string | null): Promise<ConformanceHttpResponse>;
     enroll(request: unknown): Promise<ConformanceHttpResponse>;
+    createCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
     append(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     appendRaw(credential: string, cube: ConformanceCube, body: string): Promise<ConformanceHttpResponse>;
     read(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;

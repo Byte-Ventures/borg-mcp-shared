@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
   ENROLLMENT_EXCHANGE_PATH,
+  CUBES_PATH,
   HEALTH_PATH,
   COMPATIBILITY_MATRIX,
   PROTOCOL_INFO_PATH,
@@ -17,6 +18,10 @@ import {
   decodeEnrollmentExchangeRequestEnvelope,
   decodeEnrollmentExchangeResponse,
   decodeEnrollmentExchangeResponseEnvelope,
+  decodeCreateCubeRequest,
+  decodeCreateCubeRequestEnvelope,
+  decodeCreateCubeResponse,
+  decodeCreateCubeResponseEnvelope,
   decodeProtocolEnvelope,
   decodeProtocolErrorEnvelope,
   decodeProtocolInfo,
@@ -40,6 +45,7 @@ const protocolInfo = {
     'coordination.core',
     'auth.bearer',
     'auth.revocation',
+    'auth.retry-safe-enrollment',
     'scope.cube-isolation',
     'transport.tls',
     'authority.no-cloud-fallback',
@@ -78,10 +84,12 @@ describe('package and handshake contract', () => {
     expect(HEALTH_PATH).toBe('/healthz');
     expect(PROTOCOL_INFO_PATH).toBe('/api/protocol');
     expect(ENROLLMENT_EXCHANGE_PATH).toBe('/api/enrollment/exchange');
+    expect(CUBES_PATH).toBe('/api/cubes');
     expect(PROTOCOL_HTTP_CONTRACT).toMatchObject({
       health: { success_status: 204, bodyless: true, authenticated: false },
       protocol: { success_status: 200, authenticated: true },
       enrollment: { success_status: 201, authenticated: 'invitation' },
+      cubes: { success_status: 201, authenticated: true },
       redirect_policy: 'error',
     });
   });
@@ -114,6 +122,7 @@ describe('package and handshake contract', () => {
       expect.objectContaining({ code: 'UNSUPPORTED_CAPABILITY' }),
     );
     expect(REQUIRED_SECURITY_CAPABILITIES).toContain('auth.revocation');
+    expect(REQUIRED_SECURITY_CAPABILITIES).toContain('auth.retry-safe-enrollment');
   });
 
   it('negotiates the current protocol and required optional capabilities', () => {
@@ -182,6 +191,35 @@ describe('package and handshake contract', () => {
     );
   });
 
+  it('redacts contextual retry keys without erasing public UUIDs', () => {
+    const retryKey = '00000000-0000-4000-8000-000000000101';
+    const publicId = '00000000-0000-4000-8000-000000000102';
+    expect(redactProtocolDiagnostic(`retry_key=${retryKey} cube_id=${publicId}`)).toBe(
+      `retry_key=<REDACTED> cube_id=${publicId}`,
+    );
+    expect(redactProtocolDiagnostic(`"retry_key":"${retryKey}" client_id=${publicId}`)).toBe(
+      `"retry_key":"<REDACTED>" client_id=${publicId}`,
+    );
+    expect(redactProtocolDiagnostic(`retry_key\n=${retryKey} cube_id=${publicId}`)).toBe(
+      `retry_key\\u000a=<REDACTED> cube_id=${publicId}`,
+    );
+    expect(redactProtocolDiagnostic(`retry_key\t:${retryKey} cube_id=${publicId}`)).toBe(
+      `retry_key\\u0009:<REDACTED> cube_id=${publicId}`,
+    );
+    expect(decodeProtocolErrorEnvelope({
+      protocol_version: '1',
+      error: {
+        code: 'AUTH_INVALID',
+        message: `retry-key\n: ${retryKey}`,
+        details: `retry_key\t=${retryKey} cube_id=${publicId}`,
+      },
+    }).error).toEqual({
+      code: 'AUTH_INVALID',
+      message: 'retry-key\\u000a: <REDACTED>',
+      details: `retry_key\\u0009=<REDACTED> cube_id=${publicId}`,
+    });
+  });
+
   it('normalizes terminal controls and validates error metadata', () => {
     const normalized = redactProtocolDiagnostic('line1\r\nline2\0\u001b[31mred');
     expect(normalized).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
@@ -219,71 +257,160 @@ describe('package and handshake contract', () => {
 
 describe('enrollment codecs', () => {
   const invitation = 'a'.repeat(43);
-  const credential = 'b'.repeat(43);
+  const credential = 'A'.repeat(43);
+  const retryKey = '00000000-0000-4000-8000-000000000001';
+  const clientId = '00000000-0000-4000-8000-000000000002';
 
-  it('accepts a bounded single-use invitation request body', () => {
+  it('accepts a client-generated credential and retry-safe invitation request body', () => {
     expect(
       decodeEnrollmentExchangeRequest({
         invitation,
+        retry_key: retryKey,
+        client_credential: credential,
         client_name: 'operator-laptop',
       }),
-    ).toEqual({ invitation, client_name: 'operator-laptop' });
+    ).toEqual({
+      invitation,
+      retry_key: retryKey,
+      client_credential: credential,
+      client_name: 'operator-laptop',
+    });
     expect(
       decodeEnrollmentExchangeRequestEnvelope(
-        createProtocolEnvelope('req-enroll-1', { invitation }),
+        createProtocolEnvelope('req-enroll-1', {
+          invitation,
+          retry_key: retryKey,
+          client_credential: credential,
+        }),
       ).payload,
-    ).toEqual({ invitation });
+    ).toEqual({ invitation, retry_key: retryKey, client_credential: credential });
   });
 
-  it('rejects weak, oversized, and ambiguous invitation bodies', () => {
+  it('rejects weak, incomplete, oversized, and ambiguous invitation bodies', () => {
     expect(() => decodeEnrollmentExchangeRequest({ invitation: 'weak' })).toThrow(
       ProtocolContractError,
     );
     expect(() =>
-      decodeEnrollmentExchangeRequest({ invitation: 'a'.repeat(1025) }),
+      decodeEnrollmentExchangeRequest({
+        invitation: 'a'.repeat(1025),
+        retry_key: retryKey,
+        client_credential: credential,
+      }),
     ).toThrow(ProtocolContractError);
     expect(() =>
-      decodeEnrollmentExchangeRequest({ invitation, token: invitation }),
+      decodeEnrollmentExchangeRequest({
+        invitation,
+        retry_key: retryKey,
+        client_credential: credential,
+        token: invitation,
+      }),
     ).toThrow(ProtocolContractError);
     expect(() =>
-      decodeEnrollmentExchangeRequest({ invitation: `${'a'.repeat(43)}\r\nInjected: yes` }),
+      decodeEnrollmentExchangeRequest({
+        invitation: `${'a'.repeat(43)}\r\nInjected: yes`,
+        retry_key: retryKey,
+        client_credential: credential,
+      }),
     ).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeEnrollmentExchangeRequest({
+        invitation,
+        retry_key: 'not-a-uuid',
+        client_credential: credential,
+      }),
+    ).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeEnrollmentExchangeRequest({
+        invitation,
+        retry_key: retryKey,
+        client_credential: 'B'.repeat(43),
+      }),
+    ).toThrow(ProtocolContractError);
+    for (const malformedCredential of ['A'.repeat(42), 'A'.repeat(44)]) {
+      expect(() => decodeEnrollmentExchangeRequest({
+        invitation,
+        retry_key: retryKey,
+        client_credential: malformedCredential,
+      })).toThrow(ProtocolContractError);
+    }
   });
 
-  it('accepts a one-time credential response and rejects extra secret fields', () => {
+  it('accepts secret-free ordinary and owner identity responses', () => {
     expect(
       decodeEnrollmentExchangeResponse({
-        client_id: 'client-12345678',
-        credential,
-        credential_expires_at: null,
+        purpose: 'client',
+        client_id: clientId,
+        server_capabilities: [],
       }),
     ).toEqual({
-      client_id: 'client-12345678',
-      credential,
-      credential_expires_at: null,
+      purpose: 'client',
+      client_id: clientId,
+      server_capabilities: [],
     });
     expect(
       decodeEnrollmentExchangeResponseEnvelope(
         createProtocolEnvelope('req-enroll-1', {
-          client_id: 'client-12345678',
-          credential,
+          purpose: 'owner',
+          client_id: clientId,
+          server_capabilities: ['create_cube'],
         }),
       ).payload,
-    ).toEqual({ client_id: 'client-12345678', credential });
+    ).toEqual({
+      purpose: 'owner',
+      client_id: clientId,
+      server_capabilities: ['create_cube'],
+    });
+  });
 
+  it('rejects returned bearers, unknown purposes, and malformed owner authority', () => {
+    for (const secretField of ['credential', 'client_credential', 'invitation', 'retry_key']) {
+      expect(() => decodeEnrollmentExchangeResponse({
+        purpose: 'client',
+        client_id: clientId,
+        server_capabilities: [],
+        [secretField]: credential,
+      }), secretField).toThrow(ProtocolContractError);
+    }
     expect(() =>
       decodeEnrollmentExchangeResponse({
-        client_id: 'client-12345678',
-        credential,
-        recovery_secret: credential,
+        purpose: 'unknown',
+        client_id: clientId,
       }),
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeEnrollmentExchangeResponse({
-        client_id: 'client-12345678\nInjected',
-        credential,
+        purpose: 'owner',
+        client_id: clientId,
+        cube_id: '00000000-0000-4000-8000-000000000003',
+        server_capabilities: ['create_cube'],
       }),
     ).toThrow(ProtocolContractError);
+  });
+});
+
+describe('cube creation codecs', () => {
+  const retryKey = '00000000-0000-4000-8000-000000000011';
+  const response = {
+    cube_id: '00000000-0000-4000-8000-000000000012',
+    human_seat_role_id: '00000000-0000-4000-8000-000000000013',
+    default_worker_role_id: '00000000-0000-4000-8000-000000000014',
+    access: 'manage' as const,
+  };
+
+  it('decodes the closed idempotent request and stable non-secret response', () => {
+    const request = { retry_key: retryKey, name: 'borg-mcp', template: 'default' };
+    expect(decodeCreateCubeRequest(request)).toEqual(request);
+    expect(decodeCreateCubeRequestEnvelope(createProtocolEnvelope('cube-create-1', request)).payload).toEqual(request);
+    expect(decodeCreateCubeResponse(response)).toEqual(response);
+    expect(decodeCreateCubeResponseEnvelope(createProtocolEnvelope('cube-create-1', response)).payload).toEqual(response);
+  });
+
+  it('rejects caller authority, unsupported templates, controls, and returned secrets', () => {
+    expect(() => decodeCreateCubeRequest({ retry_key: retryKey, name: 'borg-mcp', template: 'default', owner_id: response.cube_id })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({ retry_key: retryKey, name: 'borg-mcp', template: 'custom' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({ retry_key: retryKey, name: 'borg\n-mcp', template: 'default' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeResponse({ ...response, credential: 'A'.repeat(43) })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeResponse({ ...response, access: 'write' })).toThrow(ProtocolContractError);
   });
 });
 

@@ -7,11 +7,13 @@ export const SHARED_PACKAGE_VERSION = '0.2.2' as const;
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange' as const;
+export const CUBES_PATH = '/api/cubes' as const;
 
 export const PROTOCOL_HTTP_CONTRACT = {
   health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
   protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: true, success_status: 200 },
   enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
+  cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
   auth_missing_status: 401,
   auth_invalid_status: 401,
   cursor_expired_status: 410,
@@ -32,6 +34,7 @@ export const KNOWN_CAPABILITIES = [
   'coordination.core',
   'auth.bearer',
   'auth.revocation',
+  'auth.retry-safe-enrollment',
   'scope.cube-isolation',
   'transport.tls',
   'authority.no-cloud-fallback',
@@ -49,6 +52,7 @@ export type Capability = KnownCapability | (string & {});
 export const REQUIRED_SECURITY_CAPABILITIES = [
   'auth.bearer',
   'auth.revocation',
+  'auth.retry-safe-enrollment',
   'scope.cube-isolation',
   'transport.tls',
   'authority.no-cloud-fallback',
@@ -90,17 +94,49 @@ export interface ProtocolErrorEnvelope {
   };
 }
 
-/** Invitation and returned bearer values are opaque secrets, never identifiers. */
+/** All secret values are generated and persisted pending by the client before send. */
 export interface EnrollmentExchangeRequest {
   invitation: string;
+  retry_key: string;
+  client_credential: string;
   client_name?: string;
 }
 
-/** The credential is returned once and must not be persisted by server adapters. */
-export interface EnrollmentExchangeResponse {
+export const SERVER_CAPABILITIES = ['create_cube'] as const;
+export type ServerCapability = (typeof SERVER_CAPABILITIES)[number];
+
+/** Ordinary enrollment creates an ungranted client and never returns a bearer. */
+export interface ClientEnrollmentExchangeResponse {
+  purpose: 'client';
   client_id: string;
-  credential: string;
-  credential_expires_at?: string | null;
+  server_capabilities: [];
+}
+
+/** Owner enrollment grants only the narrow authority to create cubes. */
+export interface OwnerEnrollmentExchangeResponse {
+  purpose: 'owner';
+  client_id: string;
+  server_capabilities: ['create_cube'];
+}
+
+export type EnrollmentExchangeResponse =
+  | ClientEnrollmentExchangeResponse
+  | OwnerEnrollmentExchangeResponse;
+
+export const CUBE_TEMPLATES = ['default'] as const;
+export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
+
+export interface CreateCubeRequest {
+  retry_key: string;
+  name: string;
+  template: CubeTemplate;
+}
+
+export interface CreateCubeResponse {
+  cube_id: string;
+  human_seat_role_id: string;
+  default_worker_role_id: string;
+  access: 'manage';
 }
 
 export interface AckLogRequest {
@@ -424,15 +460,29 @@ export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelo
 
 export function decodeEnrollmentExchangeRequest(value: unknown): EnrollmentExchangeRequest {
   const input = record(value);
-  exactKeys(input, ['invitation', 'client_name'], ['invitation']);
+  exactKeys(
+    input,
+    ['invitation', 'retry_key', 'client_credential', 'client_name'],
+    ['invitation', 'retry_key', 'client_credential'],
+  );
   const invitation = opaqueToken(input.invitation, ['invitation']);
+  const retryKey = decodeUuid(input.retry_key, ['retry_key']);
+  const clientCredential = decodeEnrollmentClientCredential(
+    input.client_credential,
+    ['client_credential'],
+  );
   const clientName = input.client_name === undefined
     ? undefined
     : boundedString(input.client_name, 1, 120, ['client_name']);
   if (clientName !== undefined && !/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(clientName)) {
     fail('Client name contains unsupported characters.', ['client_name']);
   }
-  return clientName === undefined ? { invitation } : { invitation, client_name: clientName };
+  const request = {
+    invitation,
+    retry_key: retryKey,
+    client_credential: clientCredential,
+  };
+  return clientName === undefined ? request : { ...request, client_name: clientName };
 }
 
 export function decodeEnrollmentExchangeRequestEnvelope(
@@ -443,27 +493,81 @@ export function decodeEnrollmentExchangeRequestEnvelope(
 
 export function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExchangeResponse {
   const input = record(value);
-  exactKeys(
-    input,
-    ['client_id', 'credential', 'credential_expires_at'],
-    ['client_id', 'credential'],
-  );
-  const clientId = opaqueIdentifier(input.client_id, ['client_id']);
-  const credential = opaqueToken(input.credential, ['credential']);
-  let expiresAt: string | null | undefined;
-  if (input.credential_expires_at === null) expiresAt = null;
-  else if (input.credential_expires_at !== undefined) {
-    expiresAt = decodeCanonicalTimestamp(input.credential_expires_at, ['credential_expires_at']);
+  if (input.purpose === 'client') {
+    exactKeys(input, ['purpose', 'client_id', 'server_capabilities'], ['purpose', 'client_id', 'server_capabilities']);
+    decodeExactServerCapabilities(input.server_capabilities, [], ['server_capabilities']);
+    return {
+      purpose: 'client',
+      client_id: decodeUuid(input.client_id, ['client_id']),
+      server_capabilities: [],
+    };
   }
-  return expiresAt === undefined
-    ? { client_id: clientId, credential }
-    : { client_id: clientId, credential, credential_expires_at: expiresAt };
+  if (input.purpose !== 'owner') fail('Invalid enrollment purpose.', ['purpose']);
+  exactKeys(input, ['purpose', 'client_id', 'server_capabilities'], ['purpose', 'client_id', 'server_capabilities']);
+  decodeExactServerCapabilities(input.server_capabilities, ['create_cube'], ['server_capabilities']);
+  return {
+    purpose: 'owner',
+    client_id: decodeUuid(input.client_id, ['client_id']),
+    server_capabilities: ['create_cube'],
+  };
 }
 
 export function decodeEnrollmentExchangeResponseEnvelope(
   value: unknown,
 ): ProtocolEnvelope<EnrollmentExchangeResponse> {
   return decodeProtocolEnvelope(value, decodeEnrollmentExchangeResponse);
+}
+
+function decodeExactServerCapabilities(
+  value: unknown,
+  expected: readonly ServerCapability[],
+  path: readonly (string | number)[],
+): void {
+  if (!Array.isArray(value) || value.length !== expected.length ||
+      value.some((capability, index) => capability !== expected[index])) {
+    fail(`Expected server capabilities [${expected.join(', ')}].`, path);
+  }
+}
+
+export function decodeCreateCubeRequest(value: unknown): CreateCubeRequest {
+  const input = record(value);
+  exactKeys(input, ['retry_key', 'name', 'template'], ['retry_key', 'name', 'template']);
+  const name = boundedString(input.name, 1, 120, ['name']);
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
+    fail('Cube name contains unsupported characters.', ['name']);
+  }
+  if (!CUBE_TEMPLATES.includes(input.template as CubeTemplate)) {
+    fail('Unsupported cube template.', ['template']);
+  }
+  return {
+    retry_key: decodeUuid(input.retry_key, ['retry_key']),
+    name,
+    template: input.template as CubeTemplate,
+  };
+}
+
+export function decodeCreateCubeRequestEnvelope(value: unknown): ProtocolEnvelope<CreateCubeRequest> {
+  return decodeProtocolEnvelope(value, decodeCreateCubeRequest);
+}
+
+export function decodeCreateCubeResponse(value: unknown): CreateCubeResponse {
+  const input = record(value);
+  exactKeys(
+    input,
+    ['cube_id', 'human_seat_role_id', 'default_worker_role_id', 'access'],
+    ['cube_id', 'human_seat_role_id', 'default_worker_role_id', 'access'],
+  );
+  if (input.access !== 'manage') fail('Created cube access must be manage.', ['access']);
+  return {
+    cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    human_seat_role_id: decodeUuid(input.human_seat_role_id, ['human_seat_role_id']),
+    default_worker_role_id: decodeUuid(input.default_worker_role_id, ['default_worker_role_id']),
+    access: 'manage',
+  };
+}
+
+export function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse> {
+  return decodeProtocolEnvelope(value, decodeCreateCubeResponse);
 }
 
 export function decodeAppendLogRequest(value: unknown): import('./types.js').AppendLogRequest {
@@ -577,6 +681,17 @@ export function decodeUuid(value: unknown, path: readonly (string | number)[] = 
   return id.toLowerCase();
 }
 
+export function decodeEnrollmentClientCredential(
+  value: unknown,
+  path: readonly (string | number)[] = [],
+): string {
+  const credential = boundedString(value, 43, 43, path);
+  if (!/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(credential)) {
+    fail('Expected an unpadded base64url encoding of exactly 256 bits.', path);
+  }
+  return credential;
+}
+
 export function decodeOpaqueIdentifier(
   value: unknown,
   path: readonly (string | number)[] = [],
@@ -586,6 +701,7 @@ export function decodeOpaqueIdentifier(
 
 export function redactProtocolDiagnostic(value: string): string {
   return value
+    .replace(/(\bretry[_-]?key\b["']?\s*(?:=|:)\s*["']?)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '$1<REDACTED>')
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, (character) =>
       `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
     )

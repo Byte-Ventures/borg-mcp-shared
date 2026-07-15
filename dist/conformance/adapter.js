@@ -1,4 +1,5 @@
-import { ErrorCode, ProtocolContractError, compareLogCursor, createProtocolEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolInfoEnvelope, decodeReadLogResultEnvelope, decodeSseFrames, negotiateProtocol, utf8ByteLength, } from '../protocol/index.js';
+import { ErrorCode, ProtocolContractError, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolInfoEnvelope, decodeReadLogResultEnvelope, decodeSseFrames, negotiateProtocol, utf8ByteLength, } from '../protocol/index.js';
+import { ENROLLMENT_RETRY_CONFORMANCE } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
     { id: 'protocol.enrollment-auth', area: 'protocol' },
@@ -116,6 +117,29 @@ function logEvent(event, description) {
 function same(left, right) {
     return JSON.stringify(left) === JSON.stringify(right);
 }
+function assertStateDelta(before, after, expected, description) {
+    for (const key of Object.keys(before)) {
+        invariant(after[key] - before[key] === (expected[key] ?? 0), `${description} changed ${key} by ${after[key] - before[key]}; expected ${expected[key] ?? 0}.`);
+    }
+}
+function assertEnrollmentErrorIsSecretFree(response, requests, description) {
+    const diagnostic = JSON.stringify(response.body);
+    const secrets = new Set(requests.flatMap((request) => [
+        request.invitation,
+        request.retry_key,
+        request.client_credential,
+    ]));
+    for (const secret of secrets) {
+        invariant(!diagnostic.includes(secret), `${description} exposed enrollment retry material.`);
+    }
+}
+function expectSecretFreeError(response, status, code, operation, secrets) {
+    expectError(response, status, code, operation);
+    const diagnostic = JSON.stringify(response.body);
+    for (const secret of new Set(secrets)) {
+        invariant(!diagnostic.includes(secret), `${operation} exposed retry material.`);
+    }
+}
 export async function runAdapterConformance(environment, options = {}) {
     const streamDeadlineMs = options.streamDeadlineMs ?? DEFAULT_STREAM_DEADLINE_MS;
     const pendingProbeMs = options.pendingProbeMs ?? DEFAULT_PENDING_PROBE_MS;
@@ -136,14 +160,10 @@ export async function runAdapterConformance(environment, options = {}) {
         }
     };
     await environment.admin.reset();
-    const principalA = await environment.admin.createPrincipal('principal-a');
-    const principalB = await environment.admin.createPrincipal('principal-b');
-    const cubeA = await environment.admin.createCube('cube-a');
-    const cubeB = await environment.admin.createCube('cube-b');
-    await environment.admin.grantCube(principalA, cubeA);
-    await environment.admin.grantCube(principalB, cubeB);
-    const invitationA = await environment.admin.issueSingleUseInvitation(principalA);
-    const invitationB = await environment.admin.issueSingleUseInvitation(principalB);
+    let principalA;
+    let principalB;
+    let cubeA;
+    let cubeB;
     let credentialA = '';
     let credentialB = '';
     let protocolBody;
@@ -156,22 +176,188 @@ export async function runAdapterConformance(environment, options = {}) {
     });
     await record('protocol.enrollment-auth', async () => {
         expectError(await environment.operations.protocol(null), 401, ErrorCode.AUTH_MISSING, 'Unauthenticated protocol request');
+        const retryVectorErrors = [];
+        for (const [index, vector] of ENROLLMENT_RETRY_CONFORMANCE.entries()) {
+            for (const purpose of ['client', 'owner']) {
+                await environment.admin.reset();
+                try {
+                    const principal = await environment.admin.createPrincipal(`${purpose}-retry-vector-${index}`);
+                    const invitation = await environment.admin.issueSingleUseInvitation(principal, purpose);
+                    const initialPayload = { ...vector.initial, invitation };
+                    const retryPayload = { ...vector.retry, invitation };
+                    const beforeInitial = await environment.admin.observeAuthorityState();
+                    const initialResponse = await environment.operations.enroll(createProtocolEnvelope(`retry-${index}-initial`, initialPayload));
+                    expectStatus(initialResponse, 201, `${vector.name} initial request`);
+                    const initial = decodeEnrollmentExchangeResponseEnvelope(initialResponse.body).payload;
+                    invariant(initial.purpose === purpose, `${purpose} ${vector.name} returned the wrong purpose.`);
+                    invariant(same(initial.server_capabilities, purpose === 'owner' ? ['create_cube'] : []), `${purpose} ${vector.name} returned incorrect server authority.`);
+                    const afterInitial = await environment.admin.observeAuthorityState();
+                    assertStateDelta(beforeInitial, afterInitial, {
+                        enrolled_clients: 1,
+                        enrollment_claims: 1,
+                        server_capabilities: purpose === 'owner' ? 1 : 0,
+                    }, `${purpose} ${vector.name} initial request`);
+                    const beforeRetry = await environment.admin.observeAuthorityState();
+                    const retryResponse = await environment.operations.enroll(createProtocolEnvelope(`retry-${index}-retry`, retryPayload));
+                    if (vector.expected.outcome === 'stable_non_secret_identity') {
+                        expectStatus(retryResponse, 201, `${purpose} ${vector.name}`);
+                        const retry = decodeEnrollmentExchangeResponseEnvelope(retryResponse.body).payload;
+                        invariant(same(initial, retry), `${purpose} ${vector.name} returned different identities.`);
+                        for (const field of vector.expected.forbidden_response_fields) {
+                            invariant(!(field in retry), `${purpose} ${vector.name} returned forbidden field ${field}.`);
+                        }
+                    }
+                    else {
+                        expectError(retryResponse, vector.expected.status, ErrorCode.AUTH_INVALID, `${purpose} ${vector.name}`);
+                        assertEnrollmentErrorIsSecretFree(retryResponse, [initialPayload, retryPayload], `${purpose} ${vector.name}`);
+                    }
+                    assertStateDelta(beforeRetry, await environment.admin.observeAuthorityState(), {}, `${purpose} ${vector.name} retry`);
+                    expectStatus(await environment.operations.protocol(vector.initial.client_credential), 200, `${purpose} ${vector.name} original credential continuity`);
+                    if (vector.retry.client_credential !== vector.initial.client_credential) {
+                        expectError(await environment.operations.protocol(vector.retry.client_credential), 401, ErrorCode.AUTH_INVALID, `${purpose} ${vector.name} mismatched credential rejection`);
+                    }
+                    invariant(same(await environment.admin.inspectEnrollmentPrincipal(principal, initial.client_id), {
+                        response_client_matches: true,
+                        active_credential_bindings: 1,
+                    }), `${purpose} ${vector.name} changed enrollment binding ownership.`);
+                }
+                catch (error) {
+                    retryVectorErrors.push(`${purpose} ${vector.name}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
+        }
+        invariant(retryVectorErrors.length === 0, retryVectorErrors.join(' | '));
+        await environment.admin.reset();
+        const ownerPrincipal = await environment.admin.createPrincipal('owner');
+        const ordinaryPrincipal = await environment.admin.createPrincipal('ordinary');
+        const ownerInvitation = await environment.admin.issueSingleUseInvitation(ownerPrincipal, 'owner');
+        const ordinaryInvitation = await environment.admin.issueSingleUseInvitation(ordinaryPrincipal, 'client');
+        const ownerCredential = `${'Q'.repeat(42)}U`;
+        const ordinaryCredential = `${'Y'.repeat(42)}U`;
+        const beforeAuthorityEnrollment = await environment.admin.observeAuthorityState();
+        const ownerResponse = await environment.operations.enroll(createProtocolEnvelope('owner-enroll', {
+            invitation: ownerInvitation,
+            retry_key: '00000000-0000-4000-8000-000000000211',
+            client_credential: ownerCredential,
+            client_name: 'owner-client',
+        }));
+        const ordinaryResponse = await environment.operations.enroll(createProtocolEnvelope('ordinary-enroll', {
+            invitation: ordinaryInvitation,
+            retry_key: '00000000-0000-4000-8000-000000000212',
+            client_credential: ordinaryCredential,
+            client_name: 'ordinary-client',
+        }));
+        expectStatus(ownerResponse, 201, 'Owner enrollment');
+        expectStatus(ordinaryResponse, 201, 'Ordinary enrollment');
+        const owner = decodeEnrollmentExchangeResponseEnvelope(ownerResponse.body).payload;
+        const ordinary = decodeEnrollmentExchangeResponseEnvelope(ordinaryResponse.body).payload;
+        invariant(owner.purpose === 'owner' && same(owner.server_capabilities, ['create_cube']), 'Owner enrollment lacked exact create-cube authority.');
+        invariant(ordinary.purpose === 'client' && ordinary.server_capabilities.length === 0, 'Ordinary enrollment gained authority.');
+        assertStateDelta(beforeAuthorityEnrollment, await environment.admin.observeAuthorityState(), { enrolled_clients: 2, enrollment_claims: 2, server_capabilities: 1 }, 'Owner and ordinary enrollment');
+        const cubeRequest = {
+            retry_key: '00000000-0000-4000-8000-000000000213',
+            name: 'repository-one',
+            template: 'default',
+        };
+        const droneCredential = await environment.admin.issueDroneSession(ownerPrincipal);
+        const beforeDeniedCreate = await environment.admin.observeAuthorityState();
+        expectSecretFreeError(await environment.operations.createCube(null, createProtocolEnvelope('cube-missing-auth', cubeRequest)), 401, ErrorCode.AUTH_MISSING, 'Missing-auth cube create', [cubeRequest.retry_key]);
+        expectSecretFreeError(await environment.operations.createCube('invalid-credential', createProtocolEnvelope('cube-invalid-auth', cubeRequest)), 401, ErrorCode.AUTH_INVALID, 'Invalid-auth cube create', [cubeRequest.retry_key]);
+        expectSecretFreeError(await environment.operations.createCube(ordinaryCredential, createProtocolEnvelope('cube-denied', cubeRequest)), 403, ErrorCode.ACCESS_DENIED, 'Ordinary cube create', [cubeRequest.retry_key]);
+        expectSecretFreeError(await environment.operations.createCube(droneCredential, createProtocolEnvelope('cube-drone-denied', cubeRequest)), 403, ErrorCode.ACCESS_DENIED, 'Drone-session cube create', [cubeRequest.retry_key]);
+        assertStateDelta(beforeDeniedCreate, await environment.admin.observeAuthorityState(), {}, 'Denied ordinary cube create');
+        const beforeCreate = await environment.admin.observeAuthorityState();
+        const createdResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create', cubeRequest));
+        expectStatus(createdResponse, 201, 'Owner cube create');
+        const created = decodeCreateCubeResponseEnvelope(createdResponse.body).payload;
+        assertStateDelta(beforeCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1 }, 'Owner cube create');
+        invariant(same(await environment.admin.inspectCreatedCube(ownerPrincipal, created), {
+            cube_exists: true,
+            creator_has_grant: true,
+            grant_count: 1,
+            role_count: 2,
+            human_seat_role_matches: true,
+            default_worker_role_matches: true,
+        }), 'Created cube identities or creator grant did not match persisted authority state.');
+        const beforeCreateRetry = await environment.admin.observeAuthorityState();
+        const retriedCreateResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-retry', cubeRequest));
+        expectStatus(retriedCreateResponse, 201, 'Exact cube-create retry');
+        invariant(same(decodeCreateCubeResponseEnvelope(retriedCreateResponse.body).payload, created), 'Exact cube-create retry returned different identities.');
+        assertStateDelta(beforeCreateRetry, await environment.admin.observeAuthorityState(), {}, 'Exact cube-create retry');
+        const beforeCreateMismatch = await environment.admin.observeAuthorityState();
+        expectSecretFreeError(await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-mismatch', { ...cubeRequest, name: 'repository-two' })), 409, ErrorCode.INVALID_INPUT, 'Cube-create retry mismatch', [cubeRequest.retry_key]);
+        assertStateDelta(beforeCreateMismatch, await environment.admin.observeAuthorityState(), {}, 'Cube-create retry mismatch');
+        await environment.admin.grantCreateCubeCapability(ordinaryPrincipal);
+        const crossClientRequest = { ...cubeRequest, name: 'ordinary-repository' };
+        const beforeCrossClientCreate = await environment.admin.observeAuthorityState();
+        const crossClientResponse = await environment.operations.createCube(ordinaryCredential, createProtocolEnvelope('cube-cross-client', crossClientRequest));
+        expectStatus(crossClientResponse, 201, 'Cross-client cube create with reused retry key');
+        const crossClientCreated = decodeCreateCubeResponseEnvelope(crossClientResponse.body).payload;
+        invariant(crossClientCreated.cube_id !== created.cube_id, 'Cross-client retry key reused another client\'s cube.');
+        assertStateDelta(beforeCrossClientCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1 }, 'Cross-client cube create');
+        invariant((await environment.admin.inspectCreatedCube(ordinaryPrincipal, crossClientCreated)).creator_has_grant, 'Cross-client cube creation did not grant its authenticated creator.');
+        const beforeCrossClientRetry = await environment.admin.observeAuthorityState();
+        const crossClientRetry = await environment.operations.createCube(ordinaryCredential, createProtocolEnvelope('cube-cross-client-retry', crossClientRequest));
+        expectStatus(crossClientRetry, 201, 'Exact cross-client cube-create retry');
+        invariant(same(decodeCreateCubeResponseEnvelope(crossClientRetry.body).payload, crossClientCreated), 'Exact cross-client cube-create retry returned different identities.');
+        assertStateDelta(beforeCrossClientRetry, await environment.admin.observeAuthorityState(), {}, 'Exact cross-client cube-create retry');
+        const beforeSecondCreate = await environment.admin.observeAuthorityState();
+        const secondCreatedResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create-second', {
+            ...cubeRequest,
+            retry_key: '00000000-0000-4000-8000-000000000214',
+            name: 'repository-two',
+        }));
+        expectStatus(secondCreatedResponse, 201, 'Second cube create');
+        const secondCreated = decodeCreateCubeResponseEnvelope(secondCreatedResponse.body).payload;
+        invariant(secondCreated.cube_id !== created.cube_id, 'Fresh cube-create retry key reused an existing cube.');
+        assertStateDelta(beforeSecondCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1 }, 'Second cube create');
+        await environment.admin.revokePrincipal(ownerPrincipal);
+        const beforeRevokedCreate = await environment.admin.observeAuthorityState();
+        expectSecretFreeError(await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-revoked', {
+            ...cubeRequest,
+            retry_key: '00000000-0000-4000-8000-000000000215',
+        })), 401, ErrorCode.SESSION_REVOKED, 'Revoked owner cube create', ['00000000-0000-4000-8000-000000000215']);
+        assertStateDelta(beforeRevokedCreate, await environment.admin.observeAuthorityState(), {}, 'Revoked owner cube create');
+        await environment.admin.reset();
+        principalA = await environment.admin.createPrincipal('principal-a');
+        principalB = await environment.admin.createPrincipal('principal-b');
+        cubeA = await environment.admin.createCube('cube-a');
+        cubeB = await environment.admin.createCube('cube-b');
+        await environment.admin.grantCube(principalA, cubeA);
+        await environment.admin.grantCube(principalB, cubeB);
+        const invitationA = await environment.admin.issueSingleUseInvitation(principalA, 'client');
+        const invitationB = await environment.admin.issueSingleUseInvitation(principalB, 'client');
+        credentialA = 'A'.repeat(43);
+        credentialB = 'E'.repeat(43);
         const enrollmentARequest = createProtocolEnvelope('enroll-a1', {
             invitation: invitationA,
+            retry_key: '00000000-0000-4000-8000-000000000201',
+            client_credential: credentialA,
             client_name: 'conformance-a',
         });
         const enrollmentBRequest = createProtocolEnvelope('enroll-b1', {
             invitation: invitationB,
+            retry_key: '00000000-0000-4000-8000-000000000202',
+            client_credential: credentialB,
             client_name: 'conformance-b',
         });
         const enrolledAResponse = await environment.operations.enroll(enrollmentARequest);
         const enrolledBResponse = await environment.operations.enroll(enrollmentBRequest);
         expectStatus(enrolledAResponse, 201, 'Principal A enrollment');
         expectStatus(enrolledBResponse, 201, 'Principal B enrollment');
-        credentialA = decodeEnrollmentExchangeResponseEnvelope(enrolledAResponse.body).payload.credential;
-        credentialB = decodeEnrollmentExchangeResponseEnvelope(enrolledBResponse.body).payload.credential;
-        invariant(credentialA !== credentialB, 'Enrollment issued the same credential to two principals.');
-        expectError(await environment.operations.enroll(enrollmentARequest), 401, ErrorCode.AUTH_INVALID, 'Invitation reuse');
+        const enrolledA = decodeEnrollmentExchangeResponseEnvelope(enrolledAResponse.body).payload;
+        const enrolledB = decodeEnrollmentExchangeResponseEnvelope(enrolledBResponse.body).payload;
+        invariant(enrolledA.purpose === 'client' && enrolledB.purpose === 'client', 'Ordinary enrollment returned owner authority.');
+        invariant(enrolledA.server_capabilities.length === 0 && enrolledB.server_capabilities.length === 0, 'Ordinary enrollment returned a server capability.');
+        invariant(!('credential' in enrolledA) && !('credential' in enrolledB), 'Enrollment response returned a bearer.');
+        const retriedAResponse = await environment.operations.enroll(enrollmentARequest);
+        expectStatus(retriedAResponse, 201, 'Exact enrollment retry');
+        invariant(JSON.stringify(decodeEnrollmentExchangeResponseEnvelope(retriedAResponse.body).payload) ===
+            JSON.stringify(enrolledA), 'Exact enrollment retry returned different identities.');
+        expectError(await environment.operations.enroll(createProtocolEnvelope('enroll-a-mismatch', {
+            ...enrollmentARequest.payload,
+            retry_key: '00000000-0000-4000-8000-000000000203',
+        })), 401, ErrorCode.AUTH_INVALID, 'Enrollment retry mismatch');
         const protocolResponse = await environment.operations.protocol(credentialA);
         expectStatus(protocolResponse, 200, 'Authenticated protocol request');
         protocolBody = protocolResponse.body;
@@ -186,7 +372,9 @@ export async function runAdapterConformance(environment, options = {}) {
         return {
             unauthenticated: ErrorCode.AUTH_MISSING,
             enrollment_status: 201,
-            invitation_reuse: ErrorCode.AUTH_INVALID,
+            exact_retry_status: 201,
+            mismatched_retry: ErrorCode.AUTH_INVALID,
+            response_secret_free: true,
             protocol_version: protocolInfo.protocol_version,
         };
     });

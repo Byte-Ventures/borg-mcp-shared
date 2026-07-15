@@ -5,6 +5,7 @@ export declare const SHARED_PACKAGE_VERSION: "0.2.2";
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
+export declare const CUBES_PATH: "/api/cubes";
 export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly health: {
         readonly method: "GET";
@@ -25,6 +26,12 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly authenticated: "invitation";
         readonly success_status: 201;
     };
+    readonly cubes: {
+        readonly method: "POST";
+        readonly path: "/api/cubes";
+        readonly authenticated: true;
+        readonly success_status: 201;
+    };
     readonly auth_missing_status: 401;
     readonly auth_invalid_status: 401;
     readonly cursor_expired_status: 410;
@@ -39,10 +46,10 @@ export declare const PROTOCOL_LIMIT_CEILINGS: {
     readonly max_read_page_size: 500;
     readonly max_replay_page_size: 1000;
 };
-export declare const KNOWN_CAPABILITIES: readonly ["coordination.core", "auth.bearer", "auth.revocation", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback", "log.cursor", "stream.sse", "stream.replay", "acks", "claims", "decisions"];
+export declare const KNOWN_CAPABILITIES: readonly ["coordination.core", "auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback", "log.cursor", "stream.sse", "stream.replay", "acks", "claims", "decisions"];
 export type KnownCapability = (typeof KNOWN_CAPABILITIES)[number];
 export type Capability = KnownCapability | (string & {});
-export declare const REQUIRED_SECURITY_CAPABILITIES: readonly ["auth.bearer", "auth.revocation", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback"];
+export declare const REQUIRED_SECURITY_CAPABILITIES: readonly ["auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback"];
 export interface ProtocolLimits {
     max_request_bytes: number;
     max_log_message_bytes: number;
@@ -77,12 +84,35 @@ export interface ProtocolErrorEnvelope {
 }
 export interface EnrollmentExchangeRequest {
     invitation: string;
+    retry_key: string;
+    client_credential: string;
     client_name?: string;
 }
-export interface EnrollmentExchangeResponse {
+export declare const SERVER_CAPABILITIES: readonly ["create_cube"];
+export type ServerCapability = (typeof SERVER_CAPABILITIES)[number];
+export interface ClientEnrollmentExchangeResponse {
+    purpose: 'client';
     client_id: string;
-    credential: string;
-    credential_expires_at?: string | null;
+    server_capabilities: [];
+}
+export interface OwnerEnrollmentExchangeResponse {
+    purpose: 'owner';
+    client_id: string;
+    server_capabilities: ['create_cube'];
+}
+export type EnrollmentExchangeResponse = ClientEnrollmentExchangeResponse | OwnerEnrollmentExchangeResponse;
+export declare const CUBE_TEMPLATES: readonly ["default"];
+export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
+export interface CreateCubeRequest {
+    retry_key: string;
+    name: string;
+    template: CubeTemplate;
+}
+export interface CreateCubeResponse {
+    cube_id: string;
+    human_seat_role_id: string;
+    default_worker_role_id: string;
+    access: 'manage';
 }
 export interface AckLogRequest {
     entry_id: string;
@@ -113,6 +143,10 @@ export declare function decodeEnrollmentExchangeRequest(value: unknown): Enrollm
 export declare function decodeEnrollmentExchangeRequestEnvelope(value: unknown): ProtocolEnvelope<EnrollmentExchangeRequest>;
 export declare function decodeEnrollmentExchangeResponse(value: unknown): EnrollmentExchangeResponse;
 export declare function decodeEnrollmentExchangeResponseEnvelope(value: unknown): ProtocolEnvelope<EnrollmentExchangeResponse>;
+export declare function decodeCreateCubeRequest(value: unknown): CreateCubeRequest;
+export declare function decodeCreateCubeRequestEnvelope(value: unknown): ProtocolEnvelope<CreateCubeRequest>;
+export declare function decodeCreateCubeResponse(value: unknown): CreateCubeResponse;
+export declare function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse>;
 export declare function decodeAppendLogRequest(value: unknown): import('./types.js').AppendLogRequest;
 export declare function decodeAckLogRequest(value: unknown): AckLogRequest;
 export declare function decodeRecordDecisionRequest(value: unknown): import('./types.js').RecordDecisionRequest;
@@ -120,6 +154,7 @@ export declare function decodeRemoveDecisionRequest(value: unknown): RemoveDecis
 export declare function decodeCanonicalTimestamp(value: unknown, path?: readonly (string | number)[]): string;
 export declare function decodeLogCursor(value: unknown, path?: readonly (string | number)[]): LogCursor;
 export declare function decodeUuid(value: unknown, path?: readonly (string | number)[]): string;
+export declare function decodeEnrollmentClientCredential(value: unknown, path?: readonly (string | number)[]): string;
 export declare function decodeOpaqueIdentifier(value: unknown, path?: readonly (string | number)[]): string;
 export declare function redactProtocolDiagnostic(value: string): string;
 export declare function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1;
