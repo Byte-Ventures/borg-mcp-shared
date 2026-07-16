@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { verifyPackedArtifact } from './verify-packed-artifact.mjs';
 
 const REGISTRY = 'https://registry.npmjs.org';
-const PROPAGATION_ATTEMPTS = 12;
+const PROPAGATION_ATTEMPTS = 18;
+const PROPAGATION_MAX_DELAY_MS = 15_000;
 
 async function request(path) {
   return fetch(`${REGISTRY}/${path}`, {
@@ -21,7 +22,11 @@ async function json(response, description) {
 export async function readWithPropagationRetry(
   read,
   description,
-  { attempts = PROPAGATION_ATTEMPTS, wait = delay } = {},
+  {
+    attempts = PROPAGATION_ATTEMPTS,
+    maxDelayMs = PROPAGATION_MAX_DELAY_MS,
+    wait = delay,
+  } = {},
 ) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const response = await read();
@@ -29,7 +34,7 @@ export async function readWithPropagationRetry(
     if (attempt === attempts) {
       throw new Error(`${description} remained HTTP 404 after ${attempts} attempts.`);
     }
-    await wait(Math.min(1_000 * (2 ** (attempt - 1)), 5_000));
+    await wait(Math.min(1_000 * (2 ** (attempt - 1)), maxDelayMs));
   }
   throw new Error(`${description} retry loop terminated unexpectedly.`);
 }

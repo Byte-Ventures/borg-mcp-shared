@@ -137,9 +137,10 @@ Recover out of band without rerunning the workflow:
 2. With `GITHUB_SHA=508f2dc88658d8e00ff036b7ce6913fcfbef239b` and
    `NPM_EXPECTED_OWNER=byteventures`, run
    `node scripts/verify-registry-release.mjs postpublish <audited-tarball>`. The
-   verifier retries only transient HTTP 404 propagation responses with bounded
-   backoff; non-404 failures and integrity, owner, or provenance mismatches remain
-   immediate terminal failures.
+   verifier retries only transient HTTP 404 propagation responses. Its production
+   envelope performs at most 18 reads over approximately three and a half minutes
+   (1, 2, 4, and 8 second waits, then a 15 second cap). Non-404 failures and
+   integrity, owner, or provenance mismatches remain immediate terminal failures.
 3. Install exact `borgmcp-shared@0.2.2` from the registry into a clean temporary
    prefix with scripts disabled and run `npm audit signatures` against that
    prefix.
