@@ -40,6 +40,34 @@ function statement(path = '.github/workflows/publish.yml') {
 }
 
 describe('registry provenance verification', () => {
+  it('survives provenance propagation beyond the former twelve-read window', async () => {
+    const responses = [
+      ...Array.from({ length: 12 }, () => ({ status: 404 })),
+      { status: 200, ok: true },
+    ];
+    const waits = [];
+    const response = await readWithPropagationRetry(
+      async () => responses.shift(),
+      'Provenance bundle verification',
+      { wait: async (milliseconds) => waits.push(milliseconds) },
+    );
+    expect(response.status).toBe(200);
+    expect(waits).toEqual([
+      1_000,
+      2_000,
+      4_000,
+      8_000,
+      15_000,
+      15_000,
+      15_000,
+      15_000,
+      15_000,
+      15_000,
+      15_000,
+      15_000,
+    ]);
+  });
+
   it('retries transient registry 404 responses with bounded backoff', async () => {
     const responses = [{ status: 404 }, { status: 404 }, { status: 200, ok: true }];
     const waits = [];
@@ -65,6 +93,19 @@ describe('registry provenance verification', () => {
     )).rejects.toThrow('Provenance bundle verification remained HTTP 404 after 3 attempts.');
     expect(reads).toBe(3);
     expect(waits).toEqual([1_000, 2_000]);
+  });
+
+  it('fails closed after the full production propagation window', async () => {
+    let reads = 0;
+    await expect(readWithPropagationRetry(
+      async () => {
+        reads += 1;
+        return { status: 404 };
+      },
+      'Provenance bundle verification',
+      { wait: async () => {} },
+    )).rejects.toThrow('Provenance bundle verification remained HTTP 404 after 18 attempts.');
+    expect(reads).toBe(18);
   });
 
   it('does not retry terminal non-404 registry responses', async () => {
