@@ -99,17 +99,22 @@ describe('package and handshake contract', () => {
   });
 
   it('never reflects an untrusted protocol_version at any wrapper boundary', () => {
-    // CR 81a57d80 / 507a7bd8 / SR 023aa5f7 / RQ 3a7f7ef2: EVERY shared decoder
-    // that checks the protocol tag must fail closed with the same static,
-    // non-reflective diagnostic. A rogue pinned endpoint must not smuggle
-    // arbitrary text — via a string, array, object, or credential-shaped value —
-    // into diagnostics at any envelope boundary.
+    // CR 81a57d80/507a7bd8/3660569c, SR 023aa5f7/38601356, RQ 3a7f7ef2/39447b0c:
+    // EVERY shared decoder that checks the protocol tag must fail closed with the
+    // SAME static ProtocolContractError — exact code + path + static message, no
+    // reflected marker — AND must short-circuit before any payload/error body is
+    // read. A rogue pinned endpoint must not smuggle arbitrary text (string,
+    // array, object, or credential-shaped value) into diagnostics, and a
+    // secret-shaped payload must never be decoded when the tag mismatches.
     const marker = 'LEAKED-SECRET-MARKER';
-    const messageOf = (fn: () => unknown): string => {
+    const errorOf = (fn: () => unknown): ProtocolContractError => {
       try {
         fn();
       } catch (error) {
-        return (error as Error).message;
+        if (error instanceof ProtocolContractError) return error;
+        // A leaked sentinel from a payload decoder proves the gate did NOT
+        // short-circuit before reading the payload.
+        throw new Error(`expected a ProtocolContractError, got: ${String(error)}`);
       }
       throw new Error('expected a protocol-version mismatch to throw');
     };
@@ -120,22 +125,35 @@ describe('package and handshake contract', () => {
       `Bearer ${marker}`,
     ];
     const req = 'req-12345678';
+    // Would throw a distinct non-contract sentinel if ever called; combined with a
+    // secret-shaped payload this proves the version gate runs before payload decode.
+    const sentinelDecoder = (): never => {
+      throw new Error('PAYLOAD-DECODER-WAS-CALLED');
+    };
+    const secretPayload: Record<string, unknown> = { client_credential: marker, [marker]: marker };
     const boundaries: Array<[string, (protocol_version: unknown) => unknown]> = [
       ['tag preflight', (v) => decodeProtocolTagPreflight({ protocol_version: v })],
-      ['generic success envelope', (v) => decodeProtocolEnvelope({ protocol_version: v, request_id: req, payload: {} }, (p) => p)],
-      ['error envelope', (v) => decodeProtocolErrorEnvelope({ protocol_version: v, error: { code: 'AUTH_INVALID', message: 'x' } })],
-      ['enrollment request envelope', (v) => decodeEnrollmentExchangeRequestEnvelope({ protocol_version: v, request_id: req, payload: {} })],
-      ['enrollment response envelope', (v) => decodeEnrollmentExchangeResponseEnvelope({ protocol_version: v, request_id: req, payload: {} })],
-      ['cube request envelope', (v) => decodeCreateCubeRequestEnvelope({ protocol_version: v, request_id: req, payload: {} })],
-      ['cube response envelope', (v) => decodeCreateCubeResponseEnvelope({ protocol_version: v, request_id: req, payload: {} })],
-      ['attach request envelope', (v) => decodeAttachRequestEnvelope({ protocol_version: v, request_id: req, payload: {} })],
-      ['attach response envelope', (v) => decodeAttachResponseEnvelope({ protocol_version: v, request_id: req, payload: {} })],
+      ['generic success envelope', (v) => decodeProtocolEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }, sentinelDecoder)],
+      ['error envelope', (v) => decodeProtocolErrorEnvelope({ protocol_version: v, error: { code: 'AUTH_INVALID', message: marker } })],
+      ['enrollment request envelope', (v) => decodeEnrollmentExchangeRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['enrollment response envelope', (v) => decodeEnrollmentExchangeResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['cube request envelope', (v) => decodeCreateCubeRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['cube response envelope', (v) => decodeCreateCubeResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['attach request envelope', (v) => decodeAttachRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['attach response envelope', (v) => decodeAttachResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
     ];
     for (const [label, decode] of boundaries) {
       for (const protocol_version of hostileValues) {
-        const message = messageOf(() => decode(protocol_version));
-        expect(message, `${label} reflected a hostile protocol_version`).toBe('Unsupported protocol version.');
-        expect(message, `${label} leaked the marker`).not.toContain(marker);
+        const error = errorOf(() => decode(protocol_version));
+        expect(error.message, `${label} reflected input`).toBe('Unsupported protocol version.');
+        expect(error.code, `${label} wrong code`).toBe('UNSUPPORTED_PROTOCOL_VERSION');
+        expect(error.path, `${label} wrong path`).toEqual(['protocol_version']);
+        // message + path + code are the only diagnostic surface; none may carry
+        // the marker from the tag value OR the secret-shaped payload.
+        expect(
+          `${error.message} ${JSON.stringify(error.path)} ${String(error.code)}`,
+          `${label} leaked the marker`,
+        ).not.toContain(marker);
       }
     }
   });
