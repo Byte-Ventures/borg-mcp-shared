@@ -498,4 +498,128 @@ export function maxLogCursor(a, b) {
         return decodeLogCursor(a);
     return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
 }
+export const ATTACH_PATH = '/api/client/attach';
+function decodeAttachCube(value, path) {
+    const input = record(value, path);
+    exactKeys(input, ['id', 'name'], ['id', 'name'], path);
+    return {
+        id: decodeUuid(input.id, [...path, 'id']),
+        name: boundedString(input.name, 1, 128, [...path, 'name']),
+    };
+}
+function decodeAttachRole(value, path) {
+    const input = record(value, path);
+    exactKeys(input, ['id', 'name', 'role_class', 'is_human_seat'], ['id', 'name'], path);
+    const result = {
+        id: decodeUuid(input.id, [...path, 'id']),
+        name: boundedString(input.name, 1, 128, [...path, 'name']),
+    };
+    if (input.role_class !== undefined) {
+        if (input.role_class !== 'queen' && input.role_class !== 'worker') {
+            fail('Expected role_class "queen" or "worker".', [...path, 'role_class']);
+        }
+        result.role_class = input.role_class;
+    }
+    if (input.is_human_seat !== undefined) {
+        if (typeof input.is_human_seat !== 'boolean') {
+            fail('Expected a boolean.', [...path, 'is_human_seat']);
+        }
+        result.is_human_seat = input.is_human_seat;
+    }
+    return result;
+}
+function decodeAttachDrone(value, path) {
+    const input = record(value, path);
+    exactKeys(input, ['id', 'label'], ['id', 'label'], path);
+    return {
+        id: decodeUuid(input.id, [...path, 'id']),
+        label: boundedString(input.label, 1, 128, [...path, 'label']),
+    };
+}
+function decodeAttachSession(value, path) {
+    const input = record(value, path);
+    exactKeys(input, ['id', 'expires_at'], ['id', 'expires_at'], path);
+    return {
+        id: decodeUuid(input.id, [...path, 'id']),
+        expires_at: decodeCanonicalTimestamp(input.expires_at, [...path, 'expires_at']),
+    };
+}
+export function decodeAttachRequest(value) {
+    const input = record(value);
+    exactKeys(input, ['cube_id', 'role_id', 'session_credential', 'prior_drone_id'], [
+        'cube_id',
+        'role_id',
+        'session_credential',
+    ]);
+    const result = {
+        cube_id: decodeUuid(input.cube_id, ['cube_id']),
+        role_id: decodeUuid(input.role_id, ['role_id']),
+        session_credential: opaqueToken(input.session_credential, ['session_credential']),
+    };
+    if (input.prior_drone_id !== undefined) {
+        result.prior_drone_id = decodeUuid(input.prior_drone_id, ['prior_drone_id']);
+    }
+    return result;
+}
+export function createAttachRequestEnvelope(requestId, payload) {
+    return {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: decodeRequestId(requestId, ['request_id']),
+        payload,
+    };
+}
+export function decodeAttachRequestEnvelope(value) {
+    const input = record(value);
+    exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
+        'protocol_version',
+        'request_id',
+        'payload',
+    ]);
+    if (input.protocol_version !== PROTOCOL_VERSION) {
+        throw new ProtocolContractError('Unsupported protocol version.', ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
+    }
+    const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
+    return {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: decodedRequestId,
+        payload: decodeAttachRequest(input.payload),
+    };
+}
+export function decodeAttachResponse(value) {
+    const input = record(value);
+    exactKeys(input, ['result', 'cube', 'role', 'drone', 'session'], [
+        'result',
+        'cube',
+        'role',
+        'drone',
+        'session',
+    ]);
+    if (input.result !== 'created' && input.result !== 'reused') {
+        fail('Expected result "created" or "reused".', ['result']);
+    }
+    return {
+        result: input.result,
+        cube: decodeAttachCube(input.cube, ['cube']),
+        role: decodeAttachRole(input.role, ['role']),
+        drone: decodeAttachDrone(input.drone, ['drone']),
+        session: decodeAttachSession(input.session, ['session']),
+    };
+}
+export function decodeAttachResponseEnvelope(value) {
+    const input = record(value);
+    exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
+        'protocol_version',
+        'request_id',
+        'payload',
+    ]);
+    if (input.protocol_version !== PROTOCOL_VERSION) {
+        throw new ProtocolContractError('Unsupported protocol version.', ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
+    }
+    const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
+    return {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: decodedRequestId,
+        payload: decodeAttachResponse(input.payload),
+    };
+}
 //# sourceMappingURL=contract.js.map

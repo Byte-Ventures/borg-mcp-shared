@@ -159,4 +159,42 @@ export declare function decodeOpaqueIdentifier(value: unknown, path?: readonly (
 export declare function redactProtocolDiagnostic(value: string): string;
 export declare function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1;
 export declare function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCursor | null;
+export declare const ATTACH_PATH: "/api/client/attach";
+export interface AttachRequest {
+    cube_id: string;
+    role_id: string;
+    session_credential: string;
+    prior_drone_id?: string;
+}
+export interface AttachCube {
+    id: string;
+    name: string;
+}
+export type AttachRoleClass = 'queen' | 'worker';
+export interface AttachRole {
+    id: string;
+    name: string;
+    role_class?: AttachRoleClass;
+    is_human_seat?: boolean;
+}
+export interface AttachDrone {
+    id: string;
+    label: string;
+}
+export interface AttachSession {
+    id: string;
+    expires_at: string;
+}
+export interface AttachResponse {
+    result: 'created' | 'reused';
+    cube: AttachCube;
+    role: AttachRole;
+    drone: AttachDrone;
+    session: AttachSession;
+}
+export declare function decodeAttachRequest(value: unknown): AttachRequest;
+export declare function createAttachRequestEnvelope(requestId: string, payload: AttachRequest): ProtocolEnvelope<AttachRequest>;
+export declare function decodeAttachRequestEnvelope(value: unknown): ProtocolEnvelope<AttachRequest>;
+export declare function decodeAttachResponse(value: unknown): AttachResponse;
+export declare function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelope<AttachResponse>;
 //# sourceMappingURL=contract.d.ts.map
