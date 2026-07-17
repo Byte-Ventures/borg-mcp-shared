@@ -237,7 +237,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      'Unsupported protocol version.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -265,7 +265,7 @@ export function decodeProtocolEnvelope<T>(
   ]);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      'Unsupported protocol version.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -284,7 +284,7 @@ export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelo
   exactKeys(input, ['protocol_version', 'request_id', 'error'], ['protocol_version', 'error']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      'Unsupported protocol version.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );

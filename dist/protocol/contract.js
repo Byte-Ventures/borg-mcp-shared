@@ -117,7 +117,7 @@ export function decodeProtocolTagPreflight(value) {
     const input = record(value);
     exactKeys(input, ['protocol_version'], ['protocol_version']);
     if (input.protocol_version !== PROTOCOL_VERSION) {
-        throw new ProtocolContractError(`Unsupported protocol version "${String(input.protocol_version)}".`, ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
+        throw new ProtocolContractError('Unsupported protocol version.', ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
     }
     return { protocol_version: PROTOCOL_VERSION };
 }
@@ -136,7 +136,7 @@ export function decodeProtocolEnvelope(value, decodePayload) {
         'payload',
     ]);
     if (input.protocol_version !== PROTOCOL_VERSION) {
-        throw new ProtocolContractError(`Unsupported protocol version "${String(input.protocol_version)}".`, ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
+        throw new ProtocolContractError('Unsupported protocol version.', ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
     }
     const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
     return {
@@ -149,7 +149,7 @@ export function decodeProtocolErrorEnvelope(value) {
     const input = record(value);
     exactKeys(input, ['protocol_version', 'request_id', 'error'], ['protocol_version', 'error']);
     if (input.protocol_version !== PROTOCOL_VERSION) {
-        throw new ProtocolContractError(`Unsupported protocol version "${String(input.protocol_version)}".`, ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
+        throw new ProtocolContractError('Unsupported protocol version.', ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
     }
     const error = record(input.error, ['error']);
     exactKeys(error, [

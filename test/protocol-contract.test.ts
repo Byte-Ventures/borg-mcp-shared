@@ -98,6 +98,50 @@ describe('package and handshake contract', () => {
     expect(() => decodeProtocolTagPreflight('2')).toThrow(ProtocolContractError);
   });
 
+  it('never reflects an untrusted protocol_version into the mismatch diagnostic', () => {
+    // CR 81a57d80 / SR 023aa5f7: the tag mismatch must be static and
+    // non-reflective. A rogue pinned endpoint must not smuggle arbitrary text
+    // (including via a non-string value such as an array) into diagnostics.
+    const marker = 'LEAKED-SECRET-MARKER';
+    const messageOf = (fn: () => unknown): string => {
+      try {
+        fn();
+      } catch (error) {
+        return (error as Error).message;
+      }
+      throw new Error('expected a protocol-version mismatch to throw');
+    };
+    // Hostile string / array / object / credential-shaped values must all yield
+    // the same static diagnostic with no reflected marker (RQ 3a7f7ef2).
+    const hostileValues: unknown[] = [
+      marker,
+      [marker],
+      { toString: () => marker },
+      `Bearer ${marker}`,
+    ];
+    for (const protocol_version of hostileValues) {
+      const message = messageOf(() => decodeProtocolTagPreflight({ protocol_version }));
+      expect(message).toBe('Unsupported protocol version.');
+      expect(message).not.toContain(marker);
+    }
+    expect(
+      messageOf(() =>
+        decodeProtocolEnvelope(
+          { protocol_version: marker, request_id: 'req-12345678', payload: {} },
+          (payload) => payload,
+        ),
+      ),
+    ).not.toContain(marker);
+    expect(
+      messageOf(() =>
+        decodeProtocolErrorEnvelope({
+          protocol_version: marker,
+          error: { code: 'AUTH_INVALID', message: 'x' },
+        }),
+      ),
+    ).not.toContain(marker);
+  });
+
   it('does not re-export any retired capability-negotiation surface', () => {
     // Regression guard (CR bb7f68c8 / SR ad3d6a95): the exact protocol tag is the
     // sole acceptance authority. None of the deleted negotiation/matrix symbols may
