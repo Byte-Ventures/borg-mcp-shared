@@ -14,6 +14,9 @@ import {
   createProtocolEnvelope,
   decodeAckLogRequest,
   decodeAppendLogRequest,
+  decodeAttachRequest,
+  decodeAttachResponse,
+  decodeAttachResponseEnvelope,
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeRequestEnvelope,
   decodeEnrollmentExchangeResponse,
@@ -509,6 +512,167 @@ describe('coordination request codecs', () => {
         status: 'active',
         supersedes: null,
         created_at: '2026-07-14T10:00:00.000Z',
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+});
+
+describe('v2 clean-slate wire types', () => {
+  const validAttachRequest = {
+    cube_id: '10000000-0000-4000-8000-000000000001',
+    role_id: '20000000-0000-4000-8000-000000000001',
+    session_credential: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop_0',
+  };
+
+  const validAttachResponse = {
+    result: 'created' as const,
+    cube: { id: '10000000-0000-4000-8000-000000000001', name: 'test-cube' },
+    role: { id: '20000000-0000-4000-8000-000000000001', name: 'Builder' },
+    drone: { id: '30000000-0000-4000-8000-000000000001', label: 'forty-of-forty-builder' },
+    session: {
+      id: '40000000-0000-4000-8000-000000000001',
+      expires_at: '2026-07-18T15:00:00.000Z',
+    },
+  };
+
+  it('decodes a valid attach request', () => {
+    const decoded = decodeAttachRequest(validAttachRequest);
+    expect(decoded.cube_id).toBe(validAttachRequest.cube_id);
+    expect(decoded.role_id).toBe(validAttachRequest.role_id);
+    expect(decoded.session_credential).toBe(validAttachRequest.session_credential);
+    expect(decoded.prior_drone_id).toBeUndefined();
+  });
+
+  it('decodes attach request with optional prior_drone_id', () => {
+    const withPrior = { ...validAttachRequest, prior_drone_id: '50000000-0000-4000-8000-000000000001' };
+    const decoded = decodeAttachRequest(withPrior);
+    expect(decoded.prior_drone_id).toBe(withPrior.prior_drone_id);
+  });
+
+  it('rejects attach request with unknown keys', () => {
+    expect(() =>
+      decodeAttachRequest({ ...validAttachRequest, retry_key: 'extra' }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach request with missing cube_id', () => {
+    const { cube_id: _, ...rest } = validAttachRequest;
+    expect(() => decodeAttachRequest(rest)).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach request with missing session_credential', () => {
+    const { session_credential: _, ...rest } = validAttachRequest;
+    expect(() => decodeAttachRequest(rest)).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach request with invalid session_credential format', () => {
+    expect(() =>
+      decodeAttachRequest({ ...validAttachRequest, session_credential: 'too-short' }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach request with non-UUID cube_id', () => {
+    expect(() =>
+      decodeAttachRequest({ ...validAttachRequest, cube_id: 'not-a-uuid' }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('decodes a valid attach response with result "created"', () => {
+    const decoded = decodeAttachResponse(validAttachResponse);
+    expect(decoded.result).toBe('created');
+    expect(decoded.cube.name).toBe('test-cube');
+    expect(decoded.session.expires_at).toBe('2026-07-18T15:00:00.000Z');
+  });
+
+  it('decodes a valid attach response with result "reused"', () => {
+    const reused = { ...validAttachResponse, result: 'reused' as const };
+    const decoded = decodeAttachResponse(reused);
+    expect(decoded.result).toBe('reused');
+  });
+
+  it('rejects attach response with unknown result discriminant', () => {
+    expect(() =>
+      decodeAttachResponse({ ...validAttachResponse, result: 'rotated' }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response with null expires_at', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        session: { ...validAttachResponse.session, expires_at: null },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response with missing expires_at', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        session: { id: validAttachResponse.session.id },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response with unknown session fields', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        session: { ...validAttachResponse.session, token: 'extra' },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response with unknown top-level keys', () => {
+    expect(() =>
+      decodeAttachResponse({ ...validAttachResponse, generation: 2 }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('decodes attach response with optional role fields', () => {
+    const withRoleClass = {
+      ...validAttachResponse,
+      role: { ...validAttachResponse.role, role_class: 'builder', is_human_seat: false },
+    };
+    const decoded = decodeAttachResponse(withRoleClass);
+    expect(decoded.role.role_class).toBe('builder');
+    expect(decoded.role.is_human_seat).toBe(false);
+  });
+
+  it('decodes attach response envelope with v2 protocol version', () => {
+    const envelope = {
+      protocol_version: '2',
+      request_id: 'test-request-id-123',
+      payload: validAttachResponse,
+    };
+    const decoded = decodeAttachResponseEnvelope(envelope);
+    expect(decoded.protocol_version).toBe('2');
+    expect(decoded.payload.result).toBe('created');
+  });
+
+  it('rejects attach response envelope with v1 protocol version', () => {
+    const envelope = {
+      protocol_version: '1',
+      request_id: 'test-request-id-123',
+      payload: validAttachResponse,
+    };
+    expect(() => decodeAttachResponseEnvelope(envelope)).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response envelope with unknown protocol version', () => {
+    const envelope = {
+      protocol_version: '3',
+      request_id: 'test-request-id-123',
+      payload: validAttachResponse,
+    };
+    expect(() => decodeAttachResponseEnvelope(envelope)).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response with non-finite expires_at', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        session: { ...validAttachResponse.session, expires_at: 'not-a-timestamp' },
       }),
     ).toThrow(ProtocolContractError);
   });

@@ -81,6 +81,12 @@ export interface ProtocolEnvelope<T> {
   payload: T;
 }
 
+export interface ProtocolEnvelopeV2<T> {
+  protocol_version: typeof PROTOCOL_V2;
+  request_id: string;
+  payload: T;
+}
+
 export interface ProtocolErrorEnvelope {
   protocol_version: ProtocolVersion;
   request_id?: string;
@@ -721,4 +727,172 @@ export function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCurso
   if (a === null) return b === null ? null : decodeLogCursor(b);
   if (b === null) return decodeLogCursor(a);
   return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
+}
+
+// ── v2 clean-slate wire types ──────────────────────────────────────────────
+
+/**
+ * Clean-slate v2 protocol identity. Every v2 envelope MUST carry exactly this
+ * value. Client requires exact equality; server rejects any other tag with
+ * UNSUPPORTED_PROTOCOL_VERSION before decode or credential-bearing processing.
+ * Never reuse '1'.
+ */
+export const PROTOCOL_V2 = '2' as const;
+
+export const ATTACH_PATH = '/api/client/attach' as const;
+
+export interface AttachRequest {
+  cube_id: string;
+  role_id: string;
+  session_credential: string;
+  prior_drone_id?: string;
+}
+
+export interface AttachCube {
+  id: string;
+  name: string;
+}
+
+export interface AttachRole {
+  id: string;
+  name: string;
+  role_class?: string;
+  is_human_seat?: boolean;
+}
+
+export interface AttachDrone {
+  id: string;
+  label: string;
+}
+
+export interface AttachSession {
+  id: string;
+  expires_at: string;
+}
+
+export interface AttachResponse {
+  result: 'created' | 'reused';
+  cube: AttachCube;
+  role: AttachRole;
+  drone: AttachDrone;
+  session: AttachSession;
+}
+
+function decodeAttachCube(value: unknown, path: readonly (string | number)[]): AttachCube {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'name'], ['id', 'name'], path);
+  return {
+    id: decodeUuid(input.id, [...path, 'id']),
+    name: boundedString(input.name, 1, 128, [...path, 'name']),
+  };
+}
+
+function decodeAttachRole(value: unknown, path: readonly (string | number)[]): AttachRole {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'name', 'role_class', 'is_human_seat'], ['id', 'name'], path);
+  const result: AttachRole = {
+    id: decodeUuid(input.id, [...path, 'id']),
+    name: boundedString(input.name, 1, 128, [...path, 'name']),
+  };
+  if (input.role_class !== undefined) {
+    result.role_class = boundedString(input.role_class, 1, 64, [...path, 'role_class']);
+  }
+  if (input.is_human_seat !== undefined) {
+    if (typeof input.is_human_seat !== 'boolean') {
+      fail('Expected a boolean.', [...path, 'is_human_seat']);
+    }
+    result.is_human_seat = input.is_human_seat;
+  }
+  return result;
+}
+
+function decodeAttachDrone(value: unknown, path: readonly (string | number)[]): AttachDrone {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'label'], ['id', 'label'], path);
+  return {
+    id: decodeUuid(input.id, [...path, 'id']),
+    label: boundedString(input.label, 1, 128, [...path, 'label']),
+  };
+}
+
+function decodeAttachSession(value: unknown, path: readonly (string | number)[]): AttachSession {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'expires_at'], ['id', 'expires_at'], path);
+  return {
+    id: decodeUuid(input.id, [...path, 'id']),
+    expires_at: decodeCanonicalTimestamp(input.expires_at, [...path, 'expires_at']),
+  };
+}
+
+/**
+ * Decode a v2 attach request. Strict: exact keys, bounded sizes,
+ * session_credential is token-safe and never echoed in errors.
+ */
+export function decodeAttachRequest(value: unknown): AttachRequest {
+  const input = record(value);
+  exactKeys(input, ['cube_id', 'role_id', 'session_credential', 'prior_drone_id'], [
+    'cube_id',
+    'role_id',
+    'session_credential',
+  ]);
+  const result: AttachRequest = {
+    cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    role_id: decodeUuid(input.role_id, ['role_id']),
+    session_credential: opaqueToken(input.session_credential, ['session_credential']),
+  };
+  if (input.prior_drone_id !== undefined) {
+    result.prior_drone_id = decodeUuid(input.prior_drone_id, ['prior_drone_id']);
+  }
+  return result;
+}
+
+/**
+ * Decode a v2 attach response. Strict: exact keys, result discriminant,
+ * expires_at required non-null finite ISO-8601.
+ */
+export function decodeAttachResponse(value: unknown): AttachResponse {
+  const input = record(value);
+  exactKeys(input, ['result', 'cube', 'role', 'drone', 'session'], [
+    'result',
+    'cube',
+    'role',
+    'drone',
+    'session',
+  ]);
+  if (input.result !== 'created' && input.result !== 'reused') {
+    fail('Expected result "created" or "reused".', ['result']);
+  }
+  return {
+    result: input.result,
+    cube: decodeAttachCube(input.cube, ['cube']),
+    role: decodeAttachRole(input.role, ['role']),
+    drone: decodeAttachDrone(input.drone, ['drone']),
+    session: decodeAttachSession(input.session, ['session']),
+  };
+}
+
+/**
+ * Decode a v2 attach response wrapped in a ProtocolEnvelope.
+ * Verifies protocol_version === PROTOCOL_V2 before decoding payload.
+ */
+export function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelopeV2<AttachResponse> {
+  const input = record(value);
+  exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
+    'protocol_version',
+    'request_id',
+    'payload',
+  ]);
+  if (input.protocol_version !== PROTOCOL_V2) {
+    throw new ProtocolContractError(
+      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+      ['protocol_version'],
+    );
+  }
+  const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
+  return {
+    protocol_version: PROTOCOL_V2,
+    request_id: decodedRequestId,
+    payload: decodeAttachResponse(input.payload),
+  };
 }
