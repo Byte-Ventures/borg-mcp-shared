@@ -81,12 +81,6 @@ export interface ProtocolEnvelope<T> {
   payload: T;
 }
 
-export interface ProtocolEnvelopeV2<T> {
-  protocol_version: typeof PROTOCOL_V2;
-  request_id: string;
-  payload: T;
-}
-
 export interface ProtocolErrorEnvelope {
   protocol_version: ProtocolVersion;
   request_id?: string;
@@ -731,14 +725,6 @@ export function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCurso
 
 // ── v2 clean-slate wire types ──────────────────────────────────────────────
 
-/**
- * Clean-slate v2 protocol identity. Every v2 envelope MUST carry exactly this
- * value. Client requires exact equality; server rejects any other tag with
- * UNSUPPORTED_PROTOCOL_VERSION before decode or credential-bearing processing.
- * Never reuse '1'.
- */
-export const PROTOCOL_V2 = '2' as const;
-
 export const ATTACH_PATH = '/api/client/attach' as const;
 
 export interface AttachRequest {
@@ -753,10 +739,12 @@ export interface AttachCube {
   name: string;
 }
 
+export type AttachRoleClass = 'queen' | 'worker';
+
 export interface AttachRole {
   id: string;
   name: string;
-  role_class?: string;
+  role_class?: AttachRoleClass;
   is_human_seat?: boolean;
 }
 
@@ -795,7 +783,10 @@ function decodeAttachRole(value: unknown, path: readonly (string | number)[]): A
     name: boundedString(input.name, 1, 128, [...path, 'name']),
   };
   if (input.role_class !== undefined) {
-    result.role_class = boundedString(input.role_class, 1, 64, [...path, 'role_class']);
+    if (input.role_class !== 'queen' && input.role_class !== 'worker') {
+      fail('Expected role_class "queen" or "worker".', [...path, 'role_class']);
+    }
+    result.role_class = input.role_class;
   }
   if (input.is_human_seat !== undefined) {
     if (typeof input.is_human_seat !== 'boolean') {
@@ -847,6 +838,50 @@ export function decodeAttachRequest(value: unknown): AttachRequest {
 }
 
 /**
+ * Create a v2 attach request envelope. Stamps the canonical protocol version.
+ */
+export function createAttachRequestEnvelope(
+  requestId: string,
+  payload: AttachRequest,
+): ProtocolEnvelope<AttachRequest> {
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    request_id: decodeRequestId(requestId, ['request_id']),
+    payload,
+  };
+}
+
+/**
+ * Decode a v2 attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
+ * BEFORE decoding the payload — a wrong tag never invokes the payload decoder
+ * and never exposes or returns the supplied session_credential.
+ * Uses a static token-safe diagnostic; does not interpolate attacker-controlled text.
+ */
+export function decodeAttachRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<AttachRequest> {
+  const input = record(value);
+  exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
+    'protocol_version',
+    'request_id',
+    'payload',
+  ]);
+  if (input.protocol_version !== PROTOCOL_VERSION) {
+    throw new ProtocolContractError(
+      'Unsupported protocol version.',
+      ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+      ['protocol_version'],
+    );
+  }
+  const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    request_id: decodedRequestId,
+    payload: decodeAttachRequest(input.payload),
+  };
+}
+
+/**
  * Decode a v2 attach response. Strict: exact keys, result discriminant,
  * expires_at required non-null finite ISO-8601.
  */
@@ -873,25 +908,25 @@ export function decodeAttachResponse(value: unknown): AttachResponse {
 
 /**
  * Decode a v2 attach response wrapped in a ProtocolEnvelope.
- * Verifies protocol_version === PROTOCOL_V2 before decoding payload.
+ * Verifies protocol_version === PROTOCOL_VERSION before decoding payload.
  */
-export function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelopeV2<AttachResponse> {
+export function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelope<AttachResponse> {
   const input = record(value);
   exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
     'protocol_version',
     'request_id',
     'payload',
   ]);
-  if (input.protocol_version !== PROTOCOL_V2) {
+  if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      'Unsupported protocol version.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
   }
   const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
   return {
-    protocol_version: PROTOCOL_V2,
+    protocol_version: PROTOCOL_VERSION,
     request_id: decodedRequestId,
     payload: decodeAttachResponse(input.payload),
   };

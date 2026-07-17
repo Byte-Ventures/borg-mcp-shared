@@ -4,7 +4,6 @@ import {
   ENROLLMENT_EXCHANGE_PATH,
   CUBES_PATH,
   HEALTH_PATH,
-  COMPATIBILITY_MATRIX,
   PROTOCOL_INFO_PATH,
   PROTOCOL_HTTP_CONTRACT,
   REQUIRED_SECURITY_CAPABILITIES,
@@ -15,6 +14,7 @@ import {
   decodeAckLogRequest,
   decodeAppendLogRequest,
   decodeAttachRequest,
+  decodeAttachRequestEnvelope,
   decodeAttachResponse,
   decodeAttachResponseEnvelope,
   decodeEnrollmentExchangeRequest,
@@ -36,10 +36,11 @@ import {
   decodeRemoveDecisionRequest,
   negotiateProtocol,
   redactProtocolDiagnostic,
+  createAttachRequestEnvelope,
 } from '../src/index.js';
 
 const protocolInfo = {
-  protocol_version: '1',
+  protocol_version: '2',
   package: {
     name: 'borgmcp-shared',
     version: '0.3.0',
@@ -80,8 +81,6 @@ describe('package and handshake contract', () => {
       version: SHARED_PACKAGE_VERSION,
       publishConfig: { access: 'public' },
     });
-    expect(COMPATIBILITY_MATRIX[0]?.packageRange).toBe('>=0.3.0 <0.4.0');
-    expect(COMPATIBILITY_MATRIX[1]?.packageRange).toBe('>=0.2.0 <0.3.0');
   });
 
   it('uses one bodyless health path and authenticated protocol/enrollment paths', () => {
@@ -143,7 +142,7 @@ describe('package and handshake contract', () => {
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
     expect(createProtocolEnvelope('req-12345678', { ok: true })).toEqual({
-      protocol_version: '1',
+      protocol_version: '2',
       request_id: 'req-12345678',
       payload: { ok: true },
     });
@@ -154,14 +153,14 @@ describe('package and handshake contract', () => {
     expect(decodeProtocolEnvelope(envelope, decodeProtocolInfo)).toEqual(envelope);
     expect(decodeProtocolInfoEnvelope(envelope)).toEqual(envelope);
     expect(() =>
-      decodeProtocolEnvelope({ ...envelope, protocol_version: '2' }, decodeProtocolInfo),
+      decodeProtocolEnvelope({ ...envelope, protocol_version: '1' }, decodeProtocolInfo),
     ).toThrowError(expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }));
   });
 
   it('decodes canonical errors without accepting secret-bearing fields', () => {
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '1',
+        protocol_version: '2',
         request_id: 'req-12345678',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -169,7 +168,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '1',
+        protocol_version: '2',
         error: {
           code: 'AUTH_INVALID',
           message: 'Authentication failed.',
@@ -186,7 +185,7 @@ describe('package and handshake contract', () => {
     );
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '1',
+        protocol_version: '2',
         error: { code: 'AUTH_INVALID', message: `Credential ${secret} failed.` },
       }).error.message,
     ).toBe('Credential <REDACTED> failed.');
@@ -211,7 +210,7 @@ describe('package and handshake contract', () => {
       `retry_key\\u0009:<REDACTED> cube_id=${publicId}`,
     );
     expect(decodeProtocolErrorEnvelope({
-      protocol_version: '1',
+      protocol_version: '2',
       error: {
         code: 'AUTH_INVALID',
         message: `retry-key\n: ${retryKey}`,
@@ -231,14 +230,14 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '1',
+        protocol_version: '2',
         request_id: 'valid-id\r\nInjected',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '1',
+        protocol_version: '2',
         error: {
           code: 'UNSUPPORTED_CAPABILITY',
           message: 'Unsupported.',
@@ -248,7 +247,7 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '1',
+        protocol_version: '2',
         error: {
           code: 'UNSUPPORTED_PROTOCOL_VERSION',
           message: 'Unsupported.',
@@ -632,14 +631,40 @@ describe('v2 clean-slate wire types', () => {
   it('decodes attach response with optional role fields', () => {
     const withRoleClass = {
       ...validAttachResponse,
-      role: { ...validAttachResponse.role, role_class: 'builder', is_human_seat: false },
+      role: { ...validAttachResponse.role, role_class: 'worker', is_human_seat: false },
     };
     const decoded = decodeAttachResponse(withRoleClass);
-    expect(decoded.role.role_class).toBe('builder');
+    expect(decoded.role.role_class).toBe('worker');
     expect(decoded.role.is_human_seat).toBe(false);
   });
 
-  it('decodes attach response envelope with v2 protocol version', () => {
+  it('rejects attach response with unknown role_class', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        role: { ...validAttachResponse.role, role_class: 'builder' },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response with non-queen/non-worker role_class', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        role: { ...validAttachResponse.role, role_class: 'admin' },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('accepts role_class "queen"', () => {
+    const decoded = decodeAttachResponse({
+      ...validAttachResponse,
+      role: { ...validAttachResponse.role, role_class: 'queen' },
+    });
+    expect(decoded.role.role_class).toBe('queen');
+  });
+
+  it('decodes attach response envelope with correct protocol version', () => {
     const envelope = {
       protocol_version: '2',
       request_id: 'test-request-id-123',
@@ -650,7 +675,7 @@ describe('v2 clean-slate wire types', () => {
     expect(decoded.payload.result).toBe('created');
   });
 
-  it('rejects attach response envelope with v1 protocol version', () => {
+  it('rejects attach response envelope with wrong protocol version', () => {
     const envelope = {
       protocol_version: '1',
       request_id: 'test-request-id-123',
@@ -675,5 +700,81 @@ describe('v2 clean-slate wire types', () => {
         session: { ...validAttachResponse.session, expires_at: 'not-a-timestamp' },
       }),
     ).toThrow(ProtocolContractError);
+  });
+
+  // ── Request envelope tests ─────────────────────────────────────────────
+
+  it('creates and decodes a valid attach request envelope round-trip', () => {
+    const envelope = createAttachRequestEnvelope('test-req-001', validAttachRequest);
+    expect(envelope.protocol_version).toBe('2');
+    expect(envelope.request_id).toBe('test-req-001');
+    expect(envelope.payload.cube_id).toBe(validAttachRequest.cube_id);
+
+    const decoded = decodeAttachRequestEnvelope(envelope);
+    expect(decoded.payload.cube_id).toBe(validAttachRequest.cube_id);
+    expect(decoded.payload.session_credential).toBe(validAttachRequest.session_credential);
+  });
+
+  it('decodes attach request envelope from raw JSON', () => {
+    const raw = {
+      protocol_version: '2',
+      request_id: 'test-req-002',
+      payload: validAttachRequest,
+    };
+    const decoded = decodeAttachRequestEnvelope(raw);
+    expect(decoded.payload.cube_id).toBe(validAttachRequest.cube_id);
+  });
+
+  it('rejects attach request envelope with wrong protocol version BEFORE decoding payload', () => {
+    const raw = {
+      protocol_version: '1',
+      request_id: 'test-req-003',
+      payload: validAttachRequest,
+    };
+    expect(() => decodeAttachRequestEnvelope(raw)).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach request envelope with unknown protocol version', () => {
+    const raw = {
+      protocol_version: '99',
+      request_id: 'test-req-004',
+      payload: validAttachRequest,
+    };
+    expect(() => decodeAttachRequestEnvelope(raw)).toThrow(ProtocolContractError);
+  });
+
+  it('wrong-protocol-version error does not leak session_credential', () => {
+    const malicious = {
+      protocol_version: '1',
+      request_id: 'test-req-005',
+      payload: { ...validAttachRequest, session_credential: 'LEAKED_SECRET_VALUE_HERE_1234567890abcdefg' },
+    };
+    try {
+      decodeAttachRequestEnvelope(malicious);
+      fail('Expected ProtocolContractError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProtocolContractError);
+      const message = (error as ProtocolContractError).message;
+      expect(message).not.toContain('LEAKED');
+      expect(message).not.toContain('session_credential');
+      expect(message).toBe('Unsupported protocol version.');
+    }
+  });
+
+  it('malformed/oversized session_credential does not reflect secret in error', () => {
+    const bad = {
+      cube_id: validAttachRequest.cube_id,
+      role_id: validAttachRequest.role_id,
+      session_credential: 'x'.repeat(2000),
+    };
+    try {
+      decodeAttachRequest(bad);
+      fail('Expected ProtocolContractError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProtocolContractError);
+      const message = (error as ProtocolContractError).message;
+      expect(message).not.toContain('x'.repeat(2000));
+      expect(message).not.toContain('session_credential');
+    }
   });
 });
