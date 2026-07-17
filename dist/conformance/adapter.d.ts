@@ -103,9 +103,6 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
     readonly id: "decisions.topic-supersession";
     readonly area: "decisions";
 }, {
-    readonly id: "capabilities.unsupported-fails-closed";
-    readonly area: "capabilities";
-}, {
     readonly id: "security.active-stream-revocation";
     readonly area: "security";
 }];

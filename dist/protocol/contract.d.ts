@@ -46,10 +46,6 @@ export declare const PROTOCOL_LIMIT_CEILINGS: {
     readonly max_read_page_size: 500;
     readonly max_replay_page_size: 1000;
 };
-export declare const KNOWN_CAPABILITIES: readonly ["coordination.core", "auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback", "log.cursor", "stream.sse", "stream.replay", "acks", "claims", "decisions"];
-export type KnownCapability = (typeof KNOWN_CAPABILITIES)[number];
-export type Capability = KnownCapability | (string & {});
-export declare const REQUIRED_SECURITY_CAPABILITIES: readonly ["auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback"];
 export interface ProtocolLimits {
     max_request_bytes: number;
     max_log_message_bytes: number;
@@ -62,7 +58,6 @@ export interface ProtocolInfo {
         name: typeof SHARED_PACKAGE_NAME;
         version: string;
     };
-    capabilities: Capability[];
     limits: ProtocolLimits;
 }
 export interface ProtocolEnvelope<T> {
@@ -78,8 +73,6 @@ export interface ProtocolErrorEnvelope {
         message: string;
         details?: string;
         retry_after?: number;
-        required_capability?: string;
-        supported_versions?: readonly string[];
     };
 }
 export interface EnrollmentExchangeRequest {
@@ -134,7 +127,6 @@ export declare class ProtocolContractError extends Error {
 }
 export declare function utf8ByteLength(value: string): number;
 export declare function decodeProtocolInfo(value: unknown): ProtocolInfo;
-export declare function negotiateProtocol(value: unknown, requiredCapabilities?: readonly Capability[]): ProtocolInfo;
 export declare function createProtocolEnvelope<T>(requestId: string, payload: T): ProtocolEnvelope<T>;
 export declare function decodeProtocolEnvelope<T>(value: unknown, decodePayload: (payload: unknown) => T): ProtocolEnvelope<T>;
 export declare function decodeProtocolInfoEnvelope(value: unknown): ProtocolEnvelope<ProtocolInfo>;

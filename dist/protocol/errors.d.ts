@@ -17,17 +17,15 @@ export declare enum ErrorCode {
     DRONE_EVICTED = "DRONE_EVICTED",
     DRONE_FROZEN = "DRONE_FROZEN",
     UNSUPPORTED_PROTOCOL_VERSION = "UNSUPPORTED_PROTOCOL_VERSION",
-    UNSUPPORTED_CAPABILITY = "UNSUPPORTED_CAPABILITY",
     CURSOR_INVALID = "CURSOR_INVALID",
     CURSOR_EXPIRED = "CURSOR_EXPIRED",
-    SESSION_REVOKED = "SESSION_REVOKED"
+    SESSION_REVOKED = "SESSION_REVOKED",
+    SESSION_REJECTED = "SESSION_REJECTED"
 }
 export interface ErrorResponse {
     code: ErrorCode;
     message: string;
     details?: string;
     retryAfter?: number;
-    requiredCapability?: string;
-    supportedVersions?: readonly string[];
 }
 //# sourceMappingURL=errors.d.ts.map

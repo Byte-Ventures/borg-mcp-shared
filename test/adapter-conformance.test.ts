@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   ADAPTER_CONFORMANCE_FIXTURES,
   ErrorCode,
-  REQUIRED_SECURITY_CAPABILITIES,
   SHARED_PACKAGE_NAME,
   SHARED_PACKAGE_VERSION,
   compareLogCursor,
@@ -275,24 +274,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     protocol: async (credential: string | null): Promise<ConformanceHttpResponse> => {
       const auth = this.authenticate(credential);
       if (auth.error) return auth.error;
-      const supported = new Set([
-        'coordination.core',
-        ...REQUIRED_SECURITY_CAPABILITIES,
-        'log.cursor',
-        'stream.sse',
-        'stream.replay',
-        'acks',
-        'claims',
-        'decisions',
-      ]);
       return {
         status: 200,
         body: createProtocolEnvelope('protocol', {
           protocol_version: '2',
           package: { name: SHARED_PACKAGE_NAME, version: SHARED_PACKAGE_VERSION },
-          capabilities: [
-            ...supported,
-          ],
           limits: this.limits,
         }),
       };

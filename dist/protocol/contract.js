@@ -25,29 +25,6 @@ export const PROTOCOL_LIMIT_CEILINGS = {
     max_read_page_size: 500,
     max_replay_page_size: 1000,
 };
-export const KNOWN_CAPABILITIES = [
-    'coordination.core',
-    'auth.bearer',
-    'auth.revocation',
-    'auth.retry-safe-enrollment',
-    'scope.cube-isolation',
-    'transport.tls',
-    'authority.no-cloud-fallback',
-    'log.cursor',
-    'stream.sse',
-    'stream.replay',
-    'acks',
-    'claims',
-    'decisions',
-];
-export const REQUIRED_SECURITY_CAPABILITIES = [
-    'auth.bearer',
-    'auth.revocation',
-    'auth.retry-safe-enrollment',
-    'scope.cube-isolation',
-    'transport.tls',
-    'authority.no-cloud-fallback',
-];
 export const SERVER_CAPABILITIES = ['create_cube'];
 export const CUBE_TEMPLATES = ['default'];
 export class ProtocolContractError extends Error {
@@ -141,19 +118,11 @@ function decodeRequestId(value, path) {
     }
     return decoded;
 }
-function capabilityName(value, path) {
-    const decoded = boundedString(value, 1, 64, path);
-    if (!/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(decoded)) {
-        fail('Capability name contains unsupported characters.', path);
-    }
-    return decoded;
-}
 export function decodeProtocolInfo(value) {
     const input = record(value);
-    exactKeys(input, ['protocol_version', 'package', 'capabilities', 'limits'], [
+    exactKeys(input, ['protocol_version', 'package', 'limits'], [
         'protocol_version',
         'package',
-        'capabilities',
         'limits',
     ]);
     if (input.protocol_version !== PROTOCOL_VERSION) {
@@ -167,14 +136,6 @@ export function decodeProtocolInfo(value) {
     const packageVersion = boundedString(packageInfo.version, 5, 64, ['package', 'version']);
     if (!isSemanticVersion(packageVersion)) {
         fail('Expected a semantic package version.', ['package', 'version']);
-    }
-    if (!Array.isArray(input.capabilities))
-        fail('Expected an array.', ['capabilities']);
-    const capabilities = input.capabilities.map((capability, index) => {
-        return capabilityName(capability, ['capabilities', index]);
-    });
-    if (new Set(capabilities).size !== capabilities.length) {
-        fail('Capabilities must be unique.', ['capabilities']);
     }
     const limits = record(input.limits, ['limits']);
     exactKeys(limits, [
@@ -191,7 +152,6 @@ export function decodeProtocolInfo(value) {
     return {
         protocol_version: PROTOCOL_VERSION,
         package: { name: SHARED_PACKAGE_NAME, version: packageVersion },
-        capabilities,
         limits: {
             max_request_bytes: boundedPositiveInteger(limits.max_request_bytes, PROTOCOL_LIMIT_CEILINGS.max_request_bytes, ['limits', 'max_request_bytes']),
             max_log_message_bytes: boundedPositiveInteger(limits.max_log_message_bytes, PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes, ['limits', 'max_log_message_bytes']),
@@ -199,16 +159,6 @@ export function decodeProtocolInfo(value) {
             max_replay_page_size: boundedPositiveInteger(limits.max_replay_page_size, PROTOCOL_LIMIT_CEILINGS.max_replay_page_size, ['limits', 'max_replay_page_size']),
         },
     };
-}
-export function negotiateProtocol(value, requiredCapabilities = []) {
-    const info = decodeProtocolInfo(value);
-    const required = [...REQUIRED_SECURITY_CAPABILITIES, ...requiredCapabilities];
-    for (const capability of new Set(required)) {
-        if (!info.capabilities.includes(capability)) {
-            throw new ProtocolContractError(`Required capability "${capability}" is unavailable.`, ErrorCode.UNSUPPORTED_CAPABILITY, ['capabilities']);
-        }
-    }
-    return info;
 }
 export function createProtocolEnvelope(requestId, payload) {
     return {
@@ -249,8 +199,6 @@ export function decodeProtocolErrorEnvelope(value) {
         'message',
         'details',
         'retry_after',
-        'required_capability',
-        'supported_versions',
     ], ['code', 'message'], ['error']);
     if (typeof error.code !== 'string' || !Object.values(ErrorCode).includes(error.code)) {
         fail('Unknown protocol error code.', ['error', 'code']);
@@ -264,18 +212,6 @@ export function decodeProtocolErrorEnvelope(value) {
     }
     if (error.retry_after !== undefined) {
         decodedError.retry_after = boundedPositiveInteger(error.retry_after, 86_400, ['error', 'retry_after']);
-    }
-    if (error.required_capability !== undefined) {
-        decodedError.required_capability = capabilityName(error.required_capability, ['error', 'required_capability']);
-    }
-    if (error.supported_versions !== undefined) {
-        if (!Array.isArray(error.supported_versions) || error.supported_versions.length === 0 ||
-            error.supported_versions.length > 16 ||
-            !error.supported_versions.every((version) => version === PROTOCOL_VERSION) ||
-            new Set(error.supported_versions).size !== error.supported_versions.length) {
-            fail('Invalid supported protocol versions.', ['error', 'supported_versions']);
-        }
-        decodedError.supported_versions = [...error.supported_versions];
     }
     const decodedRequestId = input.request_id === undefined
         ? undefined

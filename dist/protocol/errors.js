@@ -18,9 +18,9 @@ export var ErrorCode;
     ErrorCode["DRONE_EVICTED"] = "DRONE_EVICTED";
     ErrorCode["DRONE_FROZEN"] = "DRONE_FROZEN";
     ErrorCode["UNSUPPORTED_PROTOCOL_VERSION"] = "UNSUPPORTED_PROTOCOL_VERSION";
-    ErrorCode["UNSUPPORTED_CAPABILITY"] = "UNSUPPORTED_CAPABILITY";
     ErrorCode["CURSOR_INVALID"] = "CURSOR_INVALID";
     ErrorCode["CURSOR_EXPIRED"] = "CURSOR_EXPIRED";
     ErrorCode["SESSION_REVOKED"] = "SESSION_REVOKED";
+    ErrorCode["SESSION_REJECTED"] = "SESSION_REJECTED";
 })(ErrorCode || (ErrorCode = {}));
 //# sourceMappingURL=errors.js.map

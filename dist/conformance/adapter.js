@@ -1,4 +1,4 @@
-import { ErrorCode, ProtocolContractError, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolInfoEnvelope, decodeReadLogResultEnvelope, decodeSseFrames, negotiateProtocol, utf8ByteLength, } from '../protocol/index.js';
+import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolInfoEnvelope, decodeReadLogResultEnvelope, decodeSseFrames, utf8ByteLength, } from '../protocol/index.js';
 import { ENROLLMENT_RETRY_CONFORMANCE } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
@@ -12,7 +12,6 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'acks.idempotent', area: 'acks' },
     { id: 'claims.durable-noncursor', area: 'claims' },
     { id: 'decisions.topic-supersession', area: 'decisions' },
-    { id: 'capabilities.unsupported-fails-closed', area: 'capabilities' },
     { id: 'security.active-stream-revocation', area: 'security' },
 ];
 const DEFAULT_STREAM_DEADLINE_MS = 5_000;
@@ -361,14 +360,7 @@ export async function runAdapterConformance(environment, options = {}) {
         const protocolResponse = await environment.operations.protocol(credentialA);
         expectStatus(protocolResponse, 200, 'Authenticated protocol request');
         protocolBody = protocolResponse.body;
-        protocolInfo = negotiateProtocol(decodeProtocolInfoEnvelope(protocolBody).payload, [
-            'log.cursor',
-            'stream.sse',
-            'stream.replay',
-            'acks',
-            'claims',
-            'decisions',
-        ]);
+        protocolInfo = decodeProtocolInfoEnvelope(protocolBody).payload;
         return {
             unauthenticated: ErrorCode.AUTH_MISSING,
             enrollment_status: 201,
@@ -540,21 +532,6 @@ export async function runAdapterConformance(environment, options = {}) {
         invariant(active.length === 1 && active[0].decision === 'second', 'Decision list did not contain only the active superseding decision.');
         invariant(second.supersedes === first.id, 'Superseding decision did not reference its predecessor.');
         return { active_count: 1, active_decision: 'second', supersedes_first: true };
-    });
-    await record('capabilities.unsupported-fails-closed', async () => {
-        invariant(protocolBody, 'Protocol fixture did not produce an envelope.');
-        let code = null;
-        try {
-            negotiateProtocol(decodeProtocolInfoEnvelope(protocolBody).payload, ['future.required']);
-        }
-        catch (error) {
-            if (error instanceof ProtocolContractError)
-                code = error.code;
-            else
-                throw error;
-        }
-        invariant(code === ErrorCode.UNSUPPORTED_CAPABILITY, 'Unsupported capability did not fail closed client-side.');
-        return { code };
     });
     await record('security.active-stream-revocation', async () => {
         invariant(liveCursor, 'Stream fixture did not produce a live cursor.');

@@ -6,7 +6,6 @@ import {
   HEALTH_PATH,
   PROTOCOL_INFO_PATH,
   PROTOCOL_HTTP_CONTRACT,
-  REQUIRED_SECURITY_CAPABILITIES,
   SHARED_PACKAGE_NAME,
   SHARED_PACKAGE_VERSION,
   ProtocolContractError,
@@ -34,7 +33,6 @@ import {
   decodeReadLogResult,
   decodeDecision,
   decodeRemoveDecisionRequest,
-  negotiateProtocol,
   redactProtocolDiagnostic,
   createAttachRequestEnvelope,
 } from '../src/index.js';
@@ -45,21 +43,6 @@ const protocolInfo = {
     name: 'borgmcp-shared',
     version: '0.3.0',
   },
-  capabilities: [
-    'coordination.core',
-    'auth.bearer',
-    'auth.revocation',
-    'auth.retry-safe-enrollment',
-    'scope.cube-isolation',
-    'transport.tls',
-    'authority.no-cloud-fallback',
-    'log.cursor',
-    'stream.sse',
-    'stream.replay',
-    'acks',
-    'claims',
-    'decisions',
-  ],
   limits: {
     max_request_bytes: 65_536,
     max_log_message_bytes: 10_240,
@@ -113,31 +96,10 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
   });
 
-  it('fails closed when a security capability is missing', () => {
-    const withoutRevocation = {
-      ...protocolInfo,
-      capabilities: protocolInfo.capabilities.filter(
-        (capability) => capability !== 'auth.revocation',
-      ),
-    };
-
-    expect(() => negotiateProtocol(withoutRevocation)).toThrowError(
-      expect.objectContaining({ code: 'UNSUPPORTED_CAPABILITY' }),
-    );
-    expect(REQUIRED_SECURITY_CAPABILITIES).toContain('auth.revocation');
-    expect(REQUIRED_SECURITY_CAPABILITIES).toContain('auth.retry-safe-enrollment');
-  });
-
-  it('negotiates the current protocol and required optional capabilities', () => {
-    expect(negotiateProtocol(protocolInfo, ['claims'])).toEqual(protocolInfo);
-  });
-
-  it('preserves safe additive capability names for forward compatibility', () => {
-    const withFutureCapability = {
-      ...protocolInfo,
-      capabilities: [...protocolInfo.capabilities, 'future.optional'],
-    };
-    expect(decodeProtocolInfo(withFutureCapability).capabilities).toContain('future.optional');
+  it('rejects a protocol manifest carrying a retired capabilities field', () => {
+    expect(() =>
+      decodeProtocolInfo({ ...protocolInfo, capabilities: ['coordination.core'] }),
+    ).toThrow(ProtocolContractError);
   });
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
@@ -235,13 +197,16 @@ describe('package and handshake contract', () => {
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
     ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects retired capability-negotiation error fields', () => {
     expect(() =>
       decodeProtocolErrorEnvelope({
         protocol_version: '2',
         error: {
-          code: 'UNSUPPORTED_CAPABILITY',
+          code: 'AUTH_INVALID',
           message: 'Unsupported.',
-          required_capability: 'claims\r\nInjected',
+          required_capability: 'claims',
         },
       }),
     ).toThrow(ProtocolContractError);
@@ -251,10 +216,20 @@ describe('package and handshake contract', () => {
         error: {
           code: 'UNSUPPORTED_PROTOCOL_VERSION',
           message: 'Unsupported.',
-          supported_versions: Array(17).fill('1'),
+          supported_versions: ['2'],
         },
       }),
     ).toThrow(ProtocolContractError);
+  });
+
+  it('decodes the SESSION_REJECTED takeover error code', () => {
+    expect(
+      decodeProtocolErrorEnvelope({
+        protocol_version: '2',
+        request_id: 'req-12345678',
+        error: { code: 'SESSION_REJECTED', message: 'Seat already bound.' },
+      }),
+    ).toMatchObject({ error: { code: 'SESSION_REJECTED' } });
   });
 });
 
