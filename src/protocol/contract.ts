@@ -19,7 +19,6 @@ export const PROTOCOL_HTTP_CONTRACT = {
   cursor_expired_status: 410,
   content_too_large_status: 413,
   unsupported_protocol_status: 426,
-  unsupported_capability_status: 501,
   redirect_policy: 'error',
 } as const;
 

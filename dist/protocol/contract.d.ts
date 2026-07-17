@@ -37,7 +37,6 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly cursor_expired_status: 410;
     readonly content_too_large_status: 413;
     readonly unsupported_protocol_status: 426;
-    readonly unsupported_capability_status: 501;
     readonly redirect_policy: "error";
 };
 export declare const PROTOCOL_LIMIT_CEILINGS: {
