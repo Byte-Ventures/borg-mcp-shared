@@ -749,16 +749,18 @@ describe('v2 clean-slate wire types', () => {
       request_id: 'test-req-005',
       payload: { ...validAttachRequest, session_credential: 'LEAKED_SECRET_VALUE_HERE_1234567890abcdefg' },
     };
+    let caught: unknown;
     try {
       decodeAttachRequestEnvelope(malicious);
-      fail('Expected ProtocolContractError');
+      throw new Error('Expected ProtocolContractError');
     } catch (error) {
-      expect(error).toBeInstanceOf(ProtocolContractError);
-      const message = (error as ProtocolContractError).message;
-      expect(message).not.toContain('LEAKED');
-      expect(message).not.toContain('session_credential');
-      expect(message).toBe('Unsupported protocol version.');
+      caught = error;
     }
+    expect(caught).toBeInstanceOf(ProtocolContractError);
+    const message = (caught as ProtocolContractError).message;
+    expect(message).not.toContain('LEAKED');
+    expect(message).not.toContain('session_credential');
+    expect(message).toBe('Unsupported protocol version.');
   });
 
   it('malformed/oversized session_credential does not reflect secret in error', () => {
@@ -767,14 +769,16 @@ describe('v2 clean-slate wire types', () => {
       role_id: validAttachRequest.role_id,
       session_credential: 'x'.repeat(2000),
     };
+    let caught: unknown;
     try {
       decodeAttachRequest(bad);
-      fail('Expected ProtocolContractError');
+      throw new Error('Expected ProtocolContractError');
     } catch (error) {
-      expect(error).toBeInstanceOf(ProtocolContractError);
-      const message = (error as ProtocolContractError).message;
-      expect(message).not.toContain('x'.repeat(2000));
-      expect(message).not.toContain('session_credential');
+      caught = error;
     }
+    expect(caught).toBeInstanceOf(ProtocolContractError);
+    const message = (caught as ProtocolContractError).message;
+    expect(message).not.toContain('x'.repeat(2000));
+    expect(message).not.toContain('session_credential');
   });
 });
