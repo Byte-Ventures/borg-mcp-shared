@@ -26,8 +26,8 @@ import {
   decodeCreateCubeResponseEnvelope,
   decodeProtocolEnvelope,
   decodeProtocolErrorEnvelope,
-  decodeProtocolInfo,
-  decodeProtocolInfoEnvelope,
+  createProtocolTagPreflight,
+  decodeProtocolTagPreflight,
   decodeRecordDecisionRequest,
   decodeReadLogRequest,
   decodeReadLogResult,
@@ -38,19 +38,7 @@ import {
 } from '../src/index.js';
 import * as sharedApi from '../src/index.js';
 
-const protocolInfo = {
-  protocol_version: '2',
-  package: {
-    name: 'borgmcp-shared',
-    version: '0.3.0',
-  },
-  limits: {
-    max_request_bytes: 65_536,
-    max_log_message_bytes: 10_240,
-    max_read_page_size: 500,
-    max_replay_page_size: 200,
-  },
-} as const;
+const tagPreflight = { protocol_version: '2' } as const;
 
 describe('package and handshake contract', () => {
   it('keeps the exported identity aligned with package.json', async () => {
@@ -67,40 +55,47 @@ describe('package and handshake contract', () => {
     });
   });
 
-  it('uses one bodyless health path and authenticated protocol/enrollment paths', () => {
+  it('uses a bodyless health path and a credential-free protocol preflight', () => {
     expect(HEALTH_PATH).toBe('/healthz');
     expect(PROTOCOL_INFO_PATH).toBe('/api/protocol');
     expect(ENROLLMENT_EXCHANGE_PATH).toBe('/api/enrollment/exchange');
     expect(CUBES_PATH).toBe('/api/cubes');
     expect(PROTOCOL_HTTP_CONTRACT).toMatchObject({
       health: { success_status: 204, bodyless: true, authenticated: false },
-      protocol: { success_status: 200, authenticated: true },
+      protocol: { method: 'GET', success_status: 200, authenticated: false },
       enrollment: { success_status: 201, authenticated: 'invitation' },
       cubes: { success_status: 201, authenticated: true },
       redirect_policy: 'error',
     });
   });
 
-  it('decodes an exact protocol manifest and rejects unknown fields', () => {
-    expect(decodeProtocolInfo(protocolInfo)).toEqual(protocolInfo);
-    expect(() => decodeProtocolInfo({ ...protocolInfo, telemetry: true })).toThrow(
+  it('emits and decodes a tag-only preflight carrying nothing but the exact tag', () => {
+    const emitted = createProtocolTagPreflight();
+    expect(emitted).toEqual({ protocol_version: '2' });
+    expect(Object.keys(emitted)).toEqual(['protocol_version']);
+    expect(decodeProtocolTagPreflight(tagPreflight)).toEqual(tagPreflight);
+  });
+
+  it('fails the preflight closed on a mismatched tag before any secret', () => {
+    expect(() => decodeProtocolTagPreflight({ protocol_version: '1' })).toThrowError(
+      expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }),
+    );
+    expect(() => decodeProtocolTagPreflight({ protocol_version: 2 })).toThrow(
       ProtocolContractError,
     );
   });
 
-  it('rejects server limits above local safety ceilings', () => {
+  it('rejects a preflight carrying any field beyond the exact tag (no fingerprint surface)', () => {
     expect(() =>
-      decodeProtocolInfo({
-        ...protocolInfo,
-        limits: { ...protocolInfo.limits, max_read_page_size: 1_000_000 },
-      }),
+      decodeProtocolTagPreflight({ ...tagPreflight, package: { name: 'borgmcp-shared', version: '0.4.0' } }),
     ).toThrow(ProtocolContractError);
-  });
-
-  it('rejects a protocol manifest carrying a retired capabilities field', () => {
     expect(() =>
-      decodeProtocolInfo({ ...protocolInfo, capabilities: ['coordination.core'] }),
+      decodeProtocolTagPreflight({ ...tagPreflight, limits: { max_request_bytes: 65_536 } }),
     ).toThrow(ProtocolContractError);
+    expect(() =>
+      decodeProtocolTagPreflight({ ...tagPreflight, capabilities: ['coordination.core'] }),
+    ).toThrow(ProtocolContractError);
+    expect(() => decodeProtocolTagPreflight('2')).toThrow(ProtocolContractError);
   });
 
   it('does not re-export any retired capability-negotiation surface', () => {
@@ -118,7 +113,32 @@ describe('package and handshake contract', () => {
     }
     expect(sharedApi.ErrorCode).not.toHaveProperty('UNSUPPORTED_CAPABILITY');
     expect(PROTOCOL_HTTP_CONTRACT).not.toHaveProperty('unsupported_capability_status');
-    expect(decodeProtocolInfo(protocolInfo)).not.toHaveProperty('capabilities');
+    expect(PROTOCOL_HTTP_CONTRACT.protocol.authenticated).toBe(false);
+    expect(decodeProtocolTagPreflight(tagPreflight)).not.toHaveProperty('capabilities');
+    for (const retired of ['decodeProtocolInfo', 'decodeProtocolInfoEnvelope', 'negotiateProtocol']) {
+      expect(sharedApi, `retired export "${retired}" reappeared`).not.toHaveProperty(retired);
+    }
+  });
+
+  it('keeps retired negotiation/matrix claims out of the public docs', async () => {
+    // Public-doc regression guard (SR ef0cdaf7 / RQ d2a49faf): the runtime-export
+    // guard above cannot catch a doc relapse. Scan the public docs for the exact
+    // retired identifiers/claims. Deliberate negative prose ("there is no
+    // capability negotiation") uses words, not these tokens, so it is allowed.
+    const docs = ['README.md', 'docs/compatibility.md', 'docs/enrollment.md', 'docs/releasing.md'];
+    const forbidden = [
+      /negotiateProtocol/,
+      /SUPPORTED_PROTOCOL_VERSIONS/,
+      /COMPATIBILITY_MATRIX/,
+      /auth\.retry-safe-enrollment/,
+      /unsupported[_-]capabilit/i,
+    ];
+    for (const doc of docs) {
+      const text = await readFile(new URL(`../${doc}`, import.meta.url), 'utf8');
+      for (const pattern of forbidden) {
+        expect(text, `${doc} reintroduced retired term ${pattern}`).not.toMatch(pattern);
+      }
+    }
   });
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
@@ -130,11 +150,11 @@ describe('package and handshake contract', () => {
   });
 
   it('decodes the same versioned envelope at every JSON boundary', () => {
-    const envelope = createProtocolEnvelope('req-12345678', protocolInfo);
-    expect(decodeProtocolEnvelope(envelope, decodeProtocolInfo)).toEqual(envelope);
-    expect(decodeProtocolInfoEnvelope(envelope)).toEqual(envelope);
+    const payloadDecoder = (payload: unknown) => payload as { ok: boolean };
+    const envelope = createProtocolEnvelope('req-12345678', { ok: true });
+    expect(decodeProtocolEnvelope(envelope, payloadDecoder)).toEqual(envelope);
     expect(() =>
-      decodeProtocolEnvelope({ ...envelope, protocol_version: '1' }, decodeProtocolInfo),
+      decodeProtocolEnvelope({ ...envelope, protocol_version: '1' }, payloadDecoder),
     ).toThrowError(expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }));
   });
 
@@ -424,21 +444,6 @@ describe('coordination request codecs', () => {
     expect(() => decodeAppendLogRequest({ message: 'hello', credential: 'secret' })).toThrow(
       ProtocolContractError,
     );
-  });
-
-  it('accepts SemVer build metadata and rejects leading-zero prerelease numbers', () => {
-    expect(
-      decodeProtocolInfo({
-        ...protocolInfo,
-        package: { name: 'borgmcp-shared', version: '0.3.0+build.1' },
-      }).package.version,
-    ).toBe('0.3.0+build.1');
-    expect(() =>
-      decodeProtocolInfo({
-        ...protocolInfo,
-        package: { name: 'borgmcp-shared', version: '0.3.0-01' },
-      }),
-    ).toThrow(ProtocolContractError);
   });
 
   it('defaults ack kind and rejects unknown kinds', () => {

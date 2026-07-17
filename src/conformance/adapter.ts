@@ -8,13 +8,14 @@ import {
   decodeDecisionsResultEnvelope,
   decodeEnrollmentExchangeResponseEnvelope,
   decodeProtocolErrorEnvelope,
-  decodeProtocolInfoEnvelope,
+  decodeProtocolTagPreflight,
   decodeReadLogResultEnvelope,
   decodeSseFrames,
+  PROTOCOL_LIMIT_CEILINGS,
+  PROTOCOL_VERSION,
   utf8ByteLength,
   type CreateCubeResponse,
   type LogCursor,
-  type ProtocolInfo,
   type StreamEvent,
 } from '../protocol/index.js';
 import { ENROLLMENT_RETRY_CONFORMANCE } from './index.js';
@@ -54,6 +55,13 @@ export interface ConformanceCreatedCubeState {
 export interface ConformanceEnrollmentPrincipalState {
   response_client_matches: boolean;
   active_credential_bindings: number;
+  /**
+   * The principal's currently-bound credential still equals the one it enrolled
+   * with. Since the credential-free tag preflight cannot probe credentials, this
+   * out-of-band authority check is what proves a rejected mismatch retry did not
+   * overwrite the good credential.
+   */
+  bound_credential_matches_enrollment: boolean;
 }
 
 export interface ConformanceReplayBarrier {
@@ -144,7 +152,8 @@ export interface ConformanceEnvironment {
 
 export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'http.unauthenticated-liveness', area: 'http' },
-  { id: 'protocol.enrollment-auth', area: 'protocol' },
+  { id: 'protocol.credential-free-preflight', area: 'protocol' },
+  { id: 'enrollment.retry-authority', area: 'enrollment' },
   { id: 'security.adapter-boundary-injection', area: 'security' },
   { id: 'security.oversize-request', area: 'security' },
   { id: 'security.cross-cube-isolation', area: 'security' },
@@ -406,8 +415,6 @@ export async function runAdapterConformance(
 
   let credentialA = '';
   let credentialB = '';
-  let protocolBody: unknown;
-  let protocolInfo: ProtocolInfo | null = null;
   await record('http.unauthenticated-liveness', async () => {
     const response = await environment.operations.health();
     expectStatus(response, 204, 'Unauthenticated liveness');
@@ -415,9 +422,23 @@ export async function runAdapterConformance(
     return { status: 204, bodyless: true };
   });
 
-  await record('protocol.enrollment-auth', async () => {
-    expectError(await environment.operations.protocol(null), 401, ErrorCode.AUTH_MISSING, 'Unauthenticated protocol request');
+  await record('protocol.credential-free-preflight', async () => {
+    // The tag preflight is credential-free (no bearer) and mutation-free: a
+    // client verifies pinned TLS and the exact tag before it creates or sends any
+    // credential. The server must answer 200 with ONLY the exact tag.
+    const before = await environment.admin.observeAuthorityState();
+    const response = await environment.operations.protocol(null);
+    expectStatus(response, 200, 'Credential-free protocol-tag preflight');
+    const preflight = decodeProtocolTagPreflight(response.body);
+    invariant(
+      Object.keys(preflight).length === 1 && preflight.protocol_version === PROTOCOL_VERSION,
+      'Protocol-tag preflight exposed more than the exact tag.',
+    );
+    assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Protocol-tag preflight');
+    return { authenticated: false, mutation_free: true, protocol_version: preflight.protocol_version };
+  });
 
+  await record('enrollment.retry-authority', async () => {
     const retryVectorErrors: string[] = [];
     for (const [index, vector] of ENROLLMENT_RETRY_CONFORMANCE.entries()) {
       for (const purpose of ['client', 'owner'] as const) {
@@ -470,23 +491,11 @@ export async function runAdapterConformance(
             );
           }
           assertStateDelta(beforeRetry, await environment.admin.observeAuthorityState(), {}, `${purpose} ${vector.name} retry`);
-          expectStatus(
-            await environment.operations.protocol(vector.initial.client_credential),
-            200,
-            `${purpose} ${vector.name} original credential continuity`,
-          );
-          if (vector.retry.client_credential !== vector.initial.client_credential) {
-            expectError(
-              await environment.operations.protocol(vector.retry.client_credential),
-              401,
-              ErrorCode.AUTH_INVALID,
-              `${purpose} ${vector.name} mismatched credential rejection`,
-            );
-          }
           invariant(
             same(await environment.admin.inspectEnrollmentPrincipal(principal, initial.client_id), {
               response_client_matches: true,
               active_credential_bindings: 1,
+              bound_credential_matches_enrollment: true,
             }),
             `${purpose} ${vector.name} changed enrollment binding ownership.`,
           );
@@ -706,30 +715,23 @@ export async function runAdapterConformance(
       ErrorCode.AUTH_INVALID,
       'Enrollment retry mismatch',
     );
-    const protocolResponse = await environment.operations.protocol(credentialA);
-    expectStatus(protocolResponse, 200, 'Authenticated protocol request');
-    protocolBody = protocolResponse.body;
-    protocolInfo = decodeProtocolInfoEnvelope(protocolBody).payload;
     return {
-      unauthenticated: ErrorCode.AUTH_MISSING,
       enrollment_status: 201,
       exact_retry_status: 201,
       mismatched_retry: ErrorCode.AUTH_INVALID,
       response_secret_free: true,
-      protocol_version: protocolInfo.protocol_version,
     };
   });
 
   await record('security.adapter-boundary-injection', async () => {
-    invariant(protocolInfo, 'Protocol fixture did not produce request limits.');
     const injectedMessage = "'); DROP TABLE log_entries; --\r\ndata: forged-sse-frame";
     const injectedBody = JSON.stringify(
       createProtocolEnvelope('inject-b1', { message: injectedMessage }),
     );
     invariant(
-      utf8ByteLength(injectedBody) <= protocolInfo.limits.max_request_bytes &&
-        utf8ByteLength(injectedMessage) <= protocolInfo.limits.max_log_message_bytes,
-      'Injection fixture exceeded an advertised request limit.',
+      utf8ByteLength(injectedBody) <= PROTOCOL_LIMIT_CEILINGS.max_request_bytes &&
+        utf8ByteLength(injectedMessage) <= PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes,
+      'Injection fixture exceeded the shared request-limit ceiling.',
     );
     const injected = await environment.operations.appendRaw(
       credentialB,
@@ -789,15 +791,14 @@ export async function runAdapterConformance(
   });
 
   await record('security.oversize-request', async () => {
-    invariant(protocolInfo, 'Protocol fixture did not produce request limits.');
     const baseBody = JSON.stringify(
       createProtocolEnvelope('oversize-a1', { message: 'must-not-persist' }),
     );
     const oversizedBody = baseBody + ' '.repeat(
-      Math.max(0, protocolInfo.limits.max_request_bytes - utf8ByteLength(baseBody) + 1),
+      Math.max(0, PROTOCOL_LIMIT_CEILINGS.max_request_bytes - utf8ByteLength(baseBody) + 1),
     );
     invariant(
-      utf8ByteLength(oversizedBody) > protocolInfo.limits.max_request_bytes,
+      utf8ByteLength(oversizedBody) > PROTOCOL_LIMIT_CEILINGS.max_request_bytes,
       'Oversize fixture did not exceed max_request_bytes.',
     );
     const response = await environment.operations.appendRaw(credentialA, cubeA, oversizedBody);

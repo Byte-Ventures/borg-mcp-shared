@@ -7,11 +7,14 @@ backwards-compatibility machinery.
 
 ## Exact Protocol Tag
 
-`PROTOCOL_VERSION` is the sole acceptance authority. Every envelope carries the
-protocol tag, and each decoder fails closed on any value other than the exact
-expected tag, with a clear static mismatch diagnostic and before any secret is
-read. There is no capability negotiation, no supported-version list, no
-compatibility matrix, and no package-range or version-range fallback. A peer
+`PROTOCOL_VERSION` is the sole acceptance authority. The credential-free,
+mutation-free `GET /api/protocol` preflight returns only the exact tag, and
+`decodeProtocolTagPreflight` fails closed on any other tag, an extra field, or a
+non-object body with a clear static mismatch diagnostic — so a client verifies
+pinned TLS and the tag before it creates or sends any credential. Every
+subsequent envelope also carries the tag and decodes it before any payload as
+defense in depth. There is no capability negotiation, no supported-version list,
+no compatibility matrix, and no package-range or version-range fallback. A peer
 that presents a different tag is rejected — it is never adapted to.
 
 ## Change Policy

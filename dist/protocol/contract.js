@@ -8,7 +8,7 @@ export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange';
 export const CUBES_PATH = '/api/cubes';
 export const PROTOCOL_HTTP_CONTRACT = {
     health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
-    protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: true, success_status: 200 },
+    protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: false, success_status: 200 },
     enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
     cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
     auth_missing_status: 401,
@@ -83,13 +83,6 @@ export function utf8ByteLength(value) {
     }
     return bytes;
 }
-function isSemanticVersion(value) {
-    const match = value.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/);
-    if (!match)
-        return false;
-    const prerelease = match[4];
-    return prerelease === undefined || prerelease.split('.').every((identifier) => !/^\d+$/.test(identifier) || identifier === '0' || !identifier.startsWith('0'));
-}
 function boundedPositiveInteger(value, maximum, path) {
     if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
         fail(`Expected a positive safe integer no greater than ${maximum}.`, path);
@@ -117,47 +110,16 @@ function decodeRequestId(value, path) {
     }
     return decoded;
 }
-export function decodeProtocolInfo(value) {
+export function createProtocolTagPreflight() {
+    return { protocol_version: PROTOCOL_VERSION };
+}
+export function decodeProtocolTagPreflight(value) {
     const input = record(value);
-    exactKeys(input, ['protocol_version', 'package', 'limits'], [
-        'protocol_version',
-        'package',
-        'limits',
-    ]);
+    exactKeys(input, ['protocol_version'], ['protocol_version']);
     if (input.protocol_version !== PROTOCOL_VERSION) {
         throw new ProtocolContractError(`Unsupported protocol version "${String(input.protocol_version)}".`, ErrorCode.UNSUPPORTED_PROTOCOL_VERSION, ['protocol_version']);
     }
-    const packageInfo = record(input.package, ['package']);
-    exactKeys(packageInfo, ['name', 'version'], ['name', 'version'], ['package']);
-    if (packageInfo.name !== SHARED_PACKAGE_NAME) {
-        fail(`Expected package name "${SHARED_PACKAGE_NAME}".`, ['package', 'name']);
-    }
-    const packageVersion = boundedString(packageInfo.version, 5, 64, ['package', 'version']);
-    if (!isSemanticVersion(packageVersion)) {
-        fail('Expected a semantic package version.', ['package', 'version']);
-    }
-    const limits = record(input.limits, ['limits']);
-    exactKeys(limits, [
-        'max_request_bytes',
-        'max_log_message_bytes',
-        'max_read_page_size',
-        'max_replay_page_size',
-    ], [
-        'max_request_bytes',
-        'max_log_message_bytes',
-        'max_read_page_size',
-        'max_replay_page_size',
-    ], ['limits']);
-    return {
-        protocol_version: PROTOCOL_VERSION,
-        package: { name: SHARED_PACKAGE_NAME, version: packageVersion },
-        limits: {
-            max_request_bytes: boundedPositiveInteger(limits.max_request_bytes, PROTOCOL_LIMIT_CEILINGS.max_request_bytes, ['limits', 'max_request_bytes']),
-            max_log_message_bytes: boundedPositiveInteger(limits.max_log_message_bytes, PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes, ['limits', 'max_log_message_bytes']),
-            max_read_page_size: boundedPositiveInteger(limits.max_read_page_size, PROTOCOL_LIMIT_CEILINGS.max_read_page_size, ['limits', 'max_read_page_size']),
-            max_replay_page_size: boundedPositiveInteger(limits.max_replay_page_size, PROTOCOL_LIMIT_CEILINGS.max_replay_page_size, ['limits', 'max_replay_page_size']),
-        },
-    };
+    return { protocol_version: PROTOCOL_VERSION };
 }
 export function createProtocolEnvelope(requestId, payload) {
     return {
@@ -182,9 +144,6 @@ export function decodeProtocolEnvelope(value, decodePayload) {
         request_id: decodedRequestId,
         payload: decodePayload(input.payload),
     };
-}
-export function decodeProtocolInfoEnvelope(value) {
-    return decodeProtocolEnvelope(value, decodeProtocolInfo);
 }
 export function decodeProtocolErrorEnvelope(value) {
     const input = record(value);

@@ -29,6 +29,7 @@ export interface ConformanceCreatedCubeState {
 export interface ConformanceEnrollmentPrincipalState {
     response_client_matches: boolean;
     active_credential_bindings: number;
+    bound_credential_matches_enrollment: boolean;
 }
 export interface ConformanceReplayBarrier {
     readonly reached: Promise<void>;
@@ -73,8 +74,11 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
     readonly id: "http.unauthenticated-liveness";
     readonly area: "http";
 }, {
-    readonly id: "protocol.enrollment-auth";
+    readonly id: "protocol.credential-free-preflight";
     readonly area: "protocol";
+}, {
+    readonly id: "enrollment.retry-authority";
+    readonly area: "enrollment";
 }, {
     readonly id: "security.adapter-boundary-injection";
     readonly area: "security";

@@ -67,17 +67,21 @@ The first-slice HTTP contract has four shared paths:
   credential-proven retry is non-mutating, and a mismatched replay fails
   uniformly. Secrets never belong in a response, URL, query string, command-line
   argument, diagnostic, or serializable domain entity.
-- `GET /api/protocol` requires authentication and returns the protocol version,
-  package version, and bounded limits in the shared envelope.
+- `GET /api/protocol` is credential-free and mutation-free. It returns ONLY the
+  exact protocol tag — no package version, limits, server identity, or other
+  fingerprint surface — so a client verifies pinned TLS and the exact tag before
+  it creates or sends any credential.
 - `POST /api/cubes` requires an active parent client with `create_cube`. Its
   strict, idempotent request selects a server-owned template; one atomic success
   creates a cube, two initial roles, and the creator's cube-scoped `manage`
   grant. Exact retries return the same non-secret identities without mutation.
 
-`decodeProtocolInfo` fails closed on any protocol tag other than the exact
-expected version before an operation begins. The exact protocol tag is the sole
-acceptance authority — there is no capability negotiation; client and server
-ship and update together as one clean-slate product.
+`decodeProtocolTagPreflight` fails closed on any tag other than the exact
+expected version, on any extra field, or on a non-object body — before any
+credential is created or sent. The exact protocol tag is the sole acceptance
+authority: there is no capability negotiation, and client and server ship and
+update together as one clean-slate product. The attach request envelope still
+decodes its version before any payload as defense in depth.
 
 Every JSON coordination request and successful JSON response is carried inside
 `ProtocolEnvelope<T>`. Failures use `ProtocolErrorEnvelope`. The only bodyless
@@ -122,11 +126,14 @@ the coordinated rollout order for introducing protocol changes.
 
 ## Distribution
 
-`borgmcp-shared@0.2.2` is the published legacy baseline. This source prepares
-`0.3.0` for the breaking retry-safe enrollment and multi-cube creation contract;
-the version change does not authorize a tag or publication. After a separately
-authorized registry release, consumers adopting this contract pin
-`borgmcp-shared@^0.3.0` and commit registry lockfiles. No registry token belongs
+`borgmcp-shared@0.3.0` is the published v1 baseline on the registry (its latest
+release) and is immutable. This source prepares the breaking clean-slate v2
+contract as a currently-unpublished `0.4.0` candidate; the actual package,
+lockfile, SBOM, and exported-identity bump to `0.4.0` is a separately gated
+sprint-close publish step, so this branch never claims to be `0.4.0` yet and
+must not republish `0.3.0`. After that separately authorized registry release,
+consumers adopting this contract pin `borgmcp-shared@^0.4.0` and commit registry
+lockfiles. No registry token belongs
 in this repository, package metadata, lockfiles, or a committed `.npmrc`;
 publishing uses protected external credentials and provenance.
 

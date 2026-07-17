@@ -17,7 +17,7 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly protocol: {
         readonly method: "GET";
         readonly path: "/api/protocol";
-        readonly authenticated: true;
+        readonly authenticated: false;
         readonly success_status: 200;
     };
     readonly enrollment: {
@@ -45,19 +45,8 @@ export declare const PROTOCOL_LIMIT_CEILINGS: {
     readonly max_read_page_size: 500;
     readonly max_replay_page_size: 1000;
 };
-export interface ProtocolLimits {
-    max_request_bytes: number;
-    max_log_message_bytes: number;
-    max_read_page_size: number;
-    max_replay_page_size: number;
-}
-export interface ProtocolInfo {
+export interface ProtocolTagPreflight {
     protocol_version: ProtocolVersion;
-    package: {
-        name: typeof SHARED_PACKAGE_NAME;
-        version: string;
-    };
-    limits: ProtocolLimits;
 }
 export interface ProtocolEnvelope<T> {
     protocol_version: ProtocolVersion;
@@ -125,10 +114,10 @@ export declare class ProtocolContractError extends Error {
     constructor(message: string, code?: ErrorCode, path?: readonly (string | number)[]);
 }
 export declare function utf8ByteLength(value: string): number;
-export declare function decodeProtocolInfo(value: unknown): ProtocolInfo;
+export declare function createProtocolTagPreflight(): ProtocolTagPreflight;
+export declare function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight;
 export declare function createProtocolEnvelope<T>(requestId: string, payload: T): ProtocolEnvelope<T>;
 export declare function decodeProtocolEnvelope<T>(value: unknown, decodePayload: (payload: unknown) => T): ProtocolEnvelope<T>;
-export declare function decodeProtocolInfoEnvelope(value: unknown): ProtocolEnvelope<ProtocolInfo>;
 export declare function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelope;
 export declare function decodeEnrollmentExchangeRequest(value: unknown): EnrollmentExchangeRequest;
 export declare function decodeEnrollmentExchangeRequestEnvelope(value: unknown): ProtocolEnvelope<EnrollmentExchangeRequest>;

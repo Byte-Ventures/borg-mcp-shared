@@ -5,15 +5,19 @@ shared by clients and servers. It does not define offline operator commands,
 database transactions, or keychain APIs, but implementations must preserve the
 security properties below.
 
-This contract replaces the server-generated bearer response used by
-`borgmcp-shared@0.2.2`. It is selected for `0.3.0` as a breaking wire change and
-requires a coordinated client/server migration. Version preparation does not
-authorize a tag or publication. There is no compatibility path that returns a
-bearer from the server.
+This contract replaces the server-generated bearer response used by the
+published `borgmcp-shared@0.3.0` v1 baseline. It is a breaking clean-slate v2
+wire change, prepared as a currently-unpublished `0.4.0` candidate, and requires
+a coordinated client/server release. Preparing the contract does not authorize a
+tag or publication, and the `0.4.0` package bump is a separately gated
+sprint-close step. There is no compatibility path that returns a bearer from the
+server.
 
-A peer that presents a different protocol tag is rejected outright; the exact
-protocol tag is the sole acceptance authority, so there is no capability a
-server advertises or a client negotiates for this contract. The enrollment
+A client verifies the credential-free `GET /api/protocol` tag preflight before
+it creates or sends any enrollment secret; a peer that presents a different
+protocol tag is rejected outright. The exact protocol tag is the sole acceptance
+authority, so there is no capability a server advertises or a client negotiates
+for this contract. The enrollment
 response still carries the enrolled principal's `server_capabilities` (owner
 enrollment grants `['create_cube']`; ordinary enrollment grants none) — that is
 an authorization fact about the principal, not a negotiated protocol capability.
