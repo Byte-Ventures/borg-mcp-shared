@@ -11,9 +11,12 @@ requires a coordinated client/server migration. Version preparation does not
 authorize a tag or publication. There is no compatibility path that returns a
 bearer from the server.
 
-Servers implementing this contract advertise the required
-`auth.retry-safe-enrollment` capability. Negotiation fails closed when it is
-absent.
+A peer that presents a different protocol tag is rejected outright; the exact
+protocol tag is the sole acceptance authority, so there is no capability a
+server advertises or a client negotiates for this contract. The enrollment
+response still carries the enrolled principal's `server_capabilities` (owner
+enrollment grants `['create_cube']`; ordinary enrollment grants none) — that is
+an authorization fact about the principal, not a negotiated protocol capability.
 
 ## Client Preconditions
 

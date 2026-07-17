@@ -36,6 +36,7 @@ import {
   redactProtocolDiagnostic,
   createAttachRequestEnvelope,
 } from '../src/index.js';
+import * as sharedApi from '../src/index.js';
 
 const protocolInfo = {
   protocol_version: '2',
@@ -100,6 +101,24 @@ describe('package and handshake contract', () => {
     expect(() =>
       decodeProtocolInfo({ ...protocolInfo, capabilities: ['coordination.core'] }),
     ).toThrow(ProtocolContractError);
+  });
+
+  it('does not re-export any retired capability-negotiation surface', () => {
+    // Regression guard (CR bb7f68c8 / SR ad3d6a95): the exact protocol tag is the
+    // sole acceptance authority. None of the deleted negotiation/matrix symbols may
+    // return to the public API.
+    for (const retired of [
+      'negotiateProtocol',
+      'SUPPORTED_PROTOCOL_VERSIONS',
+      'COMPATIBILITY_MATRIX',
+      'REQUIRED_SECURITY_CAPABILITIES',
+      'KNOWN_CAPABILITIES',
+    ]) {
+      expect(sharedApi, `retired export "${retired}" reappeared`).not.toHaveProperty(retired);
+    }
+    expect(sharedApi.ErrorCode).not.toHaveProperty('UNSUPPORTED_CAPABILITY');
+    expect(PROTOCOL_HTTP_CONTRACT).not.toHaveProperty('unsupported_capability_status');
+    expect(decodeProtocolInfo(protocolInfo)).not.toHaveProperty('capabilities');
   });
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {

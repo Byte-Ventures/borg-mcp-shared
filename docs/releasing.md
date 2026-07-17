@@ -229,8 +229,9 @@ Before a separately authorized `v0.3.0` tag is created:
 1. The exact `0.3.0` source commit must be merged to protected `main` after Code
    Review, Security, and Release Quality approve the package identity, public
    API, conformance behavior, generated output, and release documentation.
-2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, compatibility matrix,
-   packed-artifact verifier, and version assertions must all identify `0.3.0`.
+2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, the exact protocol
+   version tag, packed-artifact verifier, and version assertions must all
+   identify `0.3.0`.
 3. The protected workflow must build one exact tarball and pass its full source,
    test, audit, public-export, source-map, install/import, dry-run, lock-derived
    CycloneDX SBOM, integrity, and provenance gates. Security must approve that
