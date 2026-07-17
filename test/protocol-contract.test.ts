@@ -98,10 +98,12 @@ describe('package and handshake contract', () => {
     expect(() => decodeProtocolTagPreflight('2')).toThrow(ProtocolContractError);
   });
 
-  it('never reflects an untrusted protocol_version into the mismatch diagnostic', () => {
-    // CR 81a57d80 / SR 023aa5f7: the tag mismatch must be static and
-    // non-reflective. A rogue pinned endpoint must not smuggle arbitrary text
-    // (including via a non-string value such as an array) into diagnostics.
+  it('never reflects an untrusted protocol_version at any wrapper boundary', () => {
+    // CR 81a57d80 / 507a7bd8 / SR 023aa5f7 / RQ 3a7f7ef2: EVERY shared decoder
+    // that checks the protocol tag must fail closed with the same static,
+    // non-reflective diagnostic. A rogue pinned endpoint must not smuggle
+    // arbitrary text — via a string, array, object, or credential-shaped value —
+    // into diagnostics at any envelope boundary.
     const marker = 'LEAKED-SECRET-MARKER';
     const messageOf = (fn: () => unknown): string => {
       try {
@@ -111,35 +113,31 @@ describe('package and handshake contract', () => {
       }
       throw new Error('expected a protocol-version mismatch to throw');
     };
-    // Hostile string / array / object / credential-shaped values must all yield
-    // the same static diagnostic with no reflected marker (RQ 3a7f7ef2).
     const hostileValues: unknown[] = [
       marker,
       [marker],
       { toString: () => marker },
       `Bearer ${marker}`,
     ];
-    for (const protocol_version of hostileValues) {
-      const message = messageOf(() => decodeProtocolTagPreflight({ protocol_version }));
-      expect(message).toBe('Unsupported protocol version.');
-      expect(message).not.toContain(marker);
+    const req = 'req-12345678';
+    const boundaries: Array<[string, (protocol_version: unknown) => unknown]> = [
+      ['tag preflight', (v) => decodeProtocolTagPreflight({ protocol_version: v })],
+      ['generic success envelope', (v) => decodeProtocolEnvelope({ protocol_version: v, request_id: req, payload: {} }, (p) => p)],
+      ['error envelope', (v) => decodeProtocolErrorEnvelope({ protocol_version: v, error: { code: 'AUTH_INVALID', message: 'x' } })],
+      ['enrollment request envelope', (v) => decodeEnrollmentExchangeRequestEnvelope({ protocol_version: v, request_id: req, payload: {} })],
+      ['enrollment response envelope', (v) => decodeEnrollmentExchangeResponseEnvelope({ protocol_version: v, request_id: req, payload: {} })],
+      ['cube request envelope', (v) => decodeCreateCubeRequestEnvelope({ protocol_version: v, request_id: req, payload: {} })],
+      ['cube response envelope', (v) => decodeCreateCubeResponseEnvelope({ protocol_version: v, request_id: req, payload: {} })],
+      ['attach request envelope', (v) => decodeAttachRequestEnvelope({ protocol_version: v, request_id: req, payload: {} })],
+      ['attach response envelope', (v) => decodeAttachResponseEnvelope({ protocol_version: v, request_id: req, payload: {} })],
+    ];
+    for (const [label, decode] of boundaries) {
+      for (const protocol_version of hostileValues) {
+        const message = messageOf(() => decode(protocol_version));
+        expect(message, `${label} reflected a hostile protocol_version`).toBe('Unsupported protocol version.');
+        expect(message, `${label} leaked the marker`).not.toContain(marker);
+      }
     }
-    expect(
-      messageOf(() =>
-        decodeProtocolEnvelope(
-          { protocol_version: marker, request_id: 'req-12345678', payload: {} },
-          (payload) => payload,
-        ),
-      ),
-    ).not.toContain(marker);
-    expect(
-      messageOf(() =>
-        decodeProtocolErrorEnvelope({
-          protocol_version: marker,
-          error: { code: 'AUTH_INVALID', message: 'x' },
-        }),
-      ),
-    ).not.toContain(marker);
   });
 
   it('does not re-export any retired capability-negotiation surface', () => {
