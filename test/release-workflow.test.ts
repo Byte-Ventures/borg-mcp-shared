@@ -112,6 +112,26 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('Both jobs reject a repository-root `.npmrc` before their first npm command.');
   });
 
+  it('release-source docs affirm the current package version, not a pre-bump future claim', async () => {
+    // SR f0969024: a version bump must retire the pre-bump framing. A stale claim
+    // that the source "never claims to be <version>" or defers the bump to a
+    // future sprint-close step contradicts an exact head that already carries it.
+    const pkg = JSON.parse(await readFile('package.json', 'utf8')) as { version: string };
+    const distribution = await readFile('README.md', 'utf8');
+    const enrollment = await readFile('docs/enrollment.md', 'utf8');
+    const runbook = await readFile('docs/releasing.md', 'utf8');
+
+    for (const doc of [distribution, enrollment, runbook]) {
+      expect(doc).not.toMatch(/never claims to be/i);
+      expect(doc).not.toMatch(/sprint-close (publish )?step/i);
+    }
+    // README + enrollment positively state the source now carries the version...
+    expect(distribution).toMatch(/this source now identifies/i);
+    expect(enrollment).toMatch(/this source now identifies/i);
+    // ...and the Distribution guidance names the current package version.
+    expect(distribution).toContain(`\`${pkg.version}\``);
+  });
+
   it.each([
     ['tag', 'v0.2.1'],
     ['branch', 'release-candidate'],

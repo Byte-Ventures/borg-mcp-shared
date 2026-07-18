@@ -222,11 +222,11 @@ Immediately after a successful first publish:
 The ratified `borgmcp-shared-enrollment-version` decision defined this breaking
 retry-safe enrollment and idempotent multi-cube contract. `borgmcp-shared@0.3.0`
 is now the published, immutable v1 baseline on the registry, so the clean-slate
-v2 contract — credential-free tag preflight included — is prepared as an
-unpublished `0.4.0` candidate (a breaking change on a `0.x` package bumps the
-minor). Updating package metadata, lockfiles, assertions, compatibility
-documentation, and this runbook does not authorize creating `v0.4.0` or
-publishing the package, and the source branch must not republish `0.3.0`.
+v2 contract — credential-free tag preflight included — is versioned as the
+still-unpublished `0.4.0` candidate (a breaking change on a `0.x` package bumps
+the minor). This source now identifies `0.4.0`. That reviewed version bump
+does not authorize creating `v0.4.0` or publishing the package, and the source
+branch must not republish `0.3.0`.
 
 Before a separately authorized `v0.4.0` tag is created:
 
@@ -234,8 +234,8 @@ Before a separately authorized `v0.4.0` tag is created:
    Review, Security, and Release Quality approve the package identity, public
    API, conformance behavior, generated output, and release documentation.
 2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, the exact protocol
-   version tag, packed-artifact verifier, and version assertions must all
-   identify `0.4.0` in that sprint-close bump.
+   version tag, packed-artifact verifier, and version assertions all identify
+   `0.4.0` (done in this source bump).
 3. The protected workflow must build one exact tarball and pass its full source,
    test, audit, public-export, source-map, install/import, dry-run, lock-derived
    CycloneDX SBOM, integrity, and provenance gates. Security must approve that
