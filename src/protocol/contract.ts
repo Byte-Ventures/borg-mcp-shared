@@ -11,7 +11,7 @@ export const CUBES_PATH = '/api/cubes' as const;
 
 export const PROTOCOL_HTTP_CONTRACT = {
   health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
-  protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: true, success_status: 200 },
+  protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: false, success_status: 200 },
   enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
   cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
   auth_missing_status: 401,
@@ -19,7 +19,6 @@ export const PROTOCOL_HTTP_CONTRACT = {
   cursor_expired_status: 410,
   content_too_large_status: 413,
   unsupported_protocol_status: 426,
-  unsupported_capability_status: 501,
   redirect_policy: 'error',
 } as const;
 
@@ -30,49 +29,14 @@ export const PROTOCOL_LIMIT_CEILINGS = {
   max_replay_page_size: 1000,
 } as const;
 
-export const KNOWN_CAPABILITIES = [
-  'coordination.core',
-  'auth.bearer',
-  'auth.revocation',
-  'auth.retry-safe-enrollment',
-  'scope.cube-isolation',
-  'transport.tls',
-  'authority.no-cloud-fallback',
-  'log.cursor',
-  'stream.sse',
-  'stream.replay',
-  'acks',
-  'claims',
-  'decisions',
-] as const;
-
-export type KnownCapability = (typeof KNOWN_CAPABILITIES)[number];
-export type Capability = KnownCapability | (string & {});
-
-export const REQUIRED_SECURITY_CAPABILITIES = [
-  'auth.bearer',
-  'auth.revocation',
-  'auth.retry-safe-enrollment',
-  'scope.cube-isolation',
-  'transport.tls',
-  'authority.no-cloud-fallback',
-] as const satisfies readonly Capability[];
-
-export interface ProtocolLimits {
-  max_request_bytes: number;
-  max_log_message_bytes: number;
-  max_read_page_size: number;
-  max_replay_page_size: number;
-}
-
-export interface ProtocolInfo {
+/**
+ * The credential-free protocol-tag preflight body. It carries ONLY the exact
+ * protocol tag — no package version, limits, server identity, or other
+ * fingerprint surface — so a client can verify pinned TLS and the exact tag
+ * before it creates or sends any credential.
+ */
+export interface ProtocolTagPreflight {
   protocol_version: ProtocolVersion;
-  package: {
-    name: typeof SHARED_PACKAGE_NAME;
-    version: string;
-  };
-  capabilities: Capability[];
-  limits: ProtocolLimits;
 }
 
 export interface ProtocolEnvelope<T> {
@@ -89,8 +53,6 @@ export interface ProtocolErrorEnvelope {
     message: string;
     details?: string;
     retry_after?: number;
-    required_capability?: string;
-    supported_versions?: readonly string[];
   };
 }
 
@@ -220,17 +182,6 @@ export function utf8ByteLength(value: string): number {
   return bytes;
 }
 
-function isSemanticVersion(value: string): boolean {
-  const match = value.match(
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/,
-  );
-  if (!match) return false;
-  const prerelease = match[4];
-  return prerelease === undefined || prerelease.split('.').every((identifier) =>
-    !/^\d+$/.test(identifier) || identifier === '0' || !identifier.startsWith('0')
-  );
-}
-
 function boundedPositiveInteger(
   value: unknown,
   maximum: number,
@@ -266,95 +217,32 @@ function decodeRequestId(value: unknown, path: readonly (string | number)[]): st
   return decoded;
 }
 
-function capabilityName(value: unknown, path: readonly (string | number)[]): string {
-  const decoded = boundedString(value, 1, 64, path);
-  if (!/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(decoded)) {
-    fail('Capability name contains unsupported characters.', path);
-  }
-  return decoded;
+/**
+ * Emit the credential-free protocol-tag preflight body. Servers return exactly
+ * this — the tag and nothing else — from the unauthenticated `GET /api/protocol`.
+ */
+export function createProtocolTagPreflight(): ProtocolTagPreflight {
+  return { protocol_version: PROTOCOL_VERSION };
 }
 
-export function decodeProtocolInfo(value: unknown): ProtocolInfo {
+/**
+ * Decode the credential-free, mutation-free protocol-tag preflight. The body must
+ * be exactly `{ protocol_version }` and carry the exact expected tag; any other
+ * tag, an extra field, or a non-object fails closed before any credential is
+ * created or sent. This is the sole acceptance authority — there is no
+ * negotiation, capability list, or package/limit surface to inspect.
+ */
+export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight {
   const input = record(value);
-  exactKeys(input, ['protocol_version', 'package', 'capabilities', 'limits'], [
-    'protocol_version',
-    'package',
-    'capabilities',
-    'limits',
-  ]);
+  exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      'Unsupported protocol version.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
   }
-
-  const packageInfo = record(input.package, ['package']);
-  exactKeys(packageInfo, ['name', 'version'], ['name', 'version'], ['package']);
-  if (packageInfo.name !== SHARED_PACKAGE_NAME) {
-    fail(`Expected package name "${SHARED_PACKAGE_NAME}".`, ['package', 'name']);
-  }
-  const packageVersion = boundedString(packageInfo.version, 5, 64, ['package', 'version']);
-  if (!isSemanticVersion(packageVersion)) {
-    fail('Expected a semantic package version.', ['package', 'version']);
-  }
-
-  if (!Array.isArray(input.capabilities)) fail('Expected an array.', ['capabilities']);
-  const capabilities = input.capabilities.map((capability, index) => {
-    return capabilityName(capability, ['capabilities', index]) as Capability;
-  });
-  if (new Set(capabilities).size !== capabilities.length) {
-    fail('Capabilities must be unique.', ['capabilities']);
-  }
-
-  const limits = record(input.limits, ['limits']);
-  exactKeys(
-    limits,
-    [
-      'max_request_bytes',
-      'max_log_message_bytes',
-      'max_read_page_size',
-      'max_replay_page_size',
-    ],
-    [
-      'max_request_bytes',
-      'max_log_message_bytes',
-      'max_read_page_size',
-      'max_replay_page_size',
-    ],
-    ['limits'],
-  );
-
-  return {
-    protocol_version: PROTOCOL_VERSION,
-    package: { name: SHARED_PACKAGE_NAME, version: packageVersion },
-    capabilities,
-    limits: {
-      max_request_bytes: boundedPositiveInteger(limits.max_request_bytes, PROTOCOL_LIMIT_CEILINGS.max_request_bytes, ['limits', 'max_request_bytes']),
-      max_log_message_bytes: boundedPositiveInteger(limits.max_log_message_bytes, PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes, ['limits', 'max_log_message_bytes']),
-      max_read_page_size: boundedPositiveInteger(limits.max_read_page_size, PROTOCOL_LIMIT_CEILINGS.max_read_page_size, ['limits', 'max_read_page_size']),
-      max_replay_page_size: boundedPositiveInteger(limits.max_replay_page_size, PROTOCOL_LIMIT_CEILINGS.max_replay_page_size, ['limits', 'max_replay_page_size']),
-    },
-  };
-}
-
-export function negotiateProtocol(
-  value: unknown,
-  requiredCapabilities: readonly Capability[] = [],
-): ProtocolInfo {
-  const info = decodeProtocolInfo(value);
-  const required = [...REQUIRED_SECURITY_CAPABILITIES, ...requiredCapabilities];
-  for (const capability of new Set(required)) {
-    if (!info.capabilities.includes(capability)) {
-      throw new ProtocolContractError(
-        `Required capability "${capability}" is unavailable.`,
-        ErrorCode.UNSUPPORTED_CAPABILITY,
-        ['capabilities'],
-      );
-    }
-  }
-  return info;
+  return { protocol_version: PROTOCOL_VERSION };
 }
 
 export function createProtocolEnvelope<T>(requestId: string, payload: T): ProtocolEnvelope<T> {
@@ -377,7 +265,7 @@ export function decodeProtocolEnvelope<T>(
   ]);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      'Unsupported protocol version.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -390,16 +278,13 @@ export function decodeProtocolEnvelope<T>(
   };
 }
 
-export function decodeProtocolInfoEnvelope(value: unknown): ProtocolEnvelope<ProtocolInfo> {
-  return decodeProtocolEnvelope(value, decodeProtocolInfo);
-}
 
 export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelope {
   const input = record(value);
   exactKeys(input, ['protocol_version', 'request_id', 'error'], ['protocol_version', 'error']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      `Unsupported protocol version "${String(input.protocol_version)}".`,
+      'Unsupported protocol version.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -412,8 +297,6 @@ export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelo
       'message',
       'details',
       'retry_after',
-      'required_capability',
-      'supported_versions',
     ],
     ['code', 'message'],
     ['error'],
@@ -434,21 +317,6 @@ export function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelo
   }
   if (error.retry_after !== undefined) {
     decodedError.retry_after = boundedPositiveInteger(error.retry_after, 86_400, ['error', 'retry_after']);
-  }
-  if (error.required_capability !== undefined) {
-    decodedError.required_capability = capabilityName(
-      error.required_capability,
-      ['error', 'required_capability'],
-    );
-  }
-  if (error.supported_versions !== undefined) {
-    if (!Array.isArray(error.supported_versions) || error.supported_versions.length === 0 ||
-        error.supported_versions.length > 16 ||
-        !error.supported_versions.every((version) => version === PROTOCOL_VERSION) ||
-        new Set(error.supported_versions).size !== error.supported_versions.length) {
-      fail('Invalid supported protocol versions.', ['error', 'supported_versions']);
-    }
-    decodedError.supported_versions = [...error.supported_versions] as ProtocolVersion[];
   }
   const decodedRequestId = input.request_id === undefined
     ? undefined
@@ -721,4 +589,213 @@ export function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCurso
   if (a === null) return b === null ? null : decodeLogCursor(b);
   if (b === null) return decodeLogCursor(a);
   return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
+}
+
+// ── v2 clean-slate wire types ──────────────────────────────────────────────
+
+export const ATTACH_PATH = '/api/client/attach' as const;
+
+export interface AttachRequest {
+  cube_id: string;
+  role_id: string;
+  session_credential: string;
+  prior_drone_id?: string;
+}
+
+export interface AttachCube {
+  id: string;
+  name: string;
+}
+
+export type AttachRoleClass = 'queen' | 'worker';
+
+export interface AttachRole {
+  id: string;
+  name: string;
+  role_class?: AttachRoleClass;
+  is_human_seat?: boolean;
+}
+
+export interface AttachDrone {
+  id: string;
+  label: string;
+}
+
+export interface AttachSession {
+  id: string;
+  expires_at: string;
+}
+
+export interface AttachResponse {
+  result: 'created' | 'reused';
+  cube: AttachCube;
+  role: AttachRole;
+  drone: AttachDrone;
+  session: AttachSession;
+}
+
+function decodeAttachCube(value: unknown, path: readonly (string | number)[]): AttachCube {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'name'], ['id', 'name'], path);
+  return {
+    id: decodeUuid(input.id, [...path, 'id']),
+    name: boundedString(input.name, 1, 128, [...path, 'name']),
+  };
+}
+
+function decodeAttachRole(value: unknown, path: readonly (string | number)[]): AttachRole {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'name', 'role_class', 'is_human_seat'], ['id', 'name'], path);
+  const result: AttachRole = {
+    id: decodeUuid(input.id, [...path, 'id']),
+    name: boundedString(input.name, 1, 128, [...path, 'name']),
+  };
+  if (input.role_class !== undefined) {
+    if (input.role_class !== 'queen' && input.role_class !== 'worker') {
+      fail('Expected role_class "queen" or "worker".', [...path, 'role_class']);
+    }
+    result.role_class = input.role_class;
+  }
+  if (input.is_human_seat !== undefined) {
+    if (typeof input.is_human_seat !== 'boolean') {
+      fail('Expected a boolean.', [...path, 'is_human_seat']);
+    }
+    result.is_human_seat = input.is_human_seat;
+  }
+  return result;
+}
+
+function decodeAttachDrone(value: unknown, path: readonly (string | number)[]): AttachDrone {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'label'], ['id', 'label'], path);
+  return {
+    id: decodeUuid(input.id, [...path, 'id']),
+    label: boundedString(input.label, 1, 128, [...path, 'label']),
+  };
+}
+
+function decodeAttachSession(value: unknown, path: readonly (string | number)[]): AttachSession {
+  const input = record(value, path);
+  exactKeys(input, ['id', 'expires_at'], ['id', 'expires_at'], path);
+  return {
+    id: decodeUuid(input.id, [...path, 'id']),
+    expires_at: decodeCanonicalTimestamp(input.expires_at, [...path, 'expires_at']),
+  };
+}
+
+/**
+ * Decode a v2 attach request. Strict: exact keys, bounded sizes,
+ * session_credential is token-safe and never echoed in errors.
+ */
+export function decodeAttachRequest(value: unknown): AttachRequest {
+  const input = record(value);
+  exactKeys(input, ['cube_id', 'role_id', 'session_credential', 'prior_drone_id'], [
+    'cube_id',
+    'role_id',
+    'session_credential',
+  ]);
+  const result: AttachRequest = {
+    cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    role_id: decodeUuid(input.role_id, ['role_id']),
+    session_credential: opaqueToken(input.session_credential, ['session_credential']),
+  };
+  if (input.prior_drone_id !== undefined) {
+    result.prior_drone_id = decodeUuid(input.prior_drone_id, ['prior_drone_id']);
+  }
+  return result;
+}
+
+/**
+ * Create a v2 attach request envelope. Stamps the canonical protocol version.
+ */
+export function createAttachRequestEnvelope(
+  requestId: string,
+  payload: AttachRequest,
+): ProtocolEnvelope<AttachRequest> {
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    request_id: decodeRequestId(requestId, ['request_id']),
+    payload,
+  };
+}
+
+/**
+ * Decode a v2 attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
+ * BEFORE decoding the payload — a wrong tag never invokes the payload decoder
+ * and never exposes or returns the supplied session_credential.
+ * Uses a static token-safe diagnostic; does not interpolate attacker-controlled text.
+ */
+export function decodeAttachRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<AttachRequest> {
+  const input = record(value);
+  exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
+    'protocol_version',
+    'request_id',
+    'payload',
+  ]);
+  if (input.protocol_version !== PROTOCOL_VERSION) {
+    throw new ProtocolContractError(
+      'Unsupported protocol version.',
+      ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+      ['protocol_version'],
+    );
+  }
+  const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    request_id: decodedRequestId,
+    payload: decodeAttachRequest(input.payload),
+  };
+}
+
+/**
+ * Decode a v2 attach response. Strict: exact keys, result discriminant,
+ * expires_at required non-null finite ISO-8601.
+ */
+export function decodeAttachResponse(value: unknown): AttachResponse {
+  const input = record(value);
+  exactKeys(input, ['result', 'cube', 'role', 'drone', 'session'], [
+    'result',
+    'cube',
+    'role',
+    'drone',
+    'session',
+  ]);
+  if (input.result !== 'created' && input.result !== 'reused') {
+    fail('Expected result "created" or "reused".', ['result']);
+  }
+  return {
+    result: input.result,
+    cube: decodeAttachCube(input.cube, ['cube']),
+    role: decodeAttachRole(input.role, ['role']),
+    drone: decodeAttachDrone(input.drone, ['drone']),
+    session: decodeAttachSession(input.session, ['session']),
+  };
+}
+
+/**
+ * Decode a v2 attach response wrapped in a ProtocolEnvelope.
+ * Verifies protocol_version === PROTOCOL_VERSION before decoding payload.
+ */
+export function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelope<AttachResponse> {
+  const input = record(value);
+  exactKeys(input, ['protocol_version', 'request_id', 'payload'], [
+    'protocol_version',
+    'request_id',
+    'payload',
+  ]);
+  if (input.protocol_version !== PROTOCOL_VERSION) {
+    throw new ProtocolContractError(
+      'Unsupported protocol version.',
+      ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+      ['protocol_version'],
+    );
+  }
+  const decodedRequestId = decodeRequestId(input.request_id, ['request_id']);
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    request_id: decodedRequestId,
+    payload: decodeAttachResponse(input.payload),
+  };
 }

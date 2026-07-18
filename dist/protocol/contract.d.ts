@@ -17,7 +17,7 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly protocol: {
         readonly method: "GET";
         readonly path: "/api/protocol";
-        readonly authenticated: true;
+        readonly authenticated: false;
         readonly success_status: 200;
     };
     readonly enrollment: {
@@ -37,7 +37,6 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly cursor_expired_status: 410;
     readonly content_too_large_status: 413;
     readonly unsupported_protocol_status: 426;
-    readonly unsupported_capability_status: 501;
     readonly redirect_policy: "error";
 };
 export declare const PROTOCOL_LIMIT_CEILINGS: {
@@ -46,24 +45,8 @@ export declare const PROTOCOL_LIMIT_CEILINGS: {
     readonly max_read_page_size: 500;
     readonly max_replay_page_size: 1000;
 };
-export declare const KNOWN_CAPABILITIES: readonly ["coordination.core", "auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback", "log.cursor", "stream.sse", "stream.replay", "acks", "claims", "decisions"];
-export type KnownCapability = (typeof KNOWN_CAPABILITIES)[number];
-export type Capability = KnownCapability | (string & {});
-export declare const REQUIRED_SECURITY_CAPABILITIES: readonly ["auth.bearer", "auth.revocation", "auth.retry-safe-enrollment", "scope.cube-isolation", "transport.tls", "authority.no-cloud-fallback"];
-export interface ProtocolLimits {
-    max_request_bytes: number;
-    max_log_message_bytes: number;
-    max_read_page_size: number;
-    max_replay_page_size: number;
-}
-export interface ProtocolInfo {
+export interface ProtocolTagPreflight {
     protocol_version: ProtocolVersion;
-    package: {
-        name: typeof SHARED_PACKAGE_NAME;
-        version: string;
-    };
-    capabilities: Capability[];
-    limits: ProtocolLimits;
 }
 export interface ProtocolEnvelope<T> {
     protocol_version: ProtocolVersion;
@@ -78,8 +61,6 @@ export interface ProtocolErrorEnvelope {
         message: string;
         details?: string;
         retry_after?: number;
-        required_capability?: string;
-        supported_versions?: readonly string[];
     };
 }
 export interface EnrollmentExchangeRequest {
@@ -133,11 +114,10 @@ export declare class ProtocolContractError extends Error {
     constructor(message: string, code?: ErrorCode, path?: readonly (string | number)[]);
 }
 export declare function utf8ByteLength(value: string): number;
-export declare function decodeProtocolInfo(value: unknown): ProtocolInfo;
-export declare function negotiateProtocol(value: unknown, requiredCapabilities?: readonly Capability[]): ProtocolInfo;
+export declare function createProtocolTagPreflight(): ProtocolTagPreflight;
+export declare function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight;
 export declare function createProtocolEnvelope<T>(requestId: string, payload: T): ProtocolEnvelope<T>;
 export declare function decodeProtocolEnvelope<T>(value: unknown, decodePayload: (payload: unknown) => T): ProtocolEnvelope<T>;
-export declare function decodeProtocolInfoEnvelope(value: unknown): ProtocolEnvelope<ProtocolInfo>;
 export declare function decodeProtocolErrorEnvelope(value: unknown): ProtocolErrorEnvelope;
 export declare function decodeEnrollmentExchangeRequest(value: unknown): EnrollmentExchangeRequest;
 export declare function decodeEnrollmentExchangeRequestEnvelope(value: unknown): ProtocolEnvelope<EnrollmentExchangeRequest>;
@@ -159,4 +139,42 @@ export declare function decodeOpaqueIdentifier(value: unknown, path?: readonly (
 export declare function redactProtocolDiagnostic(value: string): string;
 export declare function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1;
 export declare function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCursor | null;
+export declare const ATTACH_PATH: "/api/client/attach";
+export interface AttachRequest {
+    cube_id: string;
+    role_id: string;
+    session_credential: string;
+    prior_drone_id?: string;
+}
+export interface AttachCube {
+    id: string;
+    name: string;
+}
+export type AttachRoleClass = 'queen' | 'worker';
+export interface AttachRole {
+    id: string;
+    name: string;
+    role_class?: AttachRoleClass;
+    is_human_seat?: boolean;
+}
+export interface AttachDrone {
+    id: string;
+    label: string;
+}
+export interface AttachSession {
+    id: string;
+    expires_at: string;
+}
+export interface AttachResponse {
+    result: 'created' | 'reused';
+    cube: AttachCube;
+    role: AttachRole;
+    drone: AttachDrone;
+    session: AttachSession;
+}
+export declare function decodeAttachRequest(value: unknown): AttachRequest;
+export declare function createAttachRequestEnvelope(requestId: string, payload: AttachRequest): ProtocolEnvelope<AttachRequest>;
+export declare function decodeAttachRequestEnvelope(value: unknown): ProtocolEnvelope<AttachRequest>;
+export declare function decodeAttachResponse(value: unknown): AttachResponse;
+export declare function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelope<AttachResponse>;
 //# sourceMappingURL=contract.d.ts.map

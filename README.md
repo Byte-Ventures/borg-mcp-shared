@@ -41,7 +41,7 @@ import { ADAPTER_CONFORMANCE_FIXTURES } from 'borgmcp-shared/conformance';
 The supported subpaths are:
 
 - `borgmcp-shared/protocol`: wire entities, requests, responses, errors, and
-  protocol compatibility metadata.
+  the exact protocol version tag.
 - `borgmcp-shared/domain`: pure role-section, address, and high-water-mark
   helpers plus shared domain types.
 - `borgmcp-shared/conformance`: test-runner-independent behavior vectors and
@@ -67,16 +67,21 @@ The first-slice HTTP contract has four shared paths:
   credential-proven retry is non-mutating, and a mismatched replay fails
   uniformly. Secrets never belong in a response, URL, query string, command-line
   argument, diagnostic, or serializable domain entity.
-- `GET /api/protocol` requires authentication and returns the protocol version,
-  package version, capabilities, and bounded limits in the shared envelope.
+- `GET /api/protocol` is credential-free and mutation-free. It returns ONLY the
+  exact protocol tag — no package version, limits, server identity, or other
+  fingerprint surface — so a client verifies pinned TLS and the exact tag before
+  it creates or sends any credential.
 - `POST /api/cubes` requires an active parent client with `create_cube`. Its
   strict, idempotent request selects a server-owned template; one atomic success
   creates a cube, two initial roles, and the creator's cube-scoped `manage`
   grant. Exact retries return the same non-secret identities without mutation.
 
-`negotiateProtocol` requires bearer authentication, revocation, cube isolation,
-verified TLS, and no-cloud-fallback capabilities. Missing security capabilities
-fail closed before an operation begins.
+`decodeProtocolTagPreflight` fails closed on any tag other than the exact
+expected version, on any extra field, or on a non-object body — before any
+credential is created or sent. The exact protocol tag is the sole acceptance
+authority: there is no capability negotiation, and client and server ship and
+update together as one clean-slate product. The attach request envelope still
+decodes its version before any payload as defense in depth.
 
 Every JSON coordination request and successful JSON response is carried inside
 `ProtocolEnvelope<T>`. Failures use `ProtocolErrorEnvelope`. The only bodyless
@@ -94,8 +99,7 @@ readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
-idempotency, acks, claims, decisions, and
-unsupported-capability failures.
+idempotency, acks, claims, and decisions.
 
 Implement `AdapterConformanceDriver` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,
@@ -110,23 +114,26 @@ response shapes.
 
 ## Compatibility
 
-`PROTOCOL_VERSION`, `SUPPORTED_PROTOCOL_VERSIONS`, and `COMPATIBILITY_MATRIX`
-describe the compatibility contract. During the pre-1.0 package series, new
-contracts may be added, but an existing wire shape will not change without a
-documented migration path and corresponding conformance coverage. Consumers pin
-`^0.3.0` (`>=0.3.0 <0.4.0`): before 1.0, breaking wire changes increment the
-minor version while compatible additions and corrections increment the patch.
+`PROTOCOL_VERSION` is the sole acceptance authority: every envelope carries the
+protocol tag, and each decoder fails closed on any value other than the exact
+expected tag. There is no capability negotiation, supported-version list,
+compatibility matrix, or version-range fallback. The client and server are one
+clean-slate product — a wire change increments the tag and both adopt it
+together in a coordinated release, with no mixed-version window.
 
-See [docs/compatibility.md](docs/compatibility.md) for the current matrix and
-the policy for introducing protocol changes.
+See [docs/compatibility.md](docs/compatibility.md) for the exact-tag policy and
+the coordinated rollout order for introducing protocol changes.
 
 ## Distribution
 
-`borgmcp-shared@0.2.2` is the published legacy baseline. This source prepares
-`0.3.0` for the breaking retry-safe enrollment and multi-cube creation contract;
-the version change does not authorize a tag or publication. After a separately
-authorized registry release, consumers adopting this contract pin
-`borgmcp-shared@^0.3.0` and commit registry lockfiles. No registry token belongs
+`borgmcp-shared@0.3.0` is the published v1 baseline on the registry (its latest
+release) and is immutable. This source prepares the breaking clean-slate v2
+contract as a currently-unpublished `0.4.0` candidate; the actual package,
+lockfile, SBOM, and exported-identity bump to `0.4.0` is a separately gated
+sprint-close publish step, so this branch never claims to be `0.4.0` yet and
+must not republish `0.3.0`. After that separately authorized registry release,
+consumers adopting this contract pin `borgmcp-shared@^0.4.0` and commit registry
+lockfiles. No registry token belongs
 in this repository, package metadata, lockfiles, or a committed `.npmrc`;
 publishing uses protected external credentials and provenance.
 

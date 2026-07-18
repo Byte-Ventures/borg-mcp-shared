@@ -18,10 +18,16 @@ export enum ErrorCode {
   DRONE_EVICTED = 'DRONE_EVICTED',
   DRONE_FROZEN = 'DRONE_FROZEN',
   UNSUPPORTED_PROTOCOL_VERSION = 'UNSUPPORTED_PROTOCOL_VERSION',
-  UNSUPPORTED_CAPABILITY = 'UNSUPPORTED_CAPABILITY',
   CURSOR_INVALID = 'CURSOR_INVALID',
   CURSOR_EXPIRED = 'CURSOR_EXPIRED',
   SESSION_REVOKED = 'SESSION_REVOKED',
+  /**
+   * The presented session bearer does not match the seat it targets: a fresh or
+   * non-matching bearer against an already-bound active seat. Distinct from
+   * SESSION_REVOKED (a formerly valid credential that was explicitly revoked or
+   * expired). Carried by the server's typed 401 takeover rejection.
+   */
+  SESSION_REJECTED = 'SESSION_REJECTED',
 }
 
 /** @deprecated Wire failures use the versioned ProtocolErrorEnvelope. */
@@ -31,6 +37,4 @@ export interface ErrorResponse {
   details?: string;
   /** Number of seconds a rate-limited caller should wait. */
   retryAfter?: number;
-  requiredCapability?: string;
-  supportedVersions?: readonly string[];
 }

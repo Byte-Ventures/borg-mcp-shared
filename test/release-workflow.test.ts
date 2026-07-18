@@ -105,9 +105,9 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('Run `29360398007` published `borgmcp-shared@0.2.2`');
     expect(runbook).toContain('MUST NOT be rerun, moved, or reused. Consumer\nmigration was blocked');
     expect(runbook).toContain('Security approved the recovery\nevidence.');
-    expect(runbook).toContain('`borgmcp-shared-enrollment-version` decision selects `0.3.0`');
-    expect(runbook).toContain('does not authorize creating `v0.3.0` or publishing the package.');
-    expect(runbook).toContain('reviewed registry range `^0.3.0`');
+    expect(runbook).toContain('`borgmcp-shared-enrollment-version` decision defined this breaking');
+    expect(runbook).toContain('does not authorize creating `v0.4.0`');
+    expect(runbook).toContain('reviewed registry range `^0.4.0`');
     expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
     expect(runbook).toContain('Both jobs reject a repository-root `.npmrc` before their first npm command.');
   });

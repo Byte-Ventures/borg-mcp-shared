@@ -8,7 +8,6 @@ import {
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeResponse,
   formatDroneAddressToken,
-  isProtocolVersionSupported,
   parseRoleSections,
   redactProtocolDiagnostic,
   serializeSections,
@@ -25,12 +24,6 @@ describe('public conformance vectors', () => {
     for (const text of ROLE_SECTION_ROUND_TRIP_CONFORMANCE) {
       expect(serializeSections(parseRoleSections(text))).toBe(text);
     }
-  });
-
-  it('accepts only declared protocol generations', () => {
-    expect(isProtocolVersionSupported('1')).toBe(true);
-    expect(isProtocolVersionSupported('2')).toBe(false);
-    expect(isProtocolVersionSupported(1)).toBe(false);
   });
 
   it('pins retry tuple equality and mismatch vectors', () => {

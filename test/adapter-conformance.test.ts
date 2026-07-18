@@ -2,11 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ADAPTER_CONFORMANCE_FIXTURES,
   ErrorCode,
-  REQUIRED_SECURITY_CAPABILITIES,
-  SHARED_PACKAGE_NAME,
-  SHARED_PACKAGE_VERSION,
   compareLogCursor,
   createProtocolEnvelope,
+  createProtocolTagPreflight,
   decodeAckLogRequest,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
@@ -243,9 +241,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         (invitation) => invitation.principalId === principal.id &&
           invitation.binding?.response.client_id === responseClientId,
       );
+      const enrolledCredential = matchingClaims[0]?.binding?.credential;
       return {
         response_client_matches: principal.id === responseClientId,
         active_credential_bindings: matchingClaims.length,
+        bound_credential_matches_enrollment:
+          enrolledCredential !== undefined &&
+          this.principal(principal.id).credential === enrolledCredential,
       };
     },
     revokePrincipal: async (principal: ConformancePrincipal): Promise<void> => {
@@ -272,30 +274,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
 
   readonly operations = {
     health: async (): Promise<ConformanceHttpResponse> => ({ status: 204, body: '' }),
-    protocol: async (credential: string | null): Promise<ConformanceHttpResponse> => {
-      const auth = this.authenticate(credential);
-      if (auth.error) return auth.error;
-      const supported = new Set([
-        'coordination.core',
-        ...REQUIRED_SECURITY_CAPABILITIES,
-        'log.cursor',
-        'stream.sse',
-        'stream.replay',
-        'acks',
-        'claims',
-        'decisions',
-      ]);
-      return {
-        status: 200,
-        body: createProtocolEnvelope('protocol', {
-          protocol_version: '1',
-          package: { name: SHARED_PACKAGE_NAME, version: SHARED_PACKAGE_VERSION },
-          capabilities: [
-            ...supported,
-          ],
-          limits: this.limits,
-        }),
-      };
+    protocol: async (_credential: string | null): Promise<ConformanceHttpResponse> => {
+      // Credential-free + mutation-free: the tag preflight ignores any bearer and
+      // returns ONLY the exact tag, so a client checks it before sending secrets.
+      return { status: 200, body: createProtocolTagPreflight() };
     },
     enroll: async (request: unknown): Promise<ConformanceHttpResponse> => {
       const envelope = decodeEnrollmentExchangeRequestEnvelope(request);
@@ -321,7 +303,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '1',
+                protocol_version: '2',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -341,7 +323,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '1',
+                protocol_version: '2',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -420,7 +402,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '1',
+              protocol_version: '2',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -721,7 +703,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '1',
+        protocol_version: '2',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message: 'Conformance request failed.' },
       },
@@ -762,28 +744,28 @@ describe('executable adapter conformance', () => {
     ['unterminated revoked stream', 'keep-stream-after-revoke', 'security.active-stream-revocation'],
     ['interpreted adapter-boundary injection', 'interpret-injection-input', 'security.adapter-boundary-injection'],
     ['accepted oversized request body', 'accept-oversize-request', 'security.oversize-request'],
-    ['accepted enrollment retry-key mismatch', 'accept-retry-key-mismatch', 'protocol.enrollment-auth'],
-    ['accepted enrollment credential mismatch', 'accept-credential-mismatch', 'protocol.enrollment-auth'],
-    ['accepted enrollment client-name mismatch', 'accept-client-name-mismatch', 'protocol.enrollment-auth'],
-    ['leaked retry tuple in diagnostics', 'leak-retry-diagnostic', 'protocol.enrollment-auth'],
-    ['mutated exact enrollment retry', 'mutate-exact-enrollment-retry', 'protocol.enrollment-auth'],
-    ['granted create-cube to ordinary enrollment', 'grant-ordinary-create-cube', 'protocol.enrollment-auth'],
-    ['created cube state during owner enrollment', 'create-state-during-owner-enrollment', 'protocol.enrollment-auth'],
-    ['omitted owner create-cube authority', 'omit-owner-create-cube', 'protocol.enrollment-auth'],
-    ['allowed ordinary cube creation', 'allow-ordinary-cube-create', 'protocol.enrollment-auth'],
-    ['duplicated exact cube-create retry', 'duplicate-exact-cube-retry', 'protocol.enrollment-auth'],
-    ['granted created cube to wrong client', 'grant-created-cube-to-wrong-client', 'protocol.enrollment-auth'],
-    ['swapped created role identities', 'swap-created-role-identities', 'protocol.enrollment-auth'],
-    ['overwrote credential on rejected mismatch', 'overwrite-credential-on-reject', 'protocol.enrollment-auth'],
-    ['accepted owner-only enrollment mismatch', 'owner-only-accept-mismatch', 'protocol.enrollment-auth'],
-    ['overwrote owner credential on rejected mismatch', 'owner-only-overwrite-on-reject', 'protocol.enrollment-auth'],
-    ['mutated owner-only exact retry', 'owner-only-retry-mutation', 'protocol.enrollment-auth'],
-    ['used a global cube-create retry binding', 'global-cube-retry-binding', 'protocol.enrollment-auth'],
-    ['allowed drone-session cube creation', 'allow-drone-cube-create', 'protocol.enrollment-auth'],
-    ['leaked original invitation', 'leak-original-invitation', 'protocol.enrollment-auth'],
-    ['leaked original retry key', 'leak-original-retry-key', 'protocol.enrollment-auth'],
-    ['leaked original credential', 'leak-original-credential', 'protocol.enrollment-auth'],
-    ['leaked cube-create retry key', 'leak-cube-retry-diagnostic', 'protocol.enrollment-auth'],
+    ['accepted enrollment retry-key mismatch', 'accept-retry-key-mismatch', 'enrollment.retry-authority'],
+    ['accepted enrollment credential mismatch', 'accept-credential-mismatch', 'enrollment.retry-authority'],
+    ['accepted enrollment client-name mismatch', 'accept-client-name-mismatch', 'enrollment.retry-authority'],
+    ['leaked retry tuple in diagnostics', 'leak-retry-diagnostic', 'enrollment.retry-authority'],
+    ['mutated exact enrollment retry', 'mutate-exact-enrollment-retry', 'enrollment.retry-authority'],
+    ['granted create-cube to ordinary enrollment', 'grant-ordinary-create-cube', 'enrollment.retry-authority'],
+    ['created cube state during owner enrollment', 'create-state-during-owner-enrollment', 'enrollment.retry-authority'],
+    ['omitted owner create-cube authority', 'omit-owner-create-cube', 'enrollment.retry-authority'],
+    ['allowed ordinary cube creation', 'allow-ordinary-cube-create', 'enrollment.retry-authority'],
+    ['duplicated exact cube-create retry', 'duplicate-exact-cube-retry', 'enrollment.retry-authority'],
+    ['granted created cube to wrong client', 'grant-created-cube-to-wrong-client', 'enrollment.retry-authority'],
+    ['swapped created role identities', 'swap-created-role-identities', 'enrollment.retry-authority'],
+    ['overwrote credential on rejected mismatch', 'overwrite-credential-on-reject', 'enrollment.retry-authority'],
+    ['accepted owner-only enrollment mismatch', 'owner-only-accept-mismatch', 'enrollment.retry-authority'],
+    ['overwrote owner credential on rejected mismatch', 'owner-only-overwrite-on-reject', 'enrollment.retry-authority'],
+    ['mutated owner-only exact retry', 'owner-only-retry-mutation', 'enrollment.retry-authority'],
+    ['used a global cube-create retry binding', 'global-cube-retry-binding', 'enrollment.retry-authority'],
+    ['allowed drone-session cube creation', 'allow-drone-cube-create', 'enrollment.retry-authority'],
+    ['leaked original invitation', 'leak-original-invitation', 'enrollment.retry-authority'],
+    ['leaked original retry key', 'leak-original-retry-key', 'enrollment.retry-authority'],
+    ['leaked original credential', 'leak-original-credential', 'enrollment.retry-authority'],
+    ['leaked cube-create retry key', 'leak-cube-retry-diagnostic', 'enrollment.retry-authority'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

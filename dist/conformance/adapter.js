@@ -1,8 +1,9 @@
-import { ErrorCode, ProtocolContractError, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolInfoEnvelope, decodeReadLogResultEnvelope, decodeSseFrames, negotiateProtocol, utf8ByteLength, } from '../protocol/index.js';
+import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
 import { ENROLLMENT_RETRY_CONFORMANCE } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
-    { id: 'protocol.enrollment-auth', area: 'protocol' },
+    { id: 'protocol.credential-free-preflight', area: 'protocol' },
+    { id: 'enrollment.retry-authority', area: 'enrollment' },
     { id: 'security.adapter-boundary-injection', area: 'security' },
     { id: 'security.oversize-request', area: 'security' },
     { id: 'security.cross-cube-isolation', area: 'security' },
@@ -12,7 +13,6 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'acks.idempotent', area: 'acks' },
     { id: 'claims.durable-noncursor', area: 'claims' },
     { id: 'decisions.topic-supersession', area: 'decisions' },
-    { id: 'capabilities.unsupported-fails-closed', area: 'capabilities' },
     { id: 'security.active-stream-revocation', area: 'security' },
 ];
 const DEFAULT_STREAM_DEADLINE_MS = 5_000;
@@ -166,16 +166,22 @@ export async function runAdapterConformance(environment, options = {}) {
     let cubeB;
     let credentialA = '';
     let credentialB = '';
-    let protocolBody;
-    let protocolInfo = null;
     await record('http.unauthenticated-liveness', async () => {
         const response = await environment.operations.health();
         expectStatus(response, 204, 'Unauthenticated liveness');
         invariant(response.body === '' || response.body === undefined, 'Unauthenticated liveness exposed a response body.');
         return { status: 204, bodyless: true };
     });
-    await record('protocol.enrollment-auth', async () => {
-        expectError(await environment.operations.protocol(null), 401, ErrorCode.AUTH_MISSING, 'Unauthenticated protocol request');
+    await record('protocol.credential-free-preflight', async () => {
+        const before = await environment.admin.observeAuthorityState();
+        const response = await environment.operations.protocol(null);
+        expectStatus(response, 200, 'Credential-free protocol-tag preflight');
+        const preflight = decodeProtocolTagPreflight(response.body);
+        invariant(Object.keys(preflight).length === 1 && preflight.protocol_version === PROTOCOL_VERSION, 'Protocol-tag preflight exposed more than the exact tag.');
+        assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Protocol-tag preflight');
+        return { authenticated: false, mutation_free: true, protocol_version: preflight.protocol_version };
+    });
+    await record('enrollment.retry-authority', async () => {
         const retryVectorErrors = [];
         for (const [index, vector] of ENROLLMENT_RETRY_CONFORMANCE.entries()) {
             for (const purpose of ['client', 'owner']) {
@@ -212,13 +218,10 @@ export async function runAdapterConformance(environment, options = {}) {
                         assertEnrollmentErrorIsSecretFree(retryResponse, [initialPayload, retryPayload], `${purpose} ${vector.name}`);
                     }
                     assertStateDelta(beforeRetry, await environment.admin.observeAuthorityState(), {}, `${purpose} ${vector.name} retry`);
-                    expectStatus(await environment.operations.protocol(vector.initial.client_credential), 200, `${purpose} ${vector.name} original credential continuity`);
-                    if (vector.retry.client_credential !== vector.initial.client_credential) {
-                        expectError(await environment.operations.protocol(vector.retry.client_credential), 401, ErrorCode.AUTH_INVALID, `${purpose} ${vector.name} mismatched credential rejection`);
-                    }
                     invariant(same(await environment.admin.inspectEnrollmentPrincipal(principal, initial.client_id), {
                         response_client_matches: true,
                         active_credential_bindings: 1,
+                        bound_credential_matches_enrollment: true,
                     }), `${purpose} ${vector.name} changed enrollment binding ownership.`);
                 }
                 catch (error) {
@@ -358,32 +361,18 @@ export async function runAdapterConformance(environment, options = {}) {
             ...enrollmentARequest.payload,
             retry_key: '00000000-0000-4000-8000-000000000203',
         })), 401, ErrorCode.AUTH_INVALID, 'Enrollment retry mismatch');
-        const protocolResponse = await environment.operations.protocol(credentialA);
-        expectStatus(protocolResponse, 200, 'Authenticated protocol request');
-        protocolBody = protocolResponse.body;
-        protocolInfo = negotiateProtocol(decodeProtocolInfoEnvelope(protocolBody).payload, [
-            'log.cursor',
-            'stream.sse',
-            'stream.replay',
-            'acks',
-            'claims',
-            'decisions',
-        ]);
         return {
-            unauthenticated: ErrorCode.AUTH_MISSING,
             enrollment_status: 201,
             exact_retry_status: 201,
             mismatched_retry: ErrorCode.AUTH_INVALID,
             response_secret_free: true,
-            protocol_version: protocolInfo.protocol_version,
         };
     });
     await record('security.adapter-boundary-injection', async () => {
-        invariant(protocolInfo, 'Protocol fixture did not produce request limits.');
         const injectedMessage = "'); DROP TABLE log_entries; --\r\ndata: forged-sse-frame";
         const injectedBody = JSON.stringify(createProtocolEnvelope('inject-b1', { message: injectedMessage }));
-        invariant(utf8ByteLength(injectedBody) <= protocolInfo.limits.max_request_bytes &&
-            utf8ByteLength(injectedMessage) <= protocolInfo.limits.max_log_message_bytes, 'Injection fixture exceeded an advertised request limit.');
+        invariant(utf8ByteLength(injectedBody) <= PROTOCOL_LIMIT_CEILINGS.max_request_bytes &&
+            utf8ByteLength(injectedMessage) <= PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes, 'Injection fixture exceeded the shared request-limit ceiling.');
         const injected = await environment.operations.appendRaw(credentialB, cubeB, injectedBody);
         expectStatus(injected, 201, 'Adapter-boundary injection append');
         const injectedEntry = decodeAppendLogResultEnvelope(injected.body).payload.entry;
@@ -417,10 +406,9 @@ export async function runAdapterConformance(environment, options = {}) {
         };
     });
     await record('security.oversize-request', async () => {
-        invariant(protocolInfo, 'Protocol fixture did not produce request limits.');
         const baseBody = JSON.stringify(createProtocolEnvelope('oversize-a1', { message: 'must-not-persist' }));
-        const oversizedBody = baseBody + ' '.repeat(Math.max(0, protocolInfo.limits.max_request_bytes - utf8ByteLength(baseBody) + 1));
-        invariant(utf8ByteLength(oversizedBody) > protocolInfo.limits.max_request_bytes, 'Oversize fixture did not exceed max_request_bytes.');
+        const oversizedBody = baseBody + ' '.repeat(Math.max(0, PROTOCOL_LIMIT_CEILINGS.max_request_bytes - utf8ByteLength(baseBody) + 1));
+        invariant(utf8ByteLength(oversizedBody) > PROTOCOL_LIMIT_CEILINGS.max_request_bytes, 'Oversize fixture did not exceed max_request_bytes.');
         const response = await environment.operations.appendRaw(credentialA, cubeA, oversizedBody);
         expectError(response, 413, ErrorCode.CONTENT_TOO_LARGE, 'Oversized append request');
         const read = await environment.operations.read(credentialA, cubeA, createProtocolEnvelope('oversize-read', { cursor: null, limit: 10 }));
@@ -540,21 +528,6 @@ export async function runAdapterConformance(environment, options = {}) {
         invariant(active.length === 1 && active[0].decision === 'second', 'Decision list did not contain only the active superseding decision.');
         invariant(second.supersedes === first.id, 'Superseding decision did not reference its predecessor.');
         return { active_count: 1, active_decision: 'second', supersedes_first: true };
-    });
-    await record('capabilities.unsupported-fails-closed', async () => {
-        invariant(protocolBody, 'Protocol fixture did not produce an envelope.');
-        let code = null;
-        try {
-            negotiateProtocol(decodeProtocolInfoEnvelope(protocolBody).payload, ['future.required']);
-        }
-        catch (error) {
-            if (error instanceof ProtocolContractError)
-                code = error.code;
-            else
-                throw error;
-        }
-        invariant(code === ErrorCode.UNSUPPORTED_CAPABILITY, 'Unsupported capability did not fail closed client-side.');
-        return { code };
     });
     await record('security.active-stream-revocation', async () => {
         invariant(liveCursor, 'Stream fixture did not produce a live cursor.');
