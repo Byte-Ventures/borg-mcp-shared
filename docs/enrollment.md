@@ -7,11 +7,11 @@ security properties below.
 
 This contract replaces the server-generated bearer response used by the
 published `borgmcp-shared@0.3.0` v1 baseline. It is a breaking clean-slate v2
-wire change, prepared as a currently-unpublished `0.4.0` candidate, and requires
-a coordinated client/server release. Preparing the contract does not authorize a
-tag or publication, and the `0.4.0` package bump is a separately gated
-sprint-close step. There is no compatibility path that returns a bearer from the
-server.
+wire change; this source now identifies the still-unpublished `0.4.0` candidate
+and requires a coordinated client/server release. The version bump grants no tag
+or publication authority — creating the `v0.4.0` tag and the registry
+publication remain separate, independently gated steps. There is no
+compatibility path that returns a bearer from the server.
 
 A client verifies the credential-free `GET /api/protocol` tag preflight before
 it creates or sends any enrollment secret; a peer that presents a different

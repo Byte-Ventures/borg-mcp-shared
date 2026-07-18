@@ -127,13 +127,14 @@ the coordinated rollout order for introducing protocol changes.
 ## Distribution
 
 `borgmcp-shared@0.3.0` is the published v1 baseline on the registry (its latest
-release) and is immutable. This source prepares the breaking clean-slate v2
-contract as a currently-unpublished `0.4.0` candidate; the actual package,
-lockfile, SBOM, and exported-identity bump to `0.4.0` is a separately gated
-sprint-close publish step, so this branch never claims to be `0.4.0` yet and
-must not republish `0.3.0`. After that separately authorized registry release,
-consumers adopting this contract pin `borgmcp-shared@^0.4.0` and commit registry
-lockfiles. No registry token belongs
+release) and is immutable. This source now identifies the still-unpublished
+`0.4.0` candidate for the breaking clean-slate v2 contract — its package
+manifest, lockfile, exported identity, and the SBOM / packed-artifact verifiers
+all read `0.4.0`. This reviewed version bump grants no tag or publish authority
+and must not republish `0.3.0`; creating the annotated `v0.4.0` tag and the
+registry publication remain separate, independently gated steps. After that
+separately authorized registry release, consumers adopting this contract pin
+`borgmcp-shared@^0.4.0` and commit registry lockfiles. No registry token belongs
 in this repository, package metadata, lockfiles, or a committed `.npmrc`;
 publishing uses protected external credentials and provenance.
 
