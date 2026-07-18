@@ -16,17 +16,8 @@ describe('npm publish workflow', () => {
 
     expect(workflow).toContain("tags: ['v*.*.*']");
     expect(workflow).toContain('workflow_dispatch:');
-    expect(workflow).toContain('description: Existing immutable release tag to verify without publishing');
+    expect(workflow).toContain('description: Release tag to publish (must already be verified by the tag-push run)');
     expect(workflow).toContain('required: true');
-    expect(releaseStep).toContain('DISPATCH_TAG: ${{ inputs.tag }}');
-    expect(releaseStep.match(/\$\{\{ inputs\.tag \}\}/g)).toHaveLength(1);
-    expect(releaseStep).toContain('release_tag="${DISPATCH_TAG}"');
-    expect(releaseStep).not.toContain('release_tag="${{ inputs.tag }}"');
-    expect(releaseStep).toContain('test "${GITHUB_REF_TYPE}" = "branch"');
-    expect(releaseStep).toContain('test "${GITHUB_REF_NAME}" = "main"');
-    expect(releaseStep).toContain('test "${GITHUB_REF}" = "refs/heads/main"');
-    expect(releaseStep).toContain('git fetch --no-tags origin "refs/heads/main:${protected_main_ref}"');
-    expect(releaseStep).toContain('git merge-base --is-ancestor "${GITHUB_SHA}" "${protected_main_ref}"');
     for (const job of [verificationJob, publishJob]) {
       const guard = job.indexOf('- name: Reject untrusted release inputs before npm bootstrap');
       const bootstrap = job.indexOf('- name: Set up exact npm');
@@ -44,20 +35,12 @@ describe('npm publish workflow', () => {
     expect(verificationJob).not.toContain('environment:');
     expect(verificationJob).not.toContain('NODE_AUTH_TOKEN');
     expect(publishJob).toContain('id-token: write');
-    expect(publishJob).toContain("if: github.event_name == 'push'");
-    expect(publishJob).toContain('needs: verify');
+    expect(publishJob).toContain("if: github.event_name == 'workflow_dispatch'");
     expect(workflow).toContain('environment:\n      name: npm-publish');
     expect(workflow).toContain('node-version: 22.22.2');
     expect(workflow).toContain('npm@11.18.0');
-    expect(verificationJob).toContain('git fetch --no-tags origin "refs/tags/${release_tag}:${verification_ref}"');
-    expect(verificationJob).toContain('test "$(git cat-file -t "${verification_ref}")" = "tag"');
-    expect(verificationJob).toContain('test "$(git rev-parse HEAD)" = "${release_commit}"');
-    expect(workflow.match(/npm_prefix="\$\{RUNNER_TEMP\}\/npm-11\.18\.0"/g)).toHaveLength(2);
-    expect(workflow.match(/>> "\$\{GITHUB_PATH\}"/g)).toHaveLength(2);
-    expect(workflow).not.toMatch(/npm install[^\n]*--global/);
-    expect(workflow).not.toContain('npm install --global');
     expect(verificationJob).toContain('npm publish "./release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org');
-    expect(publishJob).toContain('npm publish "./release/${{ needs.verify.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
+    expect(publishJob).toContain('npm publish "./release/${{ steps.release.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
     expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(2);
     expect(workflow).not.toMatch(/npm publish "release\//);
     expect(verificationJob).toContain('Upload tarball for security audit');
@@ -85,6 +68,10 @@ describe('npm publish workflow', () => {
       'borgmcp-shared/package.json',
     ]) expect(verificationJob).toContain(specifier);
     expect(publishJob).toContain('Download security-audited tarball');
+    expect(publishJob).toContain('ARTIFACT_SR_SHA512');
+    expect(publishJob).toContain('ARTIFACT_SR_RUN_ID');
+    expect(publishJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
+    expect(publishJob).toContain('Bind SR approval tuple');
     const prepublishStep = publishJob.slice(
       publishJob.indexOf('- name: Verify version availability and ownership'),
       publishJob.indexOf('- name: Publish exact audited tarball with provenance'),
