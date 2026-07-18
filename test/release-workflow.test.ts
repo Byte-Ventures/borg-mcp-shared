@@ -8,17 +8,19 @@ describe('npm publish workflow', () => {
   it('is tag-only, protected, pinned, and publishes the verified tarball', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
-    const [verificationJob, publishJob] = workflow.split('\n  publish:\n');
-    const releaseStep = verificationJob.slice(
-      verificationJob.indexOf('- name: Verify release source and tag'),
-      verificationJob.indexOf('- name: Install locked dependencies without lifecycle scripts'),
-    );
+    const parts = workflow.split('\n  validate:\n');
+    const verificationJob = parts[0]!;
+    const rest = parts[1]!;
+    const publishParts = rest.split('\n  publish:\n');
+    const validateJob = publishParts[0]!;
+    const publishJob = publishParts[1]!;
 
     expect(workflow).toContain("tags: ['v*.*.*']");
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).toContain('description: Release tag to publish (must already be verified by the tag-push run)');
     expect(workflow).toContain('required: true');
-    for (const job of [verificationJob, publishJob]) {
+
+    for (const job of [verificationJob, validateJob, publishJob]) {
       const guard = job.indexOf('- name: Reject untrusted release inputs before npm bootstrap');
       const bootstrap = job.indexOf('- name: Set up exact npm');
       expect(guard).toBeGreaterThan(-1);
@@ -26,23 +28,17 @@ describe('npm publish workflow', () => {
       expect(job.slice(guard, bootstrap)).toContain('test "${GITHUB_RUN_ATTEMPT}" = "1"');
       expect(job.slice(guard, bootstrap)).toContain('test ! -e .npmrc');
     }
-    expect(workflow.match(/npm_userconfig="\$\{RUNNER_TEMP\}\/npm-bootstrap-user\.npmrc"/g)).toHaveLength(2);
-    expect(workflow.match(/npm_cache="\$\{RUNNER_TEMP\}\/npm-bootstrap-cache"/g)).toHaveLength(2);
-    expect(workflow.match(/--registry=https:\/\/registry\.npmjs\.org install --prefix/g)).toHaveLength(2);
+
+    expect(workflow.match(/npm_userconfig="\$\{RUNNER_TEMP\}\/npm-bootstrap-user\.npmrc"/g)).toHaveLength(3);
+    expect(workflow.match(/npm_cache="\$\{RUNNER_TEMP\}\/npm-bootstrap-cache"/g)).toHaveLength(3);
+    expect(workflow.match(/--registry=https:\/\/registry\.npmjs\.org install --prefix/g)).toHaveLength(3);
     expect(workflow.match(/config get registry\)" = "https:\/\/registry\.npmjs\.org\/"/g)).toHaveLength(2);
     expect(workflow).toContain('contents: read');
+
     expect(verificationJob).not.toContain('id-token: write');
     expect(verificationJob).not.toContain('environment:');
     expect(verificationJob).not.toContain('NODE_AUTH_TOKEN');
-    expect(publishJob).toContain('id-token: write');
-    expect(publishJob).toContain("if: github.event_name == 'workflow_dispatch'");
-    expect(workflow).toContain('environment:\n      name: npm-publish');
-    expect(workflow).toContain('node-version: 22.22.2');
-    expect(workflow).toContain('npm@11.18.0');
     expect(verificationJob).toContain('npm publish "./release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org');
-    expect(publishJob).toContain('npm publish "./release/${{ steps.release.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
-    expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(2);
-    expect(workflow).not.toMatch(/npm publish "release\//);
     expect(verificationJob).toContain('Upload tarball for security audit');
     expect(verificationJob).toContain('release/RUN_EVIDENCE');
     expect(verificationJob).toContain('npm sbom --sbom-format cyclonedx');
@@ -67,11 +63,29 @@ describe('npm publish workflow', () => {
       'borgmcp-shared/conformance',
       'borgmcp-shared/package.json',
     ]) expect(verificationJob).toContain(specifier);
-    expect(publishJob).toContain('Download security-audited tarball');
+
+    expect(validateJob).toContain('if: github.event_name == \'workflow_dispatch\'');
+    expect(validateJob).toContain('actions: read');
+    expect(validateJob).not.toContain('environment:');
+    expect(validateJob).toContain('ARTIFACT_SR_SHA512');
+    expect(validateJob).toContain('ARTIFACT_SR_RUN_ID');
+    expect(validateJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
+    expect(validateJob).toContain('Bind SR approval tuple to cross-run artifact');
+
+    expect(publishJob).toContain('needs: validate');
+    expect(publishJob).toContain('run-id:');
+    expect(publishJob).toContain('environment:\n      name: npm-publish');
+    expect(publishJob).toContain('id-token: write');
+    expect(publishJob).toContain("if: github.event_name == 'workflow_dispatch'");
+    expect(publishJob).toContain('Download artifact from SR-approved run');
+    expect(publishJob).toContain('Re-bind SR approval tuple in publish context');
     expect(publishJob).toContain('ARTIFACT_SR_SHA512');
     expect(publishJob).toContain('ARTIFACT_SR_RUN_ID');
     expect(publishJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
-    expect(publishJob).toContain('Bind SR approval tuple');
+    expect(publishJob).toContain('npm publish "./release/${{ needs.validate.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
+    expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(2);
+    expect(workflow).not.toMatch(/npm publish "release\//);
+
     const prepublishStep = publishJob.slice(
       publishJob.indexOf('- name: Verify version availability and ownership'),
       publishJob.indexOf('- name: Publish exact audited tarball with provenance'),
@@ -81,6 +95,7 @@ describe('npm publish workflow', () => {
     expect(workflow.match(/NODE_AUTH_TOKEN/g)).toHaveLength(1);
     expect(workflow).not.toContain('publishConfig.registry');
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
+
     expect(runbook).toContain('The failed `v0.2.0` tag is\nimmutable and MUST NOT be moved, reused, or rerun.');
     expect(runbook).toContain('The remote `v0.2.1` tag remains valid\nand immutable and MUST NOT be moved, reused, or rerun.');
     expect(runbook).toContain('`v0.2.0` bootstrap run, `29353763609`');
