@@ -80,7 +80,7 @@ export async function verifyReleaseSbom(sbomPath) {
   const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
   const rootRef = `${manifest.name}@${manifest.version}`;
 
-  if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.3.0') {
+  if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.4.0') {
     fail(`Unexpected package identity: ${rootRef}`);
   }
   for (const field of RUNTIME_DEPENDENCY_FIELDS) {
@@ -123,7 +123,7 @@ export async function verifyReleaseSbom(sbomPath) {
       sbom.metadata.component.name !== manifest.name ||
       sbom.metadata.component.version !== manifest.version ||
       sbom.metadata.component.purl !== `pkg:npm/${manifest.name}@${manifest.version}`) {
-    fail('CycloneDX root component is not bound to borgmcp-shared@0.3.0.');
+    fail('CycloneDX root component is not bound to borgmcp-shared@0.4.0.');
   }
   if (!Array.isArray(sbom.components) || !Array.isArray(sbom.dependencies)) {
     fail('CycloneDX components and dependencies must be arrays.');
