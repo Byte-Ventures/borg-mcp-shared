@@ -46,7 +46,7 @@ describe('release SBOM', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.4.0',
+      version: '0.4.1',
       format: 'CycloneDX-1.5',
       runtimeDependencies: 0,
     });
@@ -131,7 +131,7 @@ describe('release SBOM', () => {
   it('rejects a dependency graph that diverges from the installed locked tree', async () => {
     const result = await verify('wrong-graph', (sbom) => {
       const root = sbom.dependencies.find(
-        (dependency: { ref: string }) => dependency.ref === 'borgmcp-shared@0.4.0',
+        (dependency: { ref: string }) => dependency.ref === 'borgmcp-shared@0.4.1',
       );
       root.dependsOn = root.dependsOn.slice(1);
     });
