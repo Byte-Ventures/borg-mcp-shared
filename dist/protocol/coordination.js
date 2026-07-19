@@ -38,6 +38,50 @@ function positiveInteger(value, name, maximum) {
         throw new ProtocolContractError(`Invalid coordination field "${name}".`);
     return decoded;
 }
+function decodeManagedDrone(value) {
+    const input = object(value);
+    exact(input, ['id', 'cube_id', 'role_id', 'label'], ['id', 'cube_id', 'role_id', 'label']);
+    return {
+        id: decodeUuid(input.id, ['id']),
+        cube_id: decodeUuid(input.cube_id, ['cube_id']),
+        role_id: decodeUuid(input.role_id, ['role_id']),
+        label: boundedString(input.label, 'label', 120),
+    };
+}
+export function decodeReassignDroneRequest(value) {
+    const input = object(value);
+    exact(input, ['role_id'], ['role_id']);
+    return { role_id: decodeUuid(input.role_id, ['role_id']) };
+}
+export function decodeReassignDroneRequestEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeReassignDroneRequest);
+}
+export function decodeReassignDroneResult(value) {
+    const input = object(value);
+    exact(input, ['drone'], ['drone']);
+    return { drone: decodeManagedDrone(input.drone) };
+}
+export function decodeReassignDroneResultEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeReassignDroneResult);
+}
+export function decodeEvictDroneRequest(value) {
+    const input = object(value);
+    exact(input, [], []);
+    return {};
+}
+export function decodeEvictDroneRequestEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeEvictDroneRequest);
+}
+export function decodeEvictDroneResult(value) {
+    const input = object(value);
+    exact(input, ['drone_id', 'evicted'], ['drone_id', 'evicted']);
+    if (input.evicted !== true)
+        throw new ProtocolContractError('Invalid drone eviction result.');
+    return { drone_id: decodeUuid(input.drone_id, ['drone_id']), evicted: true };
+}
+export function decodeEvictDroneResultEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeEvictDroneResult);
+}
 export function decodeReadLogRequest(value) {
     const input = object(value);
     exact(input, ['cursor', 'limit'], ['cursor']);

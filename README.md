@@ -88,6 +88,11 @@ Every JSON coordination request and successful JSON response is carried inside
 exceptions are the `204` liveness and acknowledgement responses. Payload codecs
 are exported separately so adapters can validate the envelope first and then
 validate the operation-specific payload without accepting ambiguous fields.
+Cube managers reassign a seat with `PATCH /api/cubes/:cubeId/drones/:droneId`
+and evict one with `DELETE` on the same path. Both operations use strict
+versioned request and success envelopes. An evicted seat's former bearer receives
+the terminal `410 DRONE_EVICTED` signal; revoked or expired sessions remain the
+generic `401 SESSION_REVOKED` case.
 See [docs/enrollment.md](docs/enrollment.md) for purpose-bound owner enrollment,
 ordinary ungranted enrollment, cube creation, pending-keychain, and retry contracts.
 
@@ -99,7 +104,8 @@ readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
-idempotency, acks, claims, and decisions.
+idempotency, acks, claims, decisions, cube-scoped drone reassignment, role-class
+and single-seat invariants, eviction exclusion, and terminal bearer signaling.
 
 Implement `AdapterConformanceDriver` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,

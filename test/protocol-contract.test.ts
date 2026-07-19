@@ -32,6 +32,14 @@ import {
   decodeReadLogRequest,
   decodeReadLogResult,
   decodeDecision,
+  decodeEvictDroneRequest,
+  decodeEvictDroneRequestEnvelope,
+  decodeEvictDroneResult,
+  decodeEvictDroneResultEnvelope,
+  decodeReassignDroneRequest,
+  decodeReassignDroneRequestEnvelope,
+  decodeReassignDroneResult,
+  decodeReassignDroneResultEnvelope,
   decodeRemoveDecisionRequest,
   redactProtocolDiagnostic,
   createAttachRequestEnvelope,
@@ -65,6 +73,19 @@ describe('package and handshake contract', () => {
       protocol: { method: 'GET', success_status: 200, authenticated: false },
       enrollment: { success_status: 201, authenticated: 'invitation' },
       cubes: { success_status: 201, authenticated: true },
+      drone_reassign: {
+        method: 'PATCH',
+        path: '/api/cubes/:cubeId/drones/:droneId',
+        success_status: 200,
+        authenticated: true,
+      },
+      drone_evict: {
+        method: 'DELETE',
+        path: '/api/cubes/:cubeId/drones/:droneId',
+        success_status: 200,
+        authenticated: true,
+      },
+      drone_evicted_status: 410,
       redirect_policy: 'error',
     });
   });
@@ -141,6 +162,10 @@ describe('package and handshake contract', () => {
       ['cube response envelope', (v) => decodeCreateCubeResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
       ['attach request envelope', (v) => decodeAttachRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
       ['attach response envelope', (v) => decodeAttachResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['reassign request envelope', (v) => decodeReassignDroneRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['reassign result envelope', (v) => decodeReassignDroneResultEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['evict request envelope', (v) => decodeEvictDroneRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
+      ['evict result envelope', (v) => decodeEvictDroneResultEnvelope({ protocol_version: v, request_id: req, payload: secretPayload })],
     ];
     for (const [label, decode] of boundaries) {
       for (const protocol_version of hostileValues) {
@@ -329,6 +354,68 @@ describe('package and handshake contract', () => {
         error: { code: 'SESSION_REJECTED', message: 'Seat already bound.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REJECTED' } });
+  });
+
+  it('decodes the terminal DRONE_EVICTED error code', () => {
+    expect(PROTOCOL_HTTP_CONTRACT.drone_evicted_status).toBe(410);
+    expect(
+      decodeProtocolErrorEnvelope({
+        protocol_version: '2',
+        request_id: 'req-12345678',
+        error: { code: 'DRONE_EVICTED', message: 'This seat was evicted.' },
+      }),
+    ).toMatchObject({ error: { code: 'DRONE_EVICTED' } });
+  });
+});
+
+describe('drone-management codecs', () => {
+  const cubeId = '10000000-0000-4000-8000-000000000001';
+  const droneId = '30000000-0000-4000-8000-000000000001';
+  const roleId = '20000000-0000-4000-8000-000000000001';
+  const managedDrone = {
+    id: droneId,
+    cube_id: cubeId,
+    role_id: roleId,
+    label: 'one-of-one-builder',
+  };
+
+  it('strictly decodes reassignment request and success envelopes', () => {
+    expect(decodeReassignDroneRequest({ role_id: roleId })).toEqual({ role_id: roleId });
+    expect(decodeReassignDroneRequestEnvelope(createProtocolEnvelope('reassign-1', {
+      role_id: roleId,
+    })).payload).toEqual({ role_id: roleId });
+    expect(decodeReassignDroneResult({ drone: managedDrone })).toEqual({ drone: managedDrone });
+    expect(decodeReassignDroneResultEnvelope(createProtocolEnvelope('reassign-1', {
+      drone: managedDrone,
+    })).payload).toEqual({ drone: managedDrone });
+  });
+
+  it('rejects malformed reassignment bodies and results', () => {
+    expect(() => decodeReassignDroneRequest({ role_id: 'not-a-uuid' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeReassignDroneRequest({ role_id: roleId, role_name: 'Builder' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeReassignDroneResult({
+      drone: { ...managedDrone, evicted_at: null },
+    })).toThrow(ProtocolContractError);
+  });
+
+  it('strictly decodes eviction request and success envelopes', () => {
+    expect(decodeEvictDroneRequest({})).toEqual({});
+    expect(decodeEvictDroneRequestEnvelope(createProtocolEnvelope('evict-01', {})).payload)
+      .toEqual({});
+    const result = { drone_id: droneId, evicted: true as const };
+    expect(decodeEvictDroneResult(result)).toEqual(result);
+    expect(decodeEvictDroneResultEnvelope(createProtocolEnvelope('evict-01', result)).payload)
+      .toEqual(result);
+  });
+
+  it('rejects ambiguous eviction bodies and results', () => {
+    expect(() => decodeEvictDroneRequest({ reason: 'stale' })).toThrow(ProtocolContractError);
+    expect(() => decodeEvictDroneResult({ drone_id: droneId, evicted: false }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeEvictDroneResult({ drone_id: 'not-a-uuid', evicted: true }))
+      .toThrow(ProtocolContractError);
   });
 });
 

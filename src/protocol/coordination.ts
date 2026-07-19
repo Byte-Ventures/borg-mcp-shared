@@ -38,6 +38,28 @@ export interface ReadLogResult {
   claims: ClaimRecord[];
 }
 
+export interface ReassignDroneRequest {
+  role_id: string;
+}
+
+export interface ManagedDrone {
+  id: string;
+  cube_id: string;
+  role_id: string;
+  label: string;
+}
+
+export interface ReassignDroneResult {
+  drone: ManagedDrone;
+}
+
+export type EvictDroneRequest = Record<string, never>;
+
+export interface EvictDroneResult {
+  drone_id: string;
+  evicted: true;
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new ProtocolContractError('Expected a coordination object.');
@@ -82,6 +104,66 @@ function positiveInteger(value: unknown, name: string, maximum: number): number 
   const decoded = nonNegativeInteger(value, name, maximum);
   if (decoded === 0) throw new ProtocolContractError(`Invalid coordination field "${name}".`);
   return decoded;
+}
+
+function decodeManagedDrone(value: unknown): ManagedDrone {
+  const input = object(value);
+  exact(input, ['id', 'cube_id', 'role_id', 'label'], ['id', 'cube_id', 'role_id', 'label']);
+  return {
+    id: decodeUuid(input.id, ['id']),
+    cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    role_id: decodeUuid(input.role_id, ['role_id']),
+    label: boundedString(input.label, 'label', 120),
+  };
+}
+
+export function decodeReassignDroneRequest(value: unknown): ReassignDroneRequest {
+  const input = object(value);
+  exact(input, ['role_id'], ['role_id']);
+  return { role_id: decodeUuid(input.role_id, ['role_id']) };
+}
+
+export function decodeReassignDroneRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<ReassignDroneRequest> {
+  return decodeProtocolEnvelope(value, decodeReassignDroneRequest);
+}
+
+export function decodeReassignDroneResult(value: unknown): ReassignDroneResult {
+  const input = object(value);
+  exact(input, ['drone'], ['drone']);
+  return { drone: decodeManagedDrone(input.drone) };
+}
+
+export function decodeReassignDroneResultEnvelope(
+  value: unknown,
+): ProtocolEnvelope<ReassignDroneResult> {
+  return decodeProtocolEnvelope(value, decodeReassignDroneResult);
+}
+
+export function decodeEvictDroneRequest(value: unknown): EvictDroneRequest {
+  const input = object(value);
+  exact(input, [], []);
+  return {};
+}
+
+export function decodeEvictDroneRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<EvictDroneRequest> {
+  return decodeProtocolEnvelope(value, decodeEvictDroneRequest);
+}
+
+export function decodeEvictDroneResult(value: unknown): EvictDroneResult {
+  const input = object(value);
+  exact(input, ['drone_id', 'evicted'], ['drone_id', 'evicted']);
+  if (input.evicted !== true) throw new ProtocolContractError('Invalid drone eviction result.');
+  return { drone_id: decodeUuid(input.drone_id, ['drone_id']), evicted: true };
+}
+
+export function decodeEvictDroneResultEnvelope(
+  value: unknown,
+): ProtocolEnvelope<EvictDroneResult> {
+  return decodeProtocolEnvelope(value, decodeEvictDroneResult);
 }
 
 export function decodeReadLogRequest(value: unknown): ReadLogRequest {

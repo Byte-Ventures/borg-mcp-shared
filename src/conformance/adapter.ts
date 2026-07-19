@@ -7,11 +7,15 @@ import {
   decodeDecisionResultEnvelope,
   decodeDecisionsResultEnvelope,
   decodeEnrollmentExchangeResponseEnvelope,
+  decodeEvictDroneResultEnvelope,
+  decodeProtocolEnvelope,
   decodeProtocolErrorEnvelope,
   decodeProtocolTagPreflight,
   decodeReadLogResultEnvelope,
+  decodeReassignDroneResultEnvelope,
   decodeSseFrames,
   PROTOCOL_LIMIT_CEILINGS,
+  PROTOCOL_HTTP_CONTRACT,
   PROTOCOL_VERSION,
   utf8ByteLength,
   type CreateCubeResponse,
@@ -32,6 +36,16 @@ export interface ConformancePrincipal {
 export interface ConformanceCube {
   readonly id: string;
 }
+
+export interface ConformanceRole {
+  readonly id: string;
+}
+
+export interface ConformanceDrone {
+  readonly id: string;
+}
+
+export type ConformanceCubeAccess = 'read' | 'write' | 'manage';
 
 export interface ConformanceAuthorityState {
   enrolled_clients: number;
@@ -83,7 +97,29 @@ export interface ConformanceAdmin {
   reset(): Promise<void>;
   createPrincipal(name: string): Promise<ConformancePrincipal>;
   createCube(name: string): Promise<ConformanceCube>;
-  grantCube(principal: ConformancePrincipal, cube: ConformanceCube): Promise<void>;
+  /** Grants the requested cube authority; omitted access defaults to manage. */
+  grantCube(
+    principal: ConformancePrincipal,
+    cube: ConformanceCube,
+    access?: ConformanceCubeAccess,
+  ): Promise<void>;
+  createRole(cube: ConformanceCube, input: {
+    readonly roleClass: 'queen' | 'worker';
+    readonly isHumanSeat: boolean;
+  }): Promise<ConformanceRole>;
+  createDrone(
+    principal: ConformancePrincipal,
+    cube: ConformanceCube,
+    role: ConformanceRole,
+  ): Promise<ConformanceDrone>;
+  issueManagedDroneSession(drone: ConformanceDrone): Promise<string>;
+  revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
+  expireManagedDroneSession(drone: ConformanceDrone): Promise<void>;
+  inspectManagedDrone(drone: ConformanceDrone): Promise<{
+    readonly role_id: string;
+    readonly evicted: boolean;
+    readonly session_revoked: boolean;
+  }>;
   grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
   issueDroneSession(principal: ConformancePrincipal): Promise<string>;
   issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
@@ -138,6 +174,22 @@ export interface ConformanceOperations {
     cube: ConformanceCube,
     request: unknown,
   ): Promise<ConformanceHttpResponse>;
+  listDrones(
+    credential: string,
+    cube: ConformanceCube,
+  ): Promise<ConformanceHttpResponse>;
+  reassignDrone(
+    credential: string,
+    cube: ConformanceCube,
+    drone: ConformanceDrone,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
+  evictDrone(
+    credential: string,
+    cube: ConformanceCube,
+    drone: ConformanceDrone,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
   openStream(
     credential: string,
     cube: ConformanceCube,
@@ -163,6 +215,11 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'acks.idempotent', area: 'acks' },
   { id: 'claims.durable-noncursor', area: 'claims' },
   { id: 'decisions.topic-supersession', area: 'decisions' },
+  { id: 'security.drone-management-authorization', area: 'security' },
+  { id: 'drones.reassign-invariants', area: 'drones' },
+  { id: 'security.cross-cube-drone-management', area: 'security' },
+  { id: 'drones.evict-terminal-signal', area: 'drones' },
+  { id: 'security.drone-session-rejection-causes', area: 'security' },
   { id: 'security.active-stream-revocation', area: 'security' },
 ] as const;
 
@@ -336,6 +393,20 @@ function logEvent(event: StreamEvent, description: string): Extract<StreamEvent,
 
 function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function listedDroneIds(response: ConformanceHttpResponse): string[] {
+  return decodeProtocolEnvelope(response.body, (payload) => {
+    invariant(typeof payload === 'object' && payload !== null, 'Roster payload is not an object.');
+    const drones = (payload as { drones?: unknown }).drones;
+    invariant(Array.isArray(drones), 'Roster payload omitted drones.');
+    return drones.map((drone) => {
+      invariant(typeof drone === 'object' && drone !== null, 'Roster contains an invalid drone.');
+      const id = (drone as { id?: unknown }).id;
+      invariant(typeof id === 'string', 'Roster drone omitted its id.');
+      return id;
+    });
+  }).payload;
 }
 
 function assertStateDelta(
@@ -983,6 +1054,347 @@ export async function runAdapterConformance(
     invariant(active.length === 1 && active[0].decision === 'second', 'Decision list did not contain only the active superseding decision.');
     invariant(second.supersedes === first.id, 'Superseding decision did not reference its predecessor.');
     return { active_count: 1, active_decision: 'second', supersedes_first: true };
+  });
+
+  let workerRoleA!: ConformanceRole;
+  let workerRoleB!: ConformanceRole;
+  let managedWorker!: ConformanceDrone;
+  let workerSession = '';
+  await record('security.drone-management-authorization', async () => {
+    workerRoleA = await environment.admin.createRole(cubeA, {
+      roleClass: 'worker', isHumanSeat: false,
+    });
+    managedWorker = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const deniedCredentials: Array<{ access: 'read' | 'write'; credential: string }> = [];
+    for (const [index, access] of ['read', 'write'].entries()) {
+      const principal = await environment.admin.createPrincipal(`${access}-principal`);
+      await environment.admin.grantCube(principal, cubeA, access as 'read' | 'write');
+      const invitation = await environment.admin.issueSingleUseInvitation(principal, 'client');
+      const credential = `${(access === 'read' ? 'R' : 'W').repeat(42)}Q`;
+      const enrollment = await environment.operations.enroll(createProtocolEnvelope(
+        `${access}-principal-enroll`,
+        {
+          invitation,
+          retry_key: `00000000-0000-4000-8000-${String(301 + index).padStart(12, '0')}`,
+          client_credential: credential,
+          client_name: `${access}-principal`,
+        },
+      ));
+      expectStatus(enrollment, 201, `${access} principal enrollment`);
+      deniedCredentials.push({ access: access as 'read' | 'write', credential });
+    }
+    for (const { access, credential } of deniedCredentials) {
+      expectError(
+        await environment.operations.reassignDrone(
+          credential,
+          cubeA,
+          managedWorker,
+          createProtocolEnvelope(`${access}-reassign-denied`, { role_id: workerRoleA.id }),
+        ),
+        403,
+        ErrorCode.ACCESS_DENIED,
+        `${access} principal reassignment`,
+      );
+      expectError(
+        await environment.operations.evictDrone(
+          credential,
+          cubeA,
+          managedWorker,
+          createProtocolEnvelope(`${access}-evict-denied`, {}),
+        ),
+        403,
+        ErrorCode.ACCESS_DENIED,
+        `${access} principal eviction`,
+      );
+    }
+    return { read_status: 403, write_status: 403, manage_required: true };
+  });
+
+  await record('drones.reassign-invariants', async () => {
+    workerRoleB = await environment.admin.createRole(cubeA, {
+      roleClass: 'worker', isHumanSeat: false,
+    });
+    const humanSourceRole = await environment.admin.createRole(cubeA, {
+      roleClass: 'worker', isHumanSeat: true,
+    });
+    const queenRole = await environment.admin.createRole(cubeA, {
+      roleClass: 'queen', isHumanSeat: false,
+    });
+    const occupiedHumanRole = await environment.admin.createRole(cubeA, {
+      roleClass: 'worker', isHumanSeat: true,
+    });
+    const humanSource = await environment.admin.createDrone(principalA, cubeA, humanSourceRole);
+    await environment.admin.createDrone(principalA, cubeA, occupiedHumanRole);
+    const contender = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    workerSession = await environment.admin.issueManagedDroneSession(managedWorker);
+
+    const reassigned = await environment.operations.reassignDrone(
+      credentialA,
+      cubeA,
+      managedWorker,
+      createProtocolEnvelope('reassign-worker', { role_id: workerRoleB.id }),
+    );
+    expectStatus(reassigned, 200, 'Worker reassignment');
+    const reassignedDrone = decodeReassignDroneResultEnvelope(reassigned.body).payload.drone;
+    invariant(
+      reassignedDrone.id === managedWorker.id && reassignedDrone.role_id === workerRoleB.id,
+      'Reassignment response did not identify the persisted target role.',
+    );
+
+    expectError(
+      await environment.operations.reassignDrone(
+        workerSession,
+        cubeA,
+        managedWorker,
+        createProtocolEnvelope('reassign-drone-session-denied', { role_id: workerRoleA.id }),
+      ),
+      403,
+      ErrorCode.ACCESS_DENIED,
+      'Drone-session reassignment',
+    );
+    expectError(
+      await environment.operations.reassignDrone(
+        credentialA,
+        cubeA,
+        managedWorker,
+        createProtocolEnvelope('reassign-queen-denied', { role_id: queenRole.id }),
+      ),
+      403,
+      ErrorCode.ACCESS_DENIED,
+      'Worker-to-queen reassignment',
+    );
+    const promoted = await environment.operations.reassignDrone(
+      credentialA,
+      cubeA,
+      humanSource,
+      createProtocolEnvelope('reassign-queen-allowed', { role_id: queenRole.id }),
+    );
+    expectStatus(promoted, 200, 'Human-seat-to-queen reassignment');
+    invariant(
+      decodeReassignDroneResultEnvelope(promoted.body).payload.drone.role_id === queenRole.id,
+      'Human-seat-to-queen reassignment did not persist.',
+    );
+    expectError(
+      await environment.operations.reassignDrone(
+        credentialA,
+        cubeA,
+        contender,
+        createProtocolEnvelope('reassign-occupied-denied', { role_id: occupiedHumanRole.id }),
+      ),
+      409,
+      ErrorCode.ROLE_IN_USE,
+      'Occupied human-seat reassignment',
+    );
+    return {
+      worker_reassigned: true,
+      drone_session_denied: true,
+      queen_requires_human_seat: true,
+      occupied_human_seat_denied: true,
+    };
+  });
+
+  await record('security.cross-cube-drone-management', async () => {
+    const foreignRole = await environment.admin.createRole(cubeB, {
+      roleClass: 'worker', isHumanSeat: false,
+    });
+    const foreignDrone = await environment.admin.createDrone(principalB, cubeB, foreignRole);
+    expectError(
+      await environment.operations.reassignDrone(
+        credentialA,
+        cubeB,
+        foreignDrone,
+        createProtocolEnvelope('cross-cube-reassign', { role_id: foreignRole.id }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Cross-cube reassignment',
+    );
+    expectError(
+      await environment.operations.evictDrone(
+        credentialA,
+        cubeB,
+        foreignDrone,
+        createProtocolEnvelope('cross-cube-evict', {}),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Cross-cube eviction',
+    );
+    expectError(
+      await environment.operations.reassignDrone(
+        credentialA,
+        cubeA,
+        foreignDrone,
+        createProtocolEnvelope('foreign-drone-local-route', { role_id: workerRoleA.id }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Foreign drone reassignment through authorized cube route',
+    );
+    expectError(
+      await environment.operations.evictDrone(
+        credentialA,
+        cubeA,
+        foreignDrone,
+        createProtocolEnvelope('foreign-drone-local-evict', {}),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Foreign drone eviction through authorized cube route',
+    );
+    expectError(
+      await environment.operations.reassignDrone(
+        credentialA,
+        cubeA,
+        managedWorker,
+        createProtocolEnvelope('foreign-role-local-drone', { role_id: foreignRole.id }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Foreign role reassignment through authorized cube route',
+    );
+    await environment.admin.grantCube(principalA, cubeB, 'read');
+    const foreignDroneBefore = await environment.admin.inspectManagedDrone(foreignDrone);
+    expectError(
+      await environment.operations.reassignDrone(
+        workerSession,
+        cubeB,
+        foreignDrone,
+        createProtocolEnvelope('bound-drone-cross-cube-reassign', { role_id: foreignRole.id }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Bound drone cross-cube reassignment',
+    );
+    invariant(
+      same(await environment.admin.inspectManagedDrone(foreignDrone), foreignDroneBefore),
+      'Bound drone cross-cube reassignment mutated the foreign target.',
+    );
+    expectError(
+      await environment.operations.evictDrone(
+        workerSession,
+        cubeB,
+        foreignDrone,
+        createProtocolEnvelope('bound-drone-cross-cube-evict', {}),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Bound drone cross-cube eviction',
+    );
+    invariant(
+      same(await environment.admin.inspectManagedDrone(foreignDrone), foreignDroneBefore),
+      'Bound drone cross-cube eviction mutated the foreign target.',
+    );
+    return {
+      unauthorized_cube_status: 404,
+      foreign_drone_status: 404,
+      foreign_role_status: 404,
+      bound_drone_cross_cube_status: 404,
+      code: ErrorCode.NOT_FOUND,
+    };
+  });
+
+  await record('drones.evict-terminal-signal', async () => {
+    const evictedDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const evictedCredential = await environment.admin.issueManagedDroneSession(evictedDrone);
+    expectStatus(
+      await environment.operations.read(
+        evictedCredential,
+        cubeA,
+        createProtocolEnvelope('evict-probe-before', { cursor: null, limit: 1 }),
+      ),
+      200,
+      'Pre-eviction seat probe',
+    );
+    const before = await environment.operations.listDrones(credentialA, cubeA);
+    expectStatus(before, 200, 'Pre-eviction roster');
+    invariant(listedDroneIds(before).includes(evictedDrone.id), 'Active drone was absent from roster.');
+
+    const evicted = await environment.operations.evictDrone(
+      credentialA,
+      cubeA,
+      evictedDrone,
+      createProtocolEnvelope('evict-managed-drone', {}),
+    );
+    expectStatus(evicted, 200, 'Drone eviction');
+    invariant(
+      same(decodeEvictDroneResultEnvelope(evicted.body).payload, {
+        drone_id: evictedDrone.id,
+        evicted: true,
+      }),
+      'Eviction response did not identify the terminal seat.',
+    );
+    invariant(
+      same(await environment.admin.inspectManagedDrone(evictedDrone), {
+        role_id: workerRoleA.id,
+        evicted: true,
+        session_revoked: true,
+      }),
+      'Eviction did not atomically mark the drone evicted and revoke its session.',
+    );
+    const after = await environment.operations.listDrones(credentialA, cubeA);
+    expectStatus(after, 200, 'Post-eviction roster');
+    invariant(!listedDroneIds(after).includes(evictedDrone.id), 'Evicted drone remained in roster.');
+    expectError(
+      await environment.operations.append(
+        credentialA,
+        cubeA,
+        createProtocolEnvelope('evict-direct-target', {
+          message: 'must-not-fan-out',
+          visibility: 'direct',
+          recipientDroneIds: [evictedDrone.id],
+        }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Evicted direct recipient',
+    );
+    expectError(
+      await environment.operations.read(
+        evictedCredential,
+        cubeA,
+        createProtocolEnvelope('evict-probe-after', { cursor: null, limit: 1 }),
+      ),
+      PROTOCOL_HTTP_CONTRACT.drone_evicted_status,
+      ErrorCode.DRONE_EVICTED,
+      'Evicted seat probe',
+    );
+    return {
+      eviction_status: 200,
+      roster_visible: false,
+      fanout_reachable: false,
+      old_bearer_status: 410,
+      old_bearer_code: ErrorCode.DRONE_EVICTED,
+    };
+  });
+
+  await record('security.drone-session-rejection-causes', async () => {
+    const revokedDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const expiredDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const revokedCredential = await environment.admin.issueManagedDroneSession(revokedDrone);
+    const expiredCredential = await environment.admin.issueManagedDroneSession(expiredDrone);
+    await environment.admin.revokeManagedDroneSession(revokedDrone);
+    await environment.admin.expireManagedDroneSession(expiredDrone);
+    for (const [label, credential] of [
+      ['revoked', revokedCredential],
+      ['expired', expiredCredential],
+    ] as const) {
+      expectError(
+        await environment.operations.read(
+          credential,
+          cubeA,
+          createProtocolEnvelope(`${label}-seat-probe`, { cursor: null, limit: 1 }),
+        ),
+        401,
+        ErrorCode.SESSION_REVOKED,
+        `${label} seat probe`,
+      );
+    }
+    return {
+      revoked_status: 401,
+      expired_status: 401,
+      code: ErrorCode.SESSION_REVOKED,
+    };
   });
 
   await record('security.active-stream-revocation', async () => {
