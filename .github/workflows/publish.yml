@@ -202,25 +202,12 @@ jobs:
         with:
           node-version: 22.22.2
 
-      - name: Set up exact npm
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm_prefix="${RUNNER_TEMP}/npm-11.18.0"
-          npm_userconfig="${RUNNER_TEMP}/npm-bootstrap-user.npmrc"
-          npm_cache="${RUNNER_TEMP}/npm-bootstrap-cache"
-          : > "${npm_userconfig}"
-          npm --userconfig="${npm_userconfig}" --cache="${npm_cache}" --registry=https://registry.npmjs.org install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
-          test "$("${npm_prefix}/node_modules/.bin/npm" --version)" = "11.18.0"
-          echo "${npm_prefix}/node_modules/.bin" >> "${GITHUB_PATH}"
-
       - name: Verify immutable release source
         id: release
         shell: bash
         run: |
           set -euo pipefail
           test "$(node --version)" = "v22.22.2"
-          test "$(npm --version)" = "11.18.0"
           test "${{ github.event.repository.private }}" = "false"
           version="$(node -p "require('./package.json').version")"
           test "${GITHUB_REF_TYPE}" = "branch"
@@ -233,8 +220,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "${release_commit}"
           git merge-base --is-ancestor "${release_commit}" origin/main
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "release_commit=${release_commit}" >> "${GITHUB_OUTPUT}"
 
-      - name: Bind SR approval tuple to cross-run artifact
+      - name: Bind SR approval tuple and verify source run
         id: validate-gate
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
         with:
@@ -244,6 +232,7 @@ jobs:
             const sha512 = process.env.ARTIFACT_SR_SHA512;
             const version = '${{ steps.release.outputs.version }}';
             const expectedTarball = `borgmcp-shared-${version}.tgz`;
+            const releaseCommit = '${{ steps.release.outputs.release_commit }}';
 
             if (!runId || !/^[1-9]\d*$/.test(runId)) {
               core.setFailed('ARTIFACT_SR_RUN_ID is empty or malformed');
@@ -255,6 +244,29 @@ jobs:
             }
             if (!sha512 || !/^[0-9a-f]{128}$/.test(sha512)) {
               core.setFailed('ARTIFACT_SR_SHA512 is empty or malformed');
+              return;
+            }
+
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(runId),
+            });
+            if (!run.path.endsWith('/publish.yml')) {
+              core.setFailed(`Source run ${runId} workflow path '${run.path}' does not end with /publish.yml`);
+              return;
+            }
+            const expectedRef = 'refs/tags/${{ inputs.tag }}';
+            if (run.head_branch !== expectedRef) {
+              core.setFailed(`Source run ${runId} head_branch '${run.head_branch}' is not '${expectedRef}'`);
+              return;
+            }
+            if (run.conclusion !== 'success') {
+              core.setFailed(`Source run ${runId} conclusion is '${run.conclusion}', expected 'success'`);
+              return;
+            }
+            if (run.run_attempt !== Number(runAttempt)) {
+              core.setFailed(`Source run ${runId} run_attempt is ${run.run_attempt}, expected ${runAttempt}`);
               return;
             }
 
@@ -270,45 +282,52 @@ jobs:
               return;
             }
 
-            const { data: stream } = await github.rest.actions.downloadArtifact({
+            const { data: zipStream } = await github.rest.actions.downloadArtifact({
               owner: context.repo.owner,
               repo: context.repo.repo,
               artifact_id: artifact.id,
               archive_format: 'zip',
             });
-            const AdmZip = require('adm-zip');
-            const zip = new AdmZip(Buffer.from(stream));
-            const entries = zip.getEntries();
-            const tarballEntry = entries.find(e => e.entryName === expectedTarball);
-            if (!tarballEntry) {
-              core.setFailed(`Expected tarball '${expectedTarball}' not found in artifact`);
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { execSync } = require('node:child_process');
+            const zipPath = path.join(process.env.RUNNER_TEMP, `artifact-${runId}.zip`);
+            const extractDir = path.join(process.env.RUNNER_TEMP, `artifact-${runId}`);
+            fs.mkdirSync(extractDir, { recursive: true });
+            fs.writeFileSync(zipPath, Buffer.from(zipStream));
+            execSync(`unzip -q "${zipPath}" -d "${extractDir}"`);
+            const tarballPath = path.join(extractDir, expectedTarball);
+            if (!fs.existsSync(tarballPath)) {
+              core.setFailed(`Expected tarball '${expectedTarball}' not found in extracted artifact`);
               return;
             }
-            const otherEntries = entries.filter(e =>
-              !['SHA512SUMS', 'RUN_EVIDENCE', 'artifact-report.json',
-                `borgmcp-shared-${version}.cdx.json`, 'sbom-report.json',
-                expectedTarball].includes(e.entryName)
-            );
-            if (otherEntries.length > 0) {
-              core.setFailed(`Unexpected entries in artifact: ${otherEntries.map(e => e.entryName).join(', ')}`);
+            const extractedFiles = fs.readdirSync(extractDir);
+            const allowedFiles = [
+              'SHA512SUMS', 'RUN_EVIDENCE', 'artifact-report.json',
+              `borgmcp-shared-${version}.cdx.json`, 'sbom-report.json',
+              expectedTarball,
+            ];
+            const unexpected = extractedFiles.filter(f => !allowedFiles.includes(f));
+            if (unexpected.length > 0) {
+              core.setFailed(`Unexpected entries in artifact: ${unexpected.join(', ')}`);
               return;
             }
 
             const crypto = require('node:crypto');
             const hash = crypto.createHash('sha512');
-            hash.update(tarballEntry.getData());
+            hash.update(fs.readFileSync(tarballPath));
             const actualSha512 = hash.digest('hex');
             if (actualSha512 !== sha512) {
               core.setFailed(`Tarball SHA-512 mismatch: expected ${sha512}, got ${actualSha512}`);
               return;
             }
 
-            const evidenceEntry = entries.find(e => e.entryName === 'RUN_EVIDENCE');
-            if (!evidenceEntry) {
+            const evidencePath = path.join(extractDir, 'RUN_EVIDENCE');
+            if (!fs.existsSync(evidencePath)) {
               core.setFailed('RUN_EVIDENCE missing from artifact');
               return;
             }
-            const evidence = evidenceEntry.getData().toString('utf8');
+            const evidence = fs.readFileSync(evidencePath, 'utf8');
             const evidenceRunId = evidence.match(/^run_id=(.+)$/m)?.[1];
             const evidenceRunAttempt = evidence.match(/^run_attempt=(.+)$/m)?.[1];
             if (evidenceRunId !== runId) {
@@ -395,6 +414,7 @@ jobs:
           name: npm-release-${{ needs.validate.outputs.version }}
           path: release
           run-id: ${{ env.ARTIFACT_SR_RUN_ID }}
+          github-token: ${{ github.token }}
 
       - name: Re-bind SR approval tuple in publish context
         working-directory: release

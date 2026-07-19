@@ -20,7 +20,7 @@ describe('npm publish workflow', () => {
     expect(workflow).toContain('description: Release tag to publish (must already be verified by the tag-push run)');
     expect(workflow).toContain('required: true');
 
-    for (const job of [verificationJob, validateJob, publishJob]) {
+    for (const job of [verificationJob, publishJob]) {
       const guard = job.indexOf('- name: Reject untrusted release inputs before npm bootstrap');
       const bootstrap = job.indexOf('- name: Set up exact npm');
       expect(guard).toBeGreaterThan(-1);
@@ -29,9 +29,9 @@ describe('npm publish workflow', () => {
       expect(job.slice(guard, bootstrap)).toContain('test ! -e .npmrc');
     }
 
-    expect(workflow.match(/npm_userconfig="\$\{RUNNER_TEMP\}\/npm-bootstrap-user\.npmrc"/g)).toHaveLength(3);
-    expect(workflow.match(/npm_cache="\$\{RUNNER_TEMP\}\/npm-bootstrap-cache"/g)).toHaveLength(3);
-    expect(workflow.match(/--registry=https:\/\/registry\.npmjs\.org install --prefix/g)).toHaveLength(3);
+    expect(workflow.match(/npm_userconfig="\$\{RUNNER_TEMP\}\/npm-bootstrap-user\.npmrc"/g)).toHaveLength(2);
+    expect(workflow.match(/npm_cache="\$\{RUNNER_TEMP\}\/npm-bootstrap-cache"/g)).toHaveLength(2);
+    expect(workflow.match(/--registry=https:\/\/registry\.npmjs\.org install --prefix/g)).toHaveLength(2);
     expect(workflow.match(/config get registry\)" = "https:\/\/registry\.npmjs\.org\/"/g)).toHaveLength(2);
     expect(workflow).toContain('contents: read');
 
@@ -70,10 +70,14 @@ describe('npm publish workflow', () => {
     expect(validateJob).toContain('ARTIFACT_SR_SHA512');
     expect(validateJob).toContain('ARTIFACT_SR_RUN_ID');
     expect(validateJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
-    expect(validateJob).toContain('Bind SR approval tuple to cross-run artifact');
+    expect(validateJob).toContain('Bind SR approval tuple and verify source run');
+    expect(validateJob).toContain('getWorkflowRun');
+    expect(validateJob).toContain('publish.yml');
+    expect(validateJob).toContain('conclusion');
 
     expect(publishJob).toContain('needs: validate');
     expect(publishJob).toContain('run-id:');
+    expect(publishJob).toContain('github-token: ${{ github.token }}');
     expect(publishJob).toContain('environment:\n      name: npm-publish');
     expect(publishJob).toContain('id-token: write');
     expect(publishJob).toContain("if: github.event_name == 'workflow_dispatch'");
@@ -112,8 +116,8 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('reviewed registry range `^0.4.0`');
     expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
     expect(runbook).toContain('All three jobs reject a repository-root `.npmrc` before their first npm command.');
-    expect(runbook).toContain('validate` job. The `validate` job re-verifies the source, downloads the');
-    expect(runbook).toContain('artifact via `actions:read`, binds the SR tuple to the exact tarball, and');
+    expect(runbook).toContain('validate` job runs first (outside');
+    expect(runbook).toContain('queries the source\nrun\'s workflow path, tag, conclusion, and attempt');
   });
 
   it('release-source docs affirm the current package version, not a pre-bump future claim', async () => {

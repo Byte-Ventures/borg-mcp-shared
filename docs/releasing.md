@@ -200,14 +200,15 @@ approves the tarball, Release Quality confirms the operator procedure, and the
 Queen explicitly authorizes the public flip, the Coordinator writes the SR
 approval tuple (`ARTIFACT_SR_SHA512`, `ARTIFACT_SR_RUN_ID`,
 `ARTIFACT_SR_RUN_ATTEMPT`) to environment variables and dispatches the
-`validate` job. The `validate` job re-verifies the source, downloads the
-artifact via `actions:read`, binds the SR tuple to the exact tarball, and
-confirms run identity. Only after `validate` succeeds does the Coordinator
-dispatch `publish`, which surfaces the `npm-publish` environment approval
-dialog. The `publish` job re-downloads and checksum-verifies the same artifact,
-re-binds the SR tuple, repeats the artifact verifier, checks that `0.2.2` is
-absent and the name is unclaimed as expected, and publishes only the downloaded
-tarball with `--access public --provenance`.
+`publish.yml` workflow with the tag. The `validate` job runs first (outside
+the `npm-publish` environment): it re-verifies the source, queries the source
+run's workflow path, tag, conclusion, and attempt via the GitHub API, downloads
+the artifact, binds the SR tuple to the exact tarball, and confirms run identity.
+Only after `validate` succeeds does the `publish` job run, which surfaces the
+`npm-publish` environment approval dialog. The `publish` job re-downloads and
+checksum-verifies the same artifact, re-binds the SR tuple, repeats the artifact
+verifier, checks that `0.2.2` is absent and the name is unclaimed as expected,
+and publishes only the downloaded tarball with `--access public --provenance`.
 
 Immediately after a successful first publish:
 
