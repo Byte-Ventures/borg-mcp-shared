@@ -106,6 +106,10 @@ credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
 idempotency, acks, claims, decisions, cube-scoped drone reassignment, role-class
 and single-seat invariants, eviction exclusion, and terminal bearer signaling.
+Manage-scoped cube, role, taxonomy, decision, and drone operations also share an
+authority matrix: managing parents may mutate; known same-cube read/write
+parents receive `403 ACCESS_DENIED`; drone sessions remain non-managing; and
+no-grant, foreign, or unknown cubes remain hidden behind `404 NOT_FOUND`.
 
 Implement `AdapterConformanceDriver` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,

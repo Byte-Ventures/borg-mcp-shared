@@ -16,6 +16,18 @@ export interface ConformanceDrone {
     readonly id: string;
 }
 export type ConformanceCubeAccess = 'read' | 'write' | 'manage';
+export interface ConformanceCubeManagementState {
+    readonly directive: string;
+    readonly taxonomy_marker: string | null;
+    readonly role_ids: readonly string[];
+    readonly active_decision_ids: readonly string[];
+    readonly drones: ReadonlyArray<{
+        readonly id: string;
+        readonly role_id: string;
+        readonly evicted: boolean;
+        readonly session_revoked: boolean;
+    }>;
+}
 export interface ConformanceAuthorityState {
     enrolled_clients: number;
     enrollment_claims: number;
@@ -63,6 +75,7 @@ export interface ConformanceAdmin {
         readonly evicted: boolean;
         readonly session_revoked: boolean;
     }>;
+    inspectCubeManagementState(cube: ConformanceCube): Promise<ConformanceCubeManagementState>;
     grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
     issueDroneSession(principal: ConformancePrincipal): Promise<string>;
     issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
@@ -82,6 +95,9 @@ export interface ConformanceOperations {
     appendRaw(credential: string, cube: ConformanceCube, body: string): Promise<ConformanceHttpResponse>;
     read(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     ack(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+    updateCube(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+    createRole(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+    patchTaxonomy(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     recordDecision(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     listDecisions(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     listDrones(credential: string, cube: ConformanceCube): Promise<ConformanceHttpResponse>;
@@ -131,6 +147,9 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
     readonly area: "decisions";
 }, {
     readonly id: "security.drone-management-authorization";
+    readonly area: "security";
+}, {
+    readonly id: "security.manage-access-matrix";
     readonly area: "security";
 }, {
     readonly id: "drones.reassign-invariants";
