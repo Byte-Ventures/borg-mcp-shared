@@ -6,8 +6,9 @@ published from that exact tarball. Local publication and publication from an
 unreviewed branch are not supported.
 
 The active release policy is governed by the ratified
-`shared-package-consumption` and `npm-publish-sole-operator-approval` decisions.
-This document describes the operator procedure; it does not authorize a release.
+`shared-package-consumption`, `borgmcp-shared-coordinator-autonomy`, and
+`npm-publish-sole-operator-approval` decisions. This document describes the
+operator procedure; it does not authorize a release.
 
 ## Permanent Repository Configuration
 
@@ -226,30 +227,29 @@ Immediately after a successful first publish:
 
 ## Later Releases
 
-### 0.4.0 Clean-Slate v2 Contract
+### 0.4.1 Local/Self-Hosted Cleanup
 
-The ratified `borgmcp-shared-enrollment-version` decision defined this breaking
-retry-safe enrollment and idempotent multi-cube contract. `borgmcp-shared@0.3.0`
-is now the published, immutable v1 baseline on the registry, so the clean-slate
-v2 contract — credential-free tag preflight included — is versioned as the
-still-unpublished `0.4.0` candidate (a breaking change on a `0.x` package bumps
-the minor). This source now identifies `0.4.0`. That reviewed version bump
-does not authorize creating `v0.4.0` or publishing the package, and the source
-branch must not republish `0.3.0`.
+`borgmcp-shared@0.4.0` is the published, immutable clean-slate v2 contract, but
+its registry artifact was built before the public package's local/self-hosted
+topology cleanup. Version `0.4.1` republishes the reviewed current package
+surface without changing the protocol tag or runtime behavior. This source now
+identifies `0.4.1`. The reviewed identity bump does not authorize creating
+`v0.4.1` or publishing the package, and `0.4.0` must not be overwritten or
+reused.
 
-Before a separately authorized `v0.4.0` tag is created:
+Before a separately authorized `v0.4.1` tag is created:
 
-1. The exact `0.4.0` source commit must be merged to protected `main` after Code
+1. The exact `0.4.1` source commit must be merged to protected `main` after Code
    Review, Security, and Release Quality approve the package identity, public
-   API, conformance behavior, generated output, and release documentation.
-2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, the exact protocol
-   version tag, packed-artifact verifier, and version assertions all identify
-   `0.4.0` (done in this source bump).
+   API, generated output, and release documentation.
+2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, packed-artifact and
+   SBOM verifiers, generated declarations, and version assertions must all
+   identify `0.4.1`. The protocol tag remains unchanged.
 3. The protected workflow must build one exact tarball and pass its full source,
    test, audit, public-export, source-map, install/import, dry-run, lock-derived
    CycloneDX SBOM, integrity, and provenance gates. Security must approve that
    exact workflow artifact.
-4. The `0.4.0` workflow must generate a CycloneDX SBOM, canonicalize npm's
+4. The `0.4.1` workflow must generate a CycloneDX SBOM, canonicalize npm's
    checkout-derived root display name to the already-verified manifest name,
    and validate every component's exact canonical registry tarball URL, single
    matching CycloneDX distribution reference, purl, and lock SHA-512 plus the
@@ -260,13 +260,14 @@ Before a separately authorized `v0.4.0` tag is created:
    source-version approval, merge, or successful verification run grants neither.
 
 After registry publication and independent integrity/provenance verification,
-the first borgmcp client and borgmcp-server releases may replace their temporary
-development dependency with the reviewed registry range `^0.4.0`. They must not
-ship a Git dependency or fall back to the incompatible published `0.3.0` v1
-enrollment response.
+the first borgmcp client and borgmcp-server releases must pin exact
+`borgmcp-shared@0.4.1` and commit their registry lockfiles. They must not ship a
+Git dependency, a version range that can resolve to the pre-cleanup artifact, or
+a fallback to the incompatible `0.3.0` v1 enrollment response.
 
 Later releases follow the same source gates, annotated protected tag, exact
-tarball audit, Queen authorization, and environment approval. The registry
+tarball audit, Coordinator authorization under the ratified shared release
+autonomy, and environment approval. The registry
 preflight requires the package to be owned by `NPM_EXPECTED_OWNER` and rejects
 an existing target version. It also fails if
 `ALLOW_UNCLAIMED_FIRST_PUBLISH` is not `false` or any `NPM_TOKEN` remains;

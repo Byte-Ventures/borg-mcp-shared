@@ -5,13 +5,13 @@ shared by clients and servers. It does not define offline operator commands,
 database transactions, or a client storage API, but implementations must
 preserve the security properties below.
 
-This contract replaces the server-generated bearer response used by the
-published `borgmcp-shared@0.3.0` v1 baseline. It is a breaking clean-slate v2
-wire change; this source now identifies the still-unpublished `0.4.0` candidate
-and requires a coordinated client/server release. The version bump grants no tag
-or publication authority — creating the `v0.4.0` tag and the registry
-publication remain separate, independently gated steps. There is no
-compatibility path that returns a bearer from the server.
+This contract replaced the server-generated bearer response used by the
+published `borgmcp-shared@0.3.0` v1 baseline and shipped in the immutable
+`0.4.0` clean-slate v2 release. This source now identifies the still-unpublished
+`0.4.1` local/self-hosted cleanup release without changing the wire contract.
+The version bump grants no tag or publication authority: creating the `v0.4.1`
+tag and publishing the reviewed artifact remain separate, independently gated
+steps. There is no compatibility path that returns a bearer from the server.
 
 A client verifies the credential-free `GET /api/protocol` tag preflight before
 it creates or sends any enrollment secret; a peer that presents a different

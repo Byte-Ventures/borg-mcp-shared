@@ -151,7 +151,7 @@ export async function verifyPackedArtifact(tarballPath) {
     }
 
     const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-    if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.4.0') {
+    if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.4.1') {
       throw new Error(`Unexpected package identity: ${manifest.name}@${manifest.version}`);
     }
     if (manifest.repository?.url !== 'git+https://github.com/Byte-Ventures/borg-mcp-shared.git') {
