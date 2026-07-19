@@ -403,8 +403,7 @@ const SOFTWARE_DEV = {
                 'PD-APPROVED',
                 'PS-APPROVED',
             ],
-            routing: 'directed',
-            default_to: ['coordinator', 'queen'],
+            routing: 'broadcast',
             lifecycle: 'completion',
         },
         {
@@ -666,8 +665,7 @@ const STARTER = {
         {
             class: 'completion-gate',
             prefixes: ['APPROVED'],
-            routing: 'directed',
-            default_to: ['coordinator', 'queen'],
+            routing: 'broadcast',
             lifecycle: 'completion',
         },
         {
