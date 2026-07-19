@@ -538,8 +538,7 @@ const SOFTWARE_DEV: Template = {
         'PD-APPROVED',
         'PS-APPROVED',
       ],
-      routing: 'directed',
-      default_to: ['coordinator', 'queen'],
+      routing: 'broadcast',
       lifecycle: 'completion',
     },
     {
@@ -812,8 +811,7 @@ const STARTER: Template = {
     {
       class: 'completion-gate',
       prefixes: ['APPROVED'],
-      routing: 'directed',
-      default_to: ['coordinator', 'queen'],
+      routing: 'broadcast',
       lifecycle: 'completion',
     },
     {
