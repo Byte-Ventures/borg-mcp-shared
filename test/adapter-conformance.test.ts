@@ -70,7 +70,8 @@ type Fault =
   | 'allow-non-manage-drone-management'
   | 'allow-cross-cube-drone-target'
   | 'allow-cross-cube-role-target'
-  | 'skip-eviction-session-revocation';
+  | 'skip-eviction-session-revocation'
+  | 'reveal-cross-cube-drone-session';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -270,6 +271,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     inspectManagedDrone: async (drone: ConformanceDrone) => {
       const state = this.drone(drone.id);
       return {
+        role_id: state.roleId,
         evicted: state.evicted,
         session_revoked: state.sessionState === 'revoked',
       };
@@ -880,6 +882,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     | { principal?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     const auth = this.authenticate(credential);
     if (auth.error) return auth;
+    if (auth.drone !== undefined && auth.drone.cubeId !== cubeId &&
+        this.fault !== 'reveal-cross-cube-drone-session') {
+      return { error: this.error(404, ErrorCode.NOT_FOUND) };
+    }
     const access = auth.principal.grants.get(cubeId);
     if (access === undefined && this.fault !== 'allow-cross-cube-drone-management') {
       return { error: this.error(404, ErrorCode.NOT_FOUND) };
@@ -1035,6 +1041,7 @@ describe('executable adapter conformance', () => {
     ['allowed cross-cube drone target', 'allow-cross-cube-drone-target', 'security.cross-cube-drone-management'],
     ['allowed cross-cube role target', 'allow-cross-cube-role-target', 'security.cross-cube-drone-management'],
     ['skipped eviction credential revocation', 'skip-eviction-session-revocation', 'drones.evict-terminal-signal'],
+    ['revealed cross-cube target to bound drone session', 'reveal-cross-cube-drone-session', 'security.cross-cube-drone-management'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

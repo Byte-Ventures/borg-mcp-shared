@@ -550,6 +550,7 @@ export async function runAdapterConformance(environment, options = {}) {
     let workerRoleA;
     let workerRoleB;
     let managedWorker;
+    let workerSession = '';
     await record('security.drone-management-authorization', async () => {
         workerRoleA = await environment.admin.createRole(cubeA, {
             roleClass: 'worker', isHumanSeat: false,
@@ -592,7 +593,7 @@ export async function runAdapterConformance(environment, options = {}) {
         const humanSource = await environment.admin.createDrone(principalA, cubeA, humanSourceRole);
         await environment.admin.createDrone(principalA, cubeA, occupiedHumanRole);
         const contender = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
-        const workerSession = await environment.admin.issueManagedDroneSession(managedWorker);
+        workerSession = await environment.admin.issueManagedDroneSession(managedWorker);
         const reassigned = await environment.operations.reassignDrone(credentialA, cubeA, managedWorker, createProtocolEnvelope('reassign-worker', { role_id: workerRoleB.id }));
         expectStatus(reassigned, 200, 'Worker reassignment');
         const reassignedDrone = decodeReassignDroneResultEnvelope(reassigned.body).payload.drone;
@@ -620,10 +621,17 @@ export async function runAdapterConformance(environment, options = {}) {
         expectError(await environment.operations.reassignDrone(credentialA, cubeA, foreignDrone, createProtocolEnvelope('foreign-drone-local-route', { role_id: workerRoleA.id })), 404, ErrorCode.NOT_FOUND, 'Foreign drone reassignment through authorized cube route');
         expectError(await environment.operations.evictDrone(credentialA, cubeA, foreignDrone, createProtocolEnvelope('foreign-drone-local-evict', {})), 404, ErrorCode.NOT_FOUND, 'Foreign drone eviction through authorized cube route');
         expectError(await environment.operations.reassignDrone(credentialA, cubeA, managedWorker, createProtocolEnvelope('foreign-role-local-drone', { role_id: foreignRole.id })), 404, ErrorCode.NOT_FOUND, 'Foreign role reassignment through authorized cube route');
+        await environment.admin.grantCube(principalA, cubeB, 'read');
+        const foreignDroneBefore = await environment.admin.inspectManagedDrone(foreignDrone);
+        expectError(await environment.operations.reassignDrone(workerSession, cubeB, foreignDrone, createProtocolEnvelope('bound-drone-cross-cube-reassign', { role_id: foreignRole.id })), 404, ErrorCode.NOT_FOUND, 'Bound drone cross-cube reassignment');
+        invariant(same(await environment.admin.inspectManagedDrone(foreignDrone), foreignDroneBefore), 'Bound drone cross-cube reassignment mutated the foreign target.');
+        expectError(await environment.operations.evictDrone(workerSession, cubeB, foreignDrone, createProtocolEnvelope('bound-drone-cross-cube-evict', {})), 404, ErrorCode.NOT_FOUND, 'Bound drone cross-cube eviction');
+        invariant(same(await environment.admin.inspectManagedDrone(foreignDrone), foreignDroneBefore), 'Bound drone cross-cube eviction mutated the foreign target.');
         return {
             unauthorized_cube_status: 404,
             foreign_drone_status: 404,
             foreign_role_status: 404,
+            bound_drone_cross_cube_status: 404,
             code: ErrorCode.NOT_FOUND,
         };
     });
@@ -641,6 +649,7 @@ export async function runAdapterConformance(environment, options = {}) {
             evicted: true,
         }), 'Eviction response did not identify the terminal seat.');
         invariant(same(await environment.admin.inspectManagedDrone(evictedDrone), {
+            role_id: workerRoleA.id,
             evicted: true,
             session_revoked: true,
         }), 'Eviction did not atomically mark the drone evicted and revoke its session.');
