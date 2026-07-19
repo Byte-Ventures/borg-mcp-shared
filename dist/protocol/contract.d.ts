@@ -32,9 +32,22 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly authenticated: true;
         readonly success_status: 201;
     };
+    readonly drone_reassign: {
+        readonly method: "PATCH";
+        readonly path: "/api/cubes/:cubeId/drones/:droneId";
+        readonly authenticated: true;
+        readonly success_status: 200;
+    };
+    readonly drone_evict: {
+        readonly method: "DELETE";
+        readonly path: "/api/cubes/:cubeId/drones/:droneId";
+        readonly authenticated: true;
+        readonly success_status: 200;
+    };
     readonly auth_missing_status: 401;
     readonly auth_invalid_status: 401;
     readonly cursor_expired_status: 410;
+    readonly drone_evicted_status: 410;
     readonly content_too_large_status: 413;
     readonly unsupported_protocol_status: 426;
     readonly redirect_policy: "error";

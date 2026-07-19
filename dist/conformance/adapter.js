@@ -1,4 +1,4 @@
-import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
+import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeEvictDroneResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeReassignDroneResultEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
 import { ENROLLMENT_RETRY_CONFORMANCE } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
@@ -13,6 +13,10 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'acks.idempotent', area: 'acks' },
     { id: 'claims.durable-noncursor', area: 'claims' },
     { id: 'decisions.topic-supersession', area: 'decisions' },
+    { id: 'drones.reassign-invariants', area: 'drones' },
+    { id: 'security.cross-cube-drone-management', area: 'security' },
+    { id: 'drones.evict-terminal-signal', area: 'drones' },
+    { id: 'security.drone-session-rejection-causes', area: 'security' },
     { id: 'security.active-stream-revocation', area: 'security' },
 ];
 const DEFAULT_STREAM_DEADLINE_MS = 5_000;
@@ -116,6 +120,19 @@ function logEvent(event, description) {
 }
 function same(left, right) {
     return JSON.stringify(left) === JSON.stringify(right);
+}
+function listedDroneIds(response) {
+    return decodeProtocolEnvelope(response.body, (payload) => {
+        invariant(typeof payload === 'object' && payload !== null, 'Roster payload is not an object.');
+        const drones = payload.drones;
+        invariant(Array.isArray(drones), 'Roster payload omitted drones.');
+        return drones.map((drone) => {
+            invariant(typeof drone === 'object' && drone !== null, 'Roster contains an invalid drone.');
+            const id = drone.id;
+            invariant(typeof id === 'string', 'Roster drone omitted its id.');
+            return id;
+        });
+    }).payload;
 }
 function assertStateDelta(before, after, expected, description) {
     for (const key of Object.keys(before)) {
@@ -528,6 +545,105 @@ export async function runAdapterConformance(environment, options = {}) {
         invariant(active.length === 1 && active[0].decision === 'second', 'Decision list did not contain only the active superseding decision.');
         invariant(second.supersedes === first.id, 'Superseding decision did not reference its predecessor.');
         return { active_count: 1, active_decision: 'second', supersedes_first: true };
+    });
+    let workerRoleA;
+    let workerRoleB;
+    let managedWorker;
+    await record('drones.reassign-invariants', async () => {
+        workerRoleA = await environment.admin.createRole(cubeA, {
+            roleClass: 'worker', isHumanSeat: false,
+        });
+        workerRoleB = await environment.admin.createRole(cubeA, {
+            roleClass: 'worker', isHumanSeat: false,
+        });
+        const humanSourceRole = await environment.admin.createRole(cubeA, {
+            roleClass: 'worker', isHumanSeat: true,
+        });
+        const queenRole = await environment.admin.createRole(cubeA, {
+            roleClass: 'queen', isHumanSeat: false,
+        });
+        const occupiedHumanRole = await environment.admin.createRole(cubeA, {
+            roleClass: 'worker', isHumanSeat: true,
+        });
+        managedWorker = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+        const humanSource = await environment.admin.createDrone(principalA, cubeA, humanSourceRole);
+        await environment.admin.createDrone(principalA, cubeA, occupiedHumanRole);
+        const contender = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+        const workerSession = await environment.admin.issueManagedDroneSession(managedWorker);
+        const reassigned = await environment.operations.reassignDrone(credentialA, cubeA, managedWorker, createProtocolEnvelope('reassign-worker', { role_id: workerRoleB.id }));
+        expectStatus(reassigned, 200, 'Worker reassignment');
+        const reassignedDrone = decodeReassignDroneResultEnvelope(reassigned.body).payload.drone;
+        invariant(reassignedDrone.id === managedWorker.id && reassignedDrone.role_id === workerRoleB.id, 'Reassignment response did not identify the persisted target role.');
+        expectError(await environment.operations.reassignDrone(workerSession, cubeA, managedWorker, createProtocolEnvelope('reassign-drone-session-denied', { role_id: workerRoleA.id })), 403, ErrorCode.ACCESS_DENIED, 'Drone-session reassignment');
+        expectError(await environment.operations.reassignDrone(credentialA, cubeA, managedWorker, createProtocolEnvelope('reassign-queen-denied', { role_id: queenRole.id })), 403, ErrorCode.ACCESS_DENIED, 'Worker-to-queen reassignment');
+        const promoted = await environment.operations.reassignDrone(credentialA, cubeA, humanSource, createProtocolEnvelope('reassign-queen-allowed', { role_id: queenRole.id }));
+        expectStatus(promoted, 200, 'Human-seat-to-queen reassignment');
+        invariant(decodeReassignDroneResultEnvelope(promoted.body).payload.drone.role_id === queenRole.id, 'Human-seat-to-queen reassignment did not persist.');
+        expectError(await environment.operations.reassignDrone(credentialA, cubeA, contender, createProtocolEnvelope('reassign-occupied-denied', { role_id: occupiedHumanRole.id })), 409, ErrorCode.ROLE_IN_USE, 'Occupied human-seat reassignment');
+        return {
+            worker_reassigned: true,
+            drone_session_denied: true,
+            queen_requires_human_seat: true,
+            occupied_human_seat_denied: true,
+        };
+    });
+    await record('security.cross-cube-drone-management', async () => {
+        const foreignRole = await environment.admin.createRole(cubeB, {
+            roleClass: 'worker', isHumanSeat: false,
+        });
+        const foreignDrone = await environment.admin.createDrone(principalB, cubeB, foreignRole);
+        expectError(await environment.operations.reassignDrone(credentialA, cubeB, foreignDrone, createProtocolEnvelope('cross-cube-reassign', { role_id: foreignRole.id })), 404, ErrorCode.NOT_FOUND, 'Cross-cube reassignment');
+        expectError(await environment.operations.evictDrone(credentialA, cubeB, foreignDrone, createProtocolEnvelope('cross-cube-evict', {})), 404, ErrorCode.NOT_FOUND, 'Cross-cube eviction');
+        return { reassign_status: 404, evict_status: 404, code: ErrorCode.NOT_FOUND };
+    });
+    await record('drones.evict-terminal-signal', async () => {
+        const evictedDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+        const evictedCredential = await environment.admin.issueManagedDroneSession(evictedDrone);
+        expectStatus(await environment.operations.read(evictedCredential, cubeA, createProtocolEnvelope('evict-probe-before', { cursor: null, limit: 1 })), 200, 'Pre-eviction seat probe');
+        const before = await environment.operations.listDrones(credentialA, cubeA);
+        expectStatus(before, 200, 'Pre-eviction roster');
+        invariant(listedDroneIds(before).includes(evictedDrone.id), 'Active drone was absent from roster.');
+        const evicted = await environment.operations.evictDrone(credentialA, cubeA, evictedDrone, createProtocolEnvelope('evict-managed-drone', {}));
+        expectStatus(evicted, 200, 'Drone eviction');
+        invariant(same(decodeEvictDroneResultEnvelope(evicted.body).payload, {
+            drone_id: evictedDrone.id,
+            evicted: true,
+        }), 'Eviction response did not identify the terminal seat.');
+        const after = await environment.operations.listDrones(credentialA, cubeA);
+        expectStatus(after, 200, 'Post-eviction roster');
+        invariant(!listedDroneIds(after).includes(evictedDrone.id), 'Evicted drone remained in roster.');
+        expectError(await environment.operations.append(credentialA, cubeA, createProtocolEnvelope('evict-direct-target', {
+            message: 'must-not-fan-out',
+            visibility: 'direct',
+            recipientDroneIds: [evictedDrone.id],
+        })), 404, ErrorCode.NOT_FOUND, 'Evicted direct recipient');
+        expectError(await environment.operations.read(evictedCredential, cubeA, createProtocolEnvelope('evict-probe-after', { cursor: null, limit: 1 })), PROTOCOL_HTTP_CONTRACT.drone_evicted_status, ErrorCode.DRONE_EVICTED, 'Evicted seat probe');
+        return {
+            eviction_status: 200,
+            roster_visible: false,
+            fanout_reachable: false,
+            old_bearer_status: 410,
+            old_bearer_code: ErrorCode.DRONE_EVICTED,
+        };
+    });
+    await record('security.drone-session-rejection-causes', async () => {
+        const revokedDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+        const expiredDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+        const revokedCredential = await environment.admin.issueManagedDroneSession(revokedDrone);
+        const expiredCredential = await environment.admin.issueManagedDroneSession(expiredDrone);
+        await environment.admin.revokeManagedDroneSession(revokedDrone);
+        await environment.admin.expireManagedDroneSession(expiredDrone);
+        for (const [label, credential] of [
+            ['revoked', revokedCredential],
+            ['expired', expiredCredential],
+        ]) {
+            expectError(await environment.operations.read(credential, cubeA, createProtocolEnvelope(`${label}-seat-probe`, { cursor: null, limit: 1 })), 401, ErrorCode.SESSION_REVOKED, `${label} seat probe`);
+        }
+        return {
+            revoked_status: 401,
+            expired_status: 401,
+            code: ErrorCode.SESSION_REVOKED,
+        };
     });
     await record('security.active-stream-revocation', async () => {
         invariant(liveCursor, 'Stream fixture did not produce a live cursor.');

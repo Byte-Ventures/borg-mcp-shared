@@ -9,8 +9,10 @@ import {
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
   decodeCreateCubeRequestEnvelope,
+  decodeEvictDroneRequestEnvelope,
   decodeProtocolEnvelope,
   decodeReadLogRequest,
+  decodeReassignDroneRequestEnvelope,
   decodeRecordDecisionRequest,
   encodeSseEvent,
   runAdapterConformance,
@@ -18,8 +20,10 @@ import {
   utf8ByteLength,
   type ConformanceCube,
   type ConformanceEnvironment,
+  type ConformanceDrone,
   type ConformanceHttpResponse,
   type ConformancePrincipal,
+  type ConformanceRole,
   type ConformanceStreamResponse,
   type Decision,
   type EnrichedStreamEntry,
@@ -55,7 +59,13 @@ type Fault =
   | 'leak-original-invitation'
   | 'leak-original-retry-key'
   | 'leak-original-credential'
-  | 'leak-cube-retry-diagnostic';
+  | 'leak-cube-retry-diagnostic'
+  | 'allow-worker-queen-promotion'
+  | 'allow-occupied-human-seat'
+  | 'allow-cross-cube-drone-management'
+  | 'collapse-eviction-signal'
+  | 'keep-evicted-drone-visible'
+  | 'keep-evicted-drone-routable';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -72,7 +82,26 @@ interface CubeState {
   claims: ReadLogClaim[];
   decisions: Decision[];
   expired: Set<string>;
-  roles: Map<string, 'human_seat' | 'default_worker'>;
+  roles: Map<string, RoleState>;
+  drones: Map<string, DroneState>;
+}
+
+interface RoleState {
+  handle: ConformanceRole;
+  roleClass: 'queen' | 'worker';
+  isHumanSeat: boolean;
+  templateKind?: 'human_seat' | 'default_worker';
+}
+
+interface DroneState {
+  handle: ConformanceDrone;
+  principalId: string;
+  cubeId: string;
+  roleId: string;
+  label: string;
+  credential: string | null;
+  sessionState: 'active' | 'revoked' | 'expired';
+  evicted: boolean;
 }
 
 class AsyncQueue implements AsyncIterable<string> {
@@ -178,12 +207,56 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     createCube: async (name: string): Promise<ConformanceCube> => {
       const handle = { id: this.uuid() };
-      this.cubes.set(handle.id, { handle, entries: [], claims: [], decisions: [], expired: new Set(), roles: new Map() });
+      this.cubes.set(handle.id, {
+        handle, entries: [], claims: [], decisions: [], expired: new Set(),
+        roles: new Map(), drones: new Map(),
+      });
       void name;
       return handle;
     },
     grantCube: async (principal: ConformancePrincipal, cube: ConformanceCube): Promise<void> => {
       this.principal(principal.id).grants.add(cube.id);
+    },
+    createRole: async (
+      cube: ConformanceCube,
+      input: { readonly roleClass: 'queen' | 'worker'; readonly isHumanSeat: boolean },
+    ): Promise<ConformanceRole> => {
+      const handle = { id: this.uuid() };
+      this.cube(cube.id).roles.set(handle.id, { handle, ...input });
+      return handle;
+    },
+    createDrone: async (
+      principal: ConformancePrincipal,
+      cube: ConformanceCube,
+      role: ConformanceRole,
+    ): Promise<ConformanceDrone> => {
+      const cubeState = this.cube(cube.id);
+      if (!cubeState.roles.has(role.id)) throw new Error('Cannot create a drone in a foreign role.');
+      const handle = { id: this.uuid() };
+      cubeState.drones.set(handle.id, {
+        handle,
+        principalId: principal.id,
+        cubeId: cube.id,
+        roleId: role.id,
+        label: `conformance-${handle.id.slice(-8)}`,
+        credential: null,
+        sessionState: 'active',
+        evicted: false,
+      });
+      return handle;
+    },
+    issueManagedDroneSession: async (drone: ConformanceDrone): Promise<string> => {
+      const state = this.drone(drone.id);
+      const credential = this.token('seat', this.sequence++);
+      state.credential = credential;
+      state.sessionState = 'active';
+      return credential;
+    },
+    revokeManagedDroneSession: async (drone: ConformanceDrone): Promise<void> => {
+      this.drone(drone.id).sessionState = 'revoked';
+    },
+    expireManagedDroneSession: async (drone: ConformanceDrone): Promise<void> => {
+      this.drone(drone.id).sessionState = 'expired';
     },
     grantCreateCubeCapability: async (principal: ConformancePrincipal): Promise<void> => {
       this.principal(principal.id).serverCapabilities.add('create_cube');
@@ -229,8 +302,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           (principal) => principal.grants.has(response.cube_id),
         ).length,
         role_count: cube?.roles.size ?? 0,
-        human_seat_role_matches: cube?.roles.get(response.human_seat_role_id) === 'human_seat',
-        default_worker_role_matches: cube?.roles.get(response.default_worker_role_id) === 'default_worker',
+        human_seat_role_matches:
+          cube?.roles.get(response.human_seat_role_id)?.templateKind === 'human_seat',
+        default_worker_role_matches:
+          cube?.roles.get(response.default_worker_role_id)?.templateKind === 'default_worker',
       };
     },
     inspectEnrollmentPrincipal: async (
@@ -336,7 +411,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             invitation.binding.credential === envelope.payload.client_credential &&
             invitation.binding.clientName === clientName) {
           const handle = { id: this.uuid() };
-          this.cubes.set(handle.id, { handle, entries: [], claims: [], decisions: [], expired: new Set(), roles: new Map() });
+          this.cubes.set(handle.id, {
+            handle, entries: [], claims: [], decisions: [], expired: new Set(),
+            roles: new Map(), drones: new Map(),
+          });
         }
         return {
           status: 201,
@@ -353,6 +431,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       if (invitation.purpose === 'owner' && this.fault === 'create-state-during-owner-enrollment') {
         const handle = { id: this.uuid() };
+        const humanSeatRoleId = this.uuid();
+        const defaultWorkerRoleId = this.uuid();
         this.cubes.set(handle.id, {
           handle,
           entries: [],
@@ -360,9 +440,16 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           decisions: [],
           expired: new Set(),
           roles: new Map([
-            [this.uuid(), 'human_seat'],
-            [this.uuid(), 'default_worker'],
+            [humanSeatRoleId, {
+              handle: { id: humanSeatRoleId }, roleClass: 'queen', isHumanSeat: true,
+              templateKind: 'human_seat',
+            }],
+            [defaultWorkerRoleId, {
+              handle: { id: defaultWorkerRoleId }, roleClass: 'worker', isHumanSeat: false,
+              templateKind: 'default_worker',
+            }],
           ]),
+          drones: new Map(),
         });
         principal.grants.add(handle.id);
       }
@@ -391,7 +478,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     createCube: async (credential: string | null, request: unknown): Promise<ConformanceHttpResponse> => {
       const auth = this.authenticate(credential);
       if (auth.error) return auth.error;
-      const isDroneSession = auth.principal.droneCredential === credential;
+      const isDroneSession = auth.droneSession;
       if (isDroneSession && this.fault !== 'allow-drone-cube-create') {
         return this.error(403, ErrorCode.ACCESS_DENIED);
       }
@@ -433,9 +520,16 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         decisions: [],
         expired: new Set(),
         roles: new Map([
-          [humanSeatRoleId, 'human_seat'],
-          [defaultWorkerRoleId, 'default_worker'],
+          [humanSeatRoleId, {
+            handle: { id: humanSeatRoleId }, roleClass: 'queen', isHumanSeat: true,
+            templateKind: 'human_seat',
+          }],
+          [defaultWorkerRoleId, {
+            handle: { id: defaultWorkerRoleId }, roleClass: 'worker', isHumanSeat: false,
+            templateKind: 'default_worker',
+          }],
         ]),
+        drones: new Map(),
       });
       if (this.fault === 'grant-created-cube-to-wrong-client') {
         const other = [...this.principals.values()].find((principal) => principal !== auth.principal);
@@ -466,16 +560,24 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
       const cube = this.cube(cubeHandle.id);
+      const recipients = envelope.payload.recipientDroneIds ?? [];
+      if (recipients.some((id) => {
+        const recipient = cube.drones.get(id);
+        return recipient === undefined ||
+          (recipient.evicted && this.fault !== 'keep-evicted-drone-routable');
+      })) {
+        return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      }
       const entry: EnrichedStreamEntry = {
         id: this.uuid(),
         cube_id: cubeHandle.id,
-        drone_id: access.principal.handle.id,
+        drone_id: access.drone?.handle.id ?? access.principal.handle.id,
         message: envelope.payload.message,
         visibility: envelope.payload.visibility ?? 'broadcast',
         created_at: this.timestamp(),
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
-        recipient_drone_ids: [],
+        recipient_drone_ids: recipients,
       };
       cube.entries.push(entry);
       const frame = encodeSseEvent({ type: 'log', cursor: this.cursor(entry), entry });
@@ -598,6 +700,76 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         }),
       };
     },
+    listDrones: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const drones = [...this.cube(cubeHandle.id).drones.values()]
+        .filter((drone) => !drone.evicted || this.fault === 'keep-evicted-drone-visible')
+        .map((drone) => this.managedDronePayload(drone));
+      return {
+        status: 200,
+        body: createProtocolEnvelope('drones-read', { drones }),
+      };
+    },
+    reassignDrone: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      droneHandle: ConformanceDrone,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorizeManager(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeReassignDroneRequestEnvelope(request);
+      const cube = this.cube(cubeHandle.id);
+      const drone = cube.drones.get(droneHandle.id);
+      const targetRole = cube.roles.get(envelope.payload.role_id);
+      if (!drone || drone.evicted || !targetRole) {
+        return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      }
+      const sourceRole = cube.roles.get(drone.roleId);
+      if (!sourceRole) throw new Error('Managed drone source role is unavailable.');
+      if (targetRole.roleClass === 'queen' && !sourceRole.isHumanSeat &&
+          this.fault !== 'allow-worker-queen-promotion') {
+        return this.error(403, ErrorCode.ACCESS_DENIED, envelope.request_id);
+      }
+      if (targetRole.isHumanSeat && this.fault !== 'allow-occupied-human-seat' &&
+          [...cube.drones.values()].some(
+        (candidate) => candidate.handle.id !== drone.handle.id && !candidate.evicted &&
+          candidate.roleId === targetRole.handle.id,
+      )) {
+        return this.error(409, ErrorCode.ROLE_IN_USE, envelope.request_id);
+      }
+      drone.roleId = targetRole.handle.id;
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, {
+          drone: this.managedDronePayload(drone),
+        }),
+      };
+    },
+    evictDrone: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      droneHandle: ConformanceDrone,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorizeManager(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeEvictDroneRequestEnvelope(request);
+      const drone = this.cube(cubeHandle.id).drones.get(droneHandle.id);
+      if (!drone || drone.evicted) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      drone.evicted = true;
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, {
+          drone_id: drone.handle.id,
+          evicted: true,
+        }),
+      };
+    },
     openStream: async (
       credential: string,
       cubeHandle: ConformanceCube,
@@ -642,24 +814,54 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   };
 
   private authenticate(credential: string | null):
-    { principal: PrincipalState; error?: undefined } | { principal?: undefined; error: ConformanceHttpResponse } {
+    | { principal: PrincipalState; drone?: DroneState; droneSession: boolean; error?: undefined }
+    | { principal?: undefined; drone?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     if (credential === null) return { error: this.error(401, ErrorCode.AUTH_MISSING) };
+    for (const cube of this.cubes.values()) {
+      for (const drone of cube.drones.values()) {
+        if (drone.credential !== credential) continue;
+        if (drone.evicted) {
+          return { error: this.fault === 'collapse-eviction-signal'
+            ? this.error(401, ErrorCode.SESSION_REVOKED)
+            : this.error(410, ErrorCode.DRONE_EVICTED) };
+        }
+        if (drone.sessionState !== 'active') {
+          return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
+        }
+        const principal = this.principal(drone.principalId);
+        if (principal.revoked) return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
+        return { principal, drone, droneSession: true };
+      }
+    }
     const principal = [...this.principals.values()].find(
       (item) => item.credential === credential || item.droneCredential === credential,
     );
     if (!principal) return { error: this.error(401, ErrorCode.AUTH_INVALID) };
     if (principal.revoked) return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
-    return { principal };
+    return { principal, droneSession: principal.droneCredential === credential };
   }
 
   private authorize(credential: string, cubeId: string):
-    { principal: PrincipalState; error?: undefined } | { principal?: undefined; error: ConformanceHttpResponse } {
+    | { principal: PrincipalState; drone?: DroneState; droneSession: boolean; error?: undefined }
+    | { principal?: undefined; drone?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     const auth = this.authenticate(credential);
     if (auth.error) return auth;
     if (this.fault !== 'cross-cube-leak' && !auth.principal.grants.has(cubeId)) {
       return { error: this.error(404, ErrorCode.NOT_FOUND) };
     }
     return auth;
+  }
+
+  private authorizeManager(credential: string, cubeId: string):
+    | { principal: PrincipalState; droneSession: false; error?: undefined }
+    | { principal?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
+    const auth = this.authenticate(credential);
+    if (auth.error) return auth;
+    if (!auth.principal.grants.has(cubeId) && this.fault !== 'allow-cross-cube-drone-management') {
+      return { error: this.error(404, ErrorCode.NOT_FOUND) };
+    }
+    if (auth.droneSession) return { error: this.error(403, ErrorCode.ACCESS_DENIED) };
+    return { principal: auth.principal, droneSession: false };
   }
 
   private afterCursor(entries: EnrichedStreamEntry[], cursor: LogCursor | null): EnrichedStreamEntry[] {
@@ -685,6 +887,28 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     const value = this.cubes.get(id);
     if (!value) throw new Error(`Unknown cube ${id}.`);
     return value;
+  }
+
+  private drone(id: string): DroneState {
+    for (const cube of this.cubes.values()) {
+      const drone = cube.drones.get(id);
+      if (drone) return drone;
+    }
+    throw new Error(`Unknown drone ${id}.`);
+  }
+
+  private managedDronePayload(drone: DroneState): {
+    id: string;
+    cube_id: string;
+    role_id: string;
+    label: string;
+  } {
+    return {
+      id: drone.handle.id,
+      cube_id: drone.cubeId,
+      role_id: drone.roleId,
+      label: drone.label,
+    };
   }
 
   private uuid(): string {
@@ -766,6 +990,12 @@ describe('executable adapter conformance', () => {
     ['leaked original retry key', 'leak-original-retry-key', 'enrollment.retry-authority'],
     ['leaked original credential', 'leak-original-credential', 'enrollment.retry-authority'],
     ['leaked cube-create retry key', 'leak-cube-retry-diagnostic', 'enrollment.retry-authority'],
+    ['allowed worker-to-queen promotion', 'allow-worker-queen-promotion', 'drones.reassign-invariants'],
+    ['allowed occupied human-seat assignment', 'allow-occupied-human-seat', 'drones.reassign-invariants'],
+    ['allowed cross-cube drone management', 'allow-cross-cube-drone-management', 'security.cross-cube-drone-management'],
+    ['collapsed eviction into session revocation', 'collapse-eviction-signal', 'drones.evict-terminal-signal'],
+    ['kept evicted drone in roster', 'keep-evicted-drone-visible', 'drones.evict-terminal-signal'],
+    ['kept evicted drone routable', 'keep-evicted-drone-routable', 'drones.evict-terminal-signal'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

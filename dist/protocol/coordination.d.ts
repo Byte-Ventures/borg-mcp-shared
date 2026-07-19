@@ -22,6 +22,31 @@ export interface ReadLogResult {
     has_more: boolean;
     claims: ClaimRecord[];
 }
+export interface ReassignDroneRequest {
+    role_id: string;
+}
+export interface ManagedDrone {
+    id: string;
+    cube_id: string;
+    role_id: string;
+    label: string;
+}
+export interface ReassignDroneResult {
+    drone: ManagedDrone;
+}
+export type EvictDroneRequest = Record<string, never>;
+export interface EvictDroneResult {
+    drone_id: string;
+    evicted: true;
+}
+export declare function decodeReassignDroneRequest(value: unknown): ReassignDroneRequest;
+export declare function decodeReassignDroneRequestEnvelope(value: unknown): ProtocolEnvelope<ReassignDroneRequest>;
+export declare function decodeReassignDroneResult(value: unknown): ReassignDroneResult;
+export declare function decodeReassignDroneResultEnvelope(value: unknown): ProtocolEnvelope<ReassignDroneResult>;
+export declare function decodeEvictDroneRequest(value: unknown): EvictDroneRequest;
+export declare function decodeEvictDroneRequestEnvelope(value: unknown): ProtocolEnvelope<EvictDroneRequest>;
+export declare function decodeEvictDroneResult(value: unknown): EvictDroneResult;
+export declare function decodeEvictDroneResultEnvelope(value: unknown): ProtocolEnvelope<EvictDroneResult>;
 export declare function decodeReadLogRequest(value: unknown): ReadLogRequest;
 export declare function decodeReadLogRequestEnvelope(value: unknown): ProtocolEnvelope<ReadLogRequest>;
 export declare function decodeAppendLogResult(value: unknown): AppendLogResult;

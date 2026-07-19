@@ -9,6 +9,12 @@ export interface ConformancePrincipal {
 export interface ConformanceCube {
     readonly id: string;
 }
+export interface ConformanceRole {
+    readonly id: string;
+}
+export interface ConformanceDrone {
+    readonly id: string;
+}
 export interface ConformanceAuthorityState {
     enrolled_clients: number;
     enrollment_claims: number;
@@ -43,6 +49,14 @@ export interface ConformanceAdmin {
     createPrincipal(name: string): Promise<ConformancePrincipal>;
     createCube(name: string): Promise<ConformanceCube>;
     grantCube(principal: ConformancePrincipal, cube: ConformanceCube): Promise<void>;
+    createRole(cube: ConformanceCube, input: {
+        readonly roleClass: 'queen' | 'worker';
+        readonly isHumanSeat: boolean;
+    }): Promise<ConformanceRole>;
+    createDrone(principal: ConformancePrincipal, cube: ConformanceCube, role: ConformanceRole): Promise<ConformanceDrone>;
+    issueManagedDroneSession(drone: ConformanceDrone): Promise<string>;
+    revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
+    expireManagedDroneSession(drone: ConformanceDrone): Promise<void>;
     grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
     issueDroneSession(principal: ConformancePrincipal): Promise<string>;
     issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
@@ -64,6 +78,9 @@ export interface ConformanceOperations {
     ack(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     recordDecision(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     listDecisions(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+    listDrones(credential: string, cube: ConformanceCube): Promise<ConformanceHttpResponse>;
+    reassignDrone(credential: string, cube: ConformanceCube, drone: ConformanceDrone, request: unknown): Promise<ConformanceHttpResponse>;
+    evictDrone(credential: string, cube: ConformanceCube, drone: ConformanceDrone, request: unknown): Promise<ConformanceHttpResponse>;
     openStream(credential: string, cube: ConformanceCube, cursor: LogCursor | null): Promise<ConformanceStreamResponse>;
 }
 export interface ConformanceEnvironment {
@@ -106,6 +123,18 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
 }, {
     readonly id: "decisions.topic-supersession";
     readonly area: "decisions";
+}, {
+    readonly id: "drones.reassign-invariants";
+    readonly area: "drones";
+}, {
+    readonly id: "security.cross-cube-drone-management";
+    readonly area: "security";
+}, {
+    readonly id: "drones.evict-terminal-signal";
+    readonly area: "drones";
+}, {
+    readonly id: "security.drone-session-rejection-causes";
+    readonly area: "security";
 }, {
     readonly id: "security.active-stream-revocation";
     readonly area: "security";
