@@ -255,6 +255,9 @@ describe('Sprint 14: Template.cube_directive field', () => {
     // gh#16: only DECISION / HALT stay genuinely cube-wide.
     expect(byClass.get('cube-wide')).toMatchObject({ routing: 'broadcast' });
     expect(byClass.get('cube-wide')?.prefixes).toEqual(['DECISION', 'HALT']);
+    // gh#23: completion-gate verdicts broadcast so all review lanes (especially RQ as tail) can read them.
+    expect(byClass.get('completion-gate')).toMatchObject({ routing: 'broadcast' });
+    expect(byClass.get('completion-gate')?.lifecycle).toBe('completion');
     // gh#16: merge state is directed to the Coordinator, not a cube-wide wake.
     expect(byClass.get('merge-status')).toMatchObject({ routing: 'directed' });
     expect(byClass.get('merge-status')?.prefixes).toContain('MERGED');
@@ -284,17 +287,24 @@ describe('Sprint 14: Template.cube_directive field', () => {
     expect(status?.prefixes).toContain('STARTING');
   });
 
-  it('gh#16 sweep: every taxonomy class except cube-wide is directed (regression guard)', () => {
+  it('gh#16 sweep: every taxonomy class except cube-wide and completion-gate is directed (regression guard)', () => {
     for (const name of ['software-dev', 'starter'] as const) {
       const taxonomy = getTemplate(name)!.message_taxonomy ?? [];
-      // exactly one broadcast class — cube-wide (DECISION/HALT) — exists.
+      // exactly two broadcast classes — cube-wide (DECISION/HALT) and completion-gate (verdicts) — exist.
       expect(
         taxonomy.some((entry) => entry.class === 'cube-wide'),
         `${name} has a cube-wide class`,
       ).toBe(true);
+      expect(
+        taxonomy.some((entry) => entry.class === 'completion-gate'),
+        `${name} has a completion-gate class`,
+      ).toBe(true);
       for (const entry of taxonomy) {
         if (entry.class === 'cube-wide') {
           expect(entry.routing, `${name} cube-wide stays broadcast`).toBe('broadcast');
+        } else if (entry.class === 'completion-gate') {
+          // gh#23: verdicts broadcast so all review lanes (especially RQ as tail) can read them.
+          expect(entry.routing, `${name} completion-gate stays broadcast`).toBe('broadcast');
         } else {
           // a class silently regressing to broadcast would reopen the gh#16 fan-out.
           expect(entry.routing, `${name} ${entry.class} stays directed`).toBe('directed');
