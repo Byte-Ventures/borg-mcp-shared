@@ -25,6 +25,7 @@ export interface ConformanceCubeManagementState {
         readonly id: string;
         readonly role_id: string;
         readonly evicted: boolean;
+        readonly session_revoked: boolean;
     }>;
 }
 export interface ConformanceAuthorityState {

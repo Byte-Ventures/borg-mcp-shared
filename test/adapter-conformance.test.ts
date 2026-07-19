@@ -72,7 +72,8 @@ type Fault =
   | 'allow-cross-cube-role-target'
   | 'skip-eviction-session-revocation'
   | 'hide-known-manage-denial'
-  | 'reveal-unknown-manage-denial';
+  | 'reveal-unknown-manage-denial'
+  | 'revoke-session-on-eviction-denial';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -294,6 +295,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             id: drone.handle.id,
             role_id: drone.roleId,
             evicted: drone.evicted,
+            session_revoked: drone.sessionState === 'revoked',
           }))
           .sort((left, right) => left.id.localeCompare(right.id)),
       };
@@ -856,7 +858,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       request: unknown,
     ): Promise<ConformanceHttpResponse> => {
       const access = this.authorizeManager(credential, cubeHandle.id);
-      if (access.error) return access.error;
+      if (access.error) {
+        if (this.fault === 'revoke-session-on-eviction-denial') {
+          this.drone(droneHandle.id).sessionState = 'revoked';
+        }
+        return access.error;
+      }
       const envelope = decodeEvictDroneRequestEnvelope(request);
       const drone = this.cube(cubeHandle.id).drones.get(droneHandle.id) ??
         (this.fault === 'allow-cross-cube-drone-target' ? this.drone(droneHandle.id) : undefined);
@@ -1123,6 +1130,7 @@ describe('executable adapter conformance', () => {
     ['skipped eviction credential revocation', 'skip-eviction-session-revocation', 'drones.evict-terminal-signal'],
     ['hid known non-manage denial as 404', 'hide-known-manage-denial', 'security.manage-access-matrix'],
     ['revealed unknown cube through 403', 'reveal-unknown-manage-denial', 'security.manage-access-matrix'],
+    ['revoked target session on denied eviction', 'revoke-session-on-eviction-denial', 'security.manage-access-matrix'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

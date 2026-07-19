@@ -599,6 +599,7 @@ export async function runAdapterConformance(environment, options = {}) {
             roleClass: 'worker', isHumanSeat: false,
         });
         const evictionTarget = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+        await environment.admin.issueManagedDroneSession(evictionTarget);
         const unknownCube = { id: '00000000-0000-4000-8000-000000000399' };
         const snapshot = async () => ({
             cubeA: await environment.admin.inspectCubeManagementState(cubeA),

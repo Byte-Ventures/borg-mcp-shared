@@ -56,6 +56,7 @@ export interface ConformanceCubeManagementState {
     readonly id: string;
     readonly role_id: string;
     readonly evicted: boolean;
+    readonly session_revoked: boolean;
   }>;
 }
 
@@ -1162,6 +1163,7 @@ export async function runAdapterConformance(
       roleClass: 'worker', isHumanSeat: false,
     });
     const evictionTarget = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    await environment.admin.issueManagedDroneSession(evictionTarget);
     const unknownCube = { id: '00000000-0000-4000-8000-000000000399' };
     const snapshot = async (): Promise<unknown> => ({
       cubeA: await environment.admin.inspectCubeManagementState(cubeA),
