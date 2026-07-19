@@ -67,8 +67,9 @@ Configure these controls before creating a release tag:
    `SECURITY.md` directs reporters to the private reporting path, so disabled
    reporting is always a release-blocking documentation failure.
 
-The environment approval is the final technical control. Approval must remain
-pending while Security reviews the artifact produced by the `verify` job.
+The environment approval is the final technical control. It appears only on the
+`publish` job, after `validate` has verified the SR approval tuple. Approval must
+remain pending while Security reviews the artifact produced by the `verify` job.
 GitHub's ephemeral workflow token cannot read every repository-administration
 setting checked by `scripts/verify-release-configuration.mjs`. An authorized
 operator must run the guard with an administration-capable token before creating
@@ -88,7 +89,7 @@ before dependency installation, and includes the same values in the uploaded
 `RUN_EVIDENCE` file. Never use the Actions rerun controls to advance a failed
 immutable tag or proof run.
 
-Both jobs reject a repository-root `.npmrc` before their first npm command. The
+All three jobs reject a repository-root `.npmrc` before their first npm command. The
 exact npm bootstrap uses isolated runner-temp prefix, user config, and cache
 paths, forces `https://registry.npmjs.org`, disables scripts, and verifies both
 the installed npm version and registry before adding its bin directory to
@@ -191,15 +192,23 @@ first:
 - exercises npm's publish metadata in dry-run mode; and
 - installs the exact tarball with scripts disabled in a clean consumer, verifies
   its production tree, and imports every reviewed public export; and
-- uploads the tarball, verifier report, and SHA-512 checksum for seven days.
+- uploads the tarball, verifier report, SHA-512 checksum, SBOM, and
+  `RUN_EVIDENCE` for seven days.
 
 Security must download and audit that exact workflow artifact. After Security
 approves the tarball, Release Quality confirms the operator procedure, and the
-Queen explicitly authorizes the public flip, an authorized reviewer may approve
-the waiting `npm-publish` environment deployment. The publish job downloads and
-checksum-verifies the same artifact, repeats the artifact verifier, checks that
-`0.2.2` is absent and the name is unclaimed as expected, and publishes only the
-downloaded tarball with `--access public --provenance`.
+Queen explicitly authorizes the public flip, the Coordinator writes the SR
+approval tuple (`ARTIFACT_SR_SHA512`, `ARTIFACT_SR_RUN_ID`,
+`ARTIFACT_SR_RUN_ATTEMPT`) to environment variables and dispatches the
+`publish.yml` workflow with the tag. The `validate` job runs first (outside
+the `npm-publish` environment): it re-verifies the source, queries the source
+run's workflow path, tag, conclusion, and attempt via the GitHub API, downloads
+the artifact, binds the SR tuple to the exact tarball, and confirms run identity.
+Only after `validate` succeeds does the `publish` job run, which surfaces the
+`npm-publish` environment approval dialog. The `publish` job re-downloads and
+checksum-verifies the same artifact, re-binds the SR tuple, repeats the artifact
+verifier, checks that `0.2.2` is absent and the name is unclaimed as expected,
+and publishes only the downloaded tarball with `--access public --provenance`.
 
 Immediately after a successful first publish:
 
