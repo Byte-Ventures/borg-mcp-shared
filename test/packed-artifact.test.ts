@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const temporaryDirectories: string[] = [];
+const materializeNpmEnv = { ...process.env, npm_config_dry_run: 'false' };
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => (
@@ -19,7 +20,10 @@ describe('packed artifact', () => {
     const result = JSON.parse(execFileSync(
       'npm',
       ['pack', '--ignore-scripts', '--json', '--pack-destination', destination],
-      { encoding: 'utf8' },
+      {
+        encoding: 'utf8',
+        env: materializeNpmEnv,
+      },
     )) as Array<{ filename: string }>;
     return { destination, tarball: join(destination, result[0].filename) };
   }
@@ -30,10 +34,10 @@ describe('packed artifact', () => {
     const { destination, tarball } = await pack();
     const extracted = join(destination, 'extracted');
     await mkdir(extracted);
-    execFileSync('tar', ['-xzf', tarball, '-C', extracted]);
+    execFileSync('tar', ['-x', '-z', '-f', tarball, '-C', extracted]);
     await modify(join(extracted, 'package'));
     const modified = join(destination, 'modified.tgz');
-    execFileSync('tar', ['-czf', modified, '-C', extracted, 'package']);
+    execFileSync('tar', ['-c', '-z', '-f', modified, '-C', extracted, 'package']);
     return modified;
   }
 
@@ -92,7 +96,7 @@ describe('packed artifact', () => {
       '--ignore-scripts',
       '--no-save',
       tarball,
-    ], { stdio: 'pipe' });
+    ], { stdio: 'pipe', env: materializeNpmEnv });
     execFileSync('npm', ['ls', '--prefix', consumer, '--omit=dev', '--all'], { stdio: 'pipe' });
     const result = spawnSync('node', [
       '--input-type=module',
@@ -178,7 +182,12 @@ describe('packed artifact', () => {
 
   it.each([
     ['credential-shaped token', `npm_${'a'.repeat(32)}`],
-    ['private backend URL', 'https://api.borgmcp.ai/private'],
+    ['retired service domain', 'https://api.borgmcp.ai/private'],
+    ['retired service domain', 'https://borgmcp.ai'],
+    ['retired dual-authority conformance API', 'runEquivalentAdapterConformance'],
+    ['retired product topology', 'cloud authority'],
+    ['hosted authority terminology', 'OAuth'],
+    ['hosted account terminology', 'billing path'],
   ])('rejects %s hidden in a source map', async (description, hiddenContent) => {
     const tarball = await repack(async (root) => {
       const mapPath = join(root, 'dist/protocol/version.js.map');

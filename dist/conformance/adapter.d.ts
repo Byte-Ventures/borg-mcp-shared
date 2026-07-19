@@ -182,16 +182,9 @@ export interface AdapterConformanceReport {
         observations: Record<string, unknown>;
     }>;
 }
-export interface EquivalentAdapterConformanceReport {
-    ok: boolean;
-    cloud: AdapterConformanceReport;
-    local: AdapterConformanceReport;
-    equivalent: boolean;
-}
 export interface AdapterConformanceOptions {
     streamDeadlineMs?: number;
     pendingProbeMs?: number;
 }
 export declare function runAdapterConformance(environment: ConformanceEnvironment, options?: AdapterConformanceOptions): Promise<AdapterConformanceReport>;
-export declare function runEquivalentAdapterConformance(cloud: ConformanceEnvironment, local: ConformanceEnvironment, options?: AdapterConformanceOptions): Promise<EquivalentAdapterConformanceReport>;
 //# sourceMappingURL=adapter.d.ts.map

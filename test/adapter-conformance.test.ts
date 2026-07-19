@@ -16,7 +16,6 @@ import {
   decodeRecordDecisionRequest,
   encodeSseEvent,
   runAdapterConformance,
-  runEquivalentAdapterConformance,
   utf8ByteLength,
   type ConformanceCube,
   type ConformanceCubeAccess,
@@ -1082,17 +1081,6 @@ describe('executable adapter conformance', () => {
       ADAPTER_CONFORMANCE_FIXTURES.map((fixture) => fixture.id),
     );
     expect(report.results.every((result) => result.ok)).toBe(true);
-  });
-
-  it('compares normalized cloud and local transcripts', async () => {
-    const report = await runEquivalentAdapterConformance(
-      new MemoryConformanceEnvironment(),
-      new MemoryConformanceEnvironment(),
-      fastTimeouts,
-    );
-    expect(report.ok).toBe(true);
-    expect(report.equivalent).toBe(true);
-    expect(report.cloud.normalizedTranscript).toEqual(report.local.normalizedTranscript);
   });
 
   it.each([

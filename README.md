@@ -114,9 +114,9 @@ no-grant, foreign, or unknown cubes remain hidden behind `404 NOT_FOUND`.
 Implement `AdapterConformanceDriver` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,
 drives state transitions, and decides pass/fail; adapters do not submit expected
-results. `runEquivalentAdapterConformance(cloud, local)` executes the identical
-sequence against both implementations and fails when either implementation or
-their normalized observable transcripts diverge.
+results. Each server or client adapter runs this single portable suite against
+its local/self-hosted implementation. The package does not define a second
+authority, migration target, or fallback implementation.
 
 The package's own suite covers built-in templates, role-section patching,
 broadcast high-water-mark ordering, drone-address formatting, and current public

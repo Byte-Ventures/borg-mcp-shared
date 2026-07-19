@@ -274,13 +274,6 @@ export interface AdapterConformanceReport {
   }>;
 }
 
-export interface EquivalentAdapterConformanceReport {
-  ok: boolean;
-  cloud: AdapterConformanceReport;
-  local: AdapterConformanceReport;
-  equivalent: boolean;
-}
-
 export interface AdapterConformanceOptions {
   /** Maximum wait for a replay, live delivery, or revocation close. */
   streamDeadlineMs?: number;
@@ -1606,22 +1599,4 @@ export async function runAdapterConformance(
 
   const normalizedTranscript = results.map(({ id, observations }) => ({ id, observations }));
   return { ok: results.every((result) => result.ok), results, normalizedTranscript };
-}
-
-export async function runEquivalentAdapterConformance(
-  cloud: ConformanceEnvironment,
-  local: ConformanceEnvironment,
-  options: AdapterConformanceOptions = {},
-): Promise<EquivalentAdapterConformanceReport> {
-  const [cloudReport, localReport] = await Promise.all([
-    runAdapterConformance(cloud, options),
-    runAdapterConformance(local, options),
-  ]);
-  const equivalent = same(cloudReport.normalizedTranscript, localReport.normalizedTranscript);
-  return {
-    ok: cloudReport.ok && localReport.ok && equivalent,
-    cloud: cloudReport,
-    local: localReport,
-    equivalent,
-  };
 }
