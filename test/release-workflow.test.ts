@@ -73,7 +73,7 @@ describe('npm publish workflow', () => {
     expect(validateJob).toContain('Bind SR approval tuple and verify source run');
     expect(validateJob).toContain('getWorkflowRun');
     expect(validateJob).toContain('publish.yml');
-    expect(validateJob).toContain('conclusion');
+    expect(validateJob).toContain('validate-sr-gate');
 
     expect(publishJob).toContain('needs: validate');
     expect(publishJob).toContain('run-id:');

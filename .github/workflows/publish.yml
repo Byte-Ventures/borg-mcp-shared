@@ -227,6 +227,20 @@ jobs:
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
         with:
           script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { execSync } = require('node:child_process');
+            const {
+              validateSha512,
+              validatePositiveInt,
+              validateSourceRun,
+              validateArtifactContents,
+              validateTarballHash,
+              validateRunEvidence,
+            } = require('./scripts/validate-sr-gate.mjs');
+
+            const fail = (msg) => { core.setFailed(msg); return; };
+
             const runId = process.env.ARTIFACT_SR_RUN_ID;
             const runAttempt = process.env.ARTIFACT_SR_RUN_ATTEMPT;
             const sha512 = process.env.ARTIFACT_SR_SHA512;
@@ -234,41 +248,24 @@ jobs:
             const expectedTarball = `borgmcp-shared-${version}.tgz`;
             const releaseCommit = '${{ steps.release.outputs.release_commit }}';
 
-            if (!runId || !/^[1-9]\d*$/.test(runId)) {
-              core.setFailed('ARTIFACT_SR_RUN_ID is empty or malformed');
-              return;
-            }
-            if (!runAttempt || !/^[1-9]\d*$/.test(runAttempt)) {
-              core.setFailed('ARTIFACT_SR_RUN_ATTEMPT is empty or malformed');
-              return;
-            }
-            if (!sha512 || !/^[0-9a-f]{128}$/.test(sha512)) {
-              core.setFailed('ARTIFACT_SR_SHA512 is empty or malformed');
-              return;
-            }
+            let err;
+            if ((err = validateSha512(sha512))) return fail(`ARTIFACT_SR_SHA512: ${err}`);
+            if ((err = validatePositiveInt('ARTIFACT_SR_RUN_ID', runId))) return fail(err);
+            if ((err = validatePositiveInt('ARTIFACT_SR_RUN_ATTEMPT', runAttempt))) return fail(err);
 
             const { data: run } = await github.rest.actions.getWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: Number(runId),
             });
-            if (!run.path.endsWith('/publish.yml')) {
-              core.setFailed(`Source run ${runId} workflow path '${run.path}' does not end with /publish.yml`);
-              return;
-            }
-            const expectedRef = 'refs/tags/${{ inputs.tag }}';
-            if (run.head_branch !== expectedRef) {
-              core.setFailed(`Source run ${runId} head_branch '${run.head_branch}' is not '${expectedRef}'`);
-              return;
-            }
-            if (run.conclusion !== 'success') {
-              core.setFailed(`Source run ${runId} conclusion is '${run.conclusion}', expected 'success'`);
-              return;
-            }
-            if (run.run_attempt !== Number(runAttempt)) {
-              core.setFailed(`Source run ${runId} run_attempt is ${run.run_attempt}, expected ${runAttempt}`);
-              return;
-            }
+            if ((err = validateSourceRun(
+              run,
+              '.github/workflows/publish.yml',
+              'push',
+              '${{ inputs.tag }}',
+              releaseCommit,
+              Number(runAttempt),
+            ))) return fail(`Source run ${runId}: ${err}`);
 
             const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
               owner: context.repo.owner,
@@ -277,10 +274,7 @@ jobs:
             });
             const artifactName = `npm-release-${version}`;
             const artifact = artifacts.artifacts.find(a => a.name === artifactName);
-            if (!artifact) {
-              core.setFailed(`Artifact '${artifactName}' not found in run ${runId}`);
-              return;
-            }
+            if (!artifact) return fail(`Artifact '${artifactName}' not found in run ${runId}`);
 
             const { data: zipStream } = await github.rest.actions.downloadArtifact({
               owner: context.repo.owner,
@@ -288,56 +282,26 @@ jobs:
               artifact_id: artifact.id,
               archive_format: 'zip',
             });
-            const fs = require('node:fs');
-            const path = require('node:path');
-            const { execSync } = require('node:child_process');
             const zipPath = path.join(process.env.RUNNER_TEMP, `artifact-${runId}.zip`);
             const extractDir = path.join(process.env.RUNNER_TEMP, `artifact-${runId}`);
             fs.mkdirSync(extractDir, { recursive: true });
             fs.writeFileSync(zipPath, Buffer.from(zipStream));
             execSync(`unzip -q "${zipPath}" -d "${extractDir}"`);
-            const tarballPath = path.join(extractDir, expectedTarball);
-            if (!fs.existsSync(tarballPath)) {
-              core.setFailed(`Expected tarball '${expectedTarball}' not found in extracted artifact`);
-              return;
-            }
-            const extractedFiles = fs.readdirSync(extractDir);
-            const allowedFiles = [
-              'SHA512SUMS', 'RUN_EVIDENCE', 'artifact-report.json',
-              `borgmcp-shared-${version}.cdx.json`, 'sbom-report.json',
-              expectedTarball,
-            ];
-            const unexpected = extractedFiles.filter(f => !allowedFiles.includes(f));
-            if (unexpected.length > 0) {
-              core.setFailed(`Unexpected entries in artifact: ${unexpected.join(', ')}`);
-              return;
-            }
 
-            const crypto = require('node:crypto');
-            const hash = crypto.createHash('sha512');
-            hash.update(fs.readFileSync(tarballPath));
-            const actualSha512 = hash.digest('hex');
-            if (actualSha512 !== sha512) {
-              core.setFailed(`Tarball SHA-512 mismatch: expected ${sha512}, got ${actualSha512}`);
-              return;
-            }
+            const extractedFiles = fs.readdirSync(extractDir);
+            if ((err = validateArtifactContents(extractedFiles, expectedTarball))) return fail(err);
+
+            const tarballPath = path.join(extractDir, expectedTarball);
+            const actualSha512 = require('node:crypto')
+              .createHash('sha512')
+              .update(fs.readFileSync(tarballPath))
+              .digest('hex');
+            if ((err = validateTarballHash(actualSha512, sha512))) return fail(err);
 
             const evidencePath = path.join(extractDir, 'RUN_EVIDENCE');
-            if (!fs.existsSync(evidencePath)) {
-              core.setFailed('RUN_EVIDENCE missing from artifact');
-              return;
-            }
+            if (!fs.existsSync(evidencePath)) return fail('RUN_EVIDENCE missing from artifact');
             const evidence = fs.readFileSync(evidencePath, 'utf8');
-            const evidenceRunId = evidence.match(/^run_id=(.+)$/m)?.[1];
-            const evidenceRunAttempt = evidence.match(/^run_attempt=(.+)$/m)?.[1];
-            if (evidenceRunId !== runId) {
-              core.setFailed(`RUN_EVIDENCE run_id (${evidenceRunId}) does not match ARTIFACT_SR_RUN_ID (${runId})`);
-              return;
-            }
-            if (evidenceRunAttempt !== runAttempt) {
-              core.setFailed(`RUN_EVIDENCE run_attempt (${evidenceRunAttempt}) does not match ARTIFACT_SR_RUN_ATTEMPT (${runAttempt})`);
-              return;
-            }
+            if ((err = validateRunEvidence(evidence, runId, runAttempt))) return fail(err);
 
             core.info(`SR tuple verified: run=${runId} attempt=${runAttempt} checksum=${sha512.slice(0, 16)}...`);
             core.setOutput('tarball', expectedTarball);
