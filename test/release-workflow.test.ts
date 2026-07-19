@@ -111,7 +111,9 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('does not authorize creating `v0.4.0`');
     expect(runbook).toContain('reviewed registry range `^0.4.0`');
     expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
-    expect(runbook).toContain('Both jobs reject a repository-root `.npmrc` before their first npm command.');
+    expect(runbook).toContain('All three jobs reject a repository-root `.npmrc` before their first npm command.');
+    expect(runbook).toContain('validate` job. The `validate` job re-verifies the source, downloads the');
+    expect(runbook).toContain('artifact via `actions:read`, binds the SR tuple to the exact tarball, and');
   });
 
   it('release-source docs affirm the current package version, not a pre-bump future claim', async () => {
