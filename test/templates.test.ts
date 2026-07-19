@@ -214,6 +214,11 @@ describe('Sprint 14: Template.cube_directive field', () => {
       /Cloudflare/i,
       /Neon/i,
       /Stripe/i,
+      /OAuth/i,
+      /JWKS/i,
+      /\bRLS\b/i,
+      /customer-data/i,
+      /billing paths/i,
     ]) {
       expect(text).not.toMatch(forbidden);
     }

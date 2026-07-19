@@ -2,8 +2,8 @@
 
 This document defines the data-only enrollment and cube-creation boundaries
 shared by clients and servers. It does not define offline operator commands,
-database transactions, or keychain APIs, but implementations must preserve the
-security properties below.
+database transactions, or a client storage API, but implementations must
+preserve the security properties below.
 
 This contract replaces the server-generated bearer response used by the
 published `borgmcp-shared@0.3.0` v1 baseline. It is a breaking clean-slate v2
@@ -30,11 +30,12 @@ Before network I/O, the client generates:
   unpadded base64url; and
 - a canonical UUID retry key.
 
-The client persists both values as a pending enrollment in the operating-system
-keychain before sending the request. It retains and reuses the exact pending
-tuple after an ambiguous timeout or connection loss. The wire contract never
-permits a file fallback, URL/argv/environment transport, or diagnostic output
-for these secrets.
+Before sending the request, the client persists both values in its single local
+seat-record file with mode `0600`, using an atomic replacement under the store's
+cross-process lock. The pending record is operation-scoped and cannot be loaded
+as an active seat. The client retains and reuses the exact pending tuple after an
+ambiguous timeout or connection loss. The wire contract never permits
+URL/argv/environment transport or diagnostic output for these secrets.
 
 ## Exchange Request
 

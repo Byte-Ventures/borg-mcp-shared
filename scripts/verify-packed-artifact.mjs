@@ -47,10 +47,18 @@ const FORBIDDEN_CONTENT = [
   { pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, description: 'private key material' },
   { pattern: /\b(?:npm_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b/, description: 'credential-shaped token' },
   { pattern: /\bpostgres(?:ql)?:\/\//i, description: 'database connection URL' },
-  { pattern: /\b(?:api|test-api)\.borgmcp\.ai\b/i, description: 'private backend URL' },
+  { pattern: /\bborgmcp\.ai\b/i, description: 'retired service domain' },
+  { pattern: /\b(?:runEquivalentAdapterConformance|EquivalentAdapterConformanceReport)\b/, description: 'retired dual-authority conformance API' },
+  { pattern: /\bcloud\b/i, description: 'retired product topology' },
+  { pattern: /\b(?:Cloudflare|Neon|Stripe|OAuth|JWKS|RLS)\b/i, description: 'hosted authority terminology' },
+  { pattern: /\b(?:billing|customer-data)\b/i, description: 'hosted account terminology' },
+  { pattern: /\bkeychain\b/i, description: 'retired credential storage' },
   { pattern: /\b[a-z0-9-]+\.workers\.dev\b/i, description: 'Worker service URL' },
   { pattern: /(?:^|[^A-Za-z])(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)/m, description: 'local absolute path' },
 ];
+
+// GitHub-hosted build provenance, package registries, and secret-scanning
+// provider classifications are release infrastructure, not product authority.
 
 async function walk(root, directory = root) {
   const files = [];
@@ -88,7 +96,7 @@ export async function verifyPackedArtifact(tarballPath) {
     throw new Error(`Packed artifact is ${packed.byteLength} bytes; maximum is ${MAX_PACKED_BYTES}.`);
   }
 
-  const entries = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8' })
+  const entries = execFileSync('tar', ['-t', '-z', '-f', tarball], { encoding: 'utf8' })
     .trim()
     .split('\n')
     .filter(Boolean);
@@ -103,7 +111,7 @@ export async function verifyPackedArtifact(tarballPath) {
 
   const temporary = await mkdtemp(join(tmpdir(), 'borgmcp-shared-pack-'));
   try {
-    execFileSync('tar', ['-xzf', tarball, '-C', temporary], { stdio: 'pipe' });
+    execFileSync('tar', ['-x', '-z', '-f', tarball, '-C', temporary], { stdio: 'pipe' });
     const root = join(temporary, 'package');
     const files = await walk(root);
     if (files.length > MAX_FILES) {

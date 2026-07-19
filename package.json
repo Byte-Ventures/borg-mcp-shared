@@ -68,7 +68,7 @@
   ],
   "author": "Byte Ventures IO AB",
   "license": "Apache-2.0",
-  "homepage": "https://borgmcp.ai",
+  "homepage": "https://github.com/Byte-Ventures/borg-mcp-shared",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Byte-Ventures/borg-mcp-shared.git"
