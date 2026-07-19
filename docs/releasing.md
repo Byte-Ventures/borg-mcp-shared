@@ -227,41 +227,53 @@ Immediately after a successful first publish:
 
 ## Later Releases
 
-### 0.4.1 Local/Self-Hosted Cleanup
+### 0.4.2 Cross-Platform SBOM Recovery
 
 `borgmcp-shared@0.4.0` is the published, immutable clean-slate v2 contract, but
 its registry artifact was built before the public package's local/self-hosted
-topology cleanup. Version `0.4.1` republishes the reviewed current package
-surface without changing the protocol tag or runtime behavior. This source now
-identifies `0.4.1`. The reviewed identity bump does not authorize creating
-`v0.4.1` or publishing the package, and `0.4.0` must not be overwritten or
-reused.
+topology cleanup. The immutable `v0.4.1` run `29701429995` built the cleaned
+artifact, but independent macOS verification proved that the SBOM verifier used
+the auditor's installed optional-dependency tree instead of a deterministic
+release graph. The `v0.4.1` tag, run, and artifact are failed evidence: never
+publish, move, reuse, rerun, or substitute them.
 
-Before a separately authorized `v0.4.1` tag is created:
+Version `0.4.2` carries the reviewed cleanup with a lockfile-derived SBOM graph
+for the fixed release target `{os: linux, cpu: x64, libc: glibc}`. It does not
+change the protocol tag or runtime behavior. This source now identifies `0.4.2`.
+The reviewed recovery bump does not authorize creating `v0.4.2` or publishing
+the package.
 
-1. The exact `0.4.1` source commit must be merged to protected `main` after Code
+Before a separately authorized `v0.4.2` tag is created:
+
+1. The exact `0.4.2` source commit must be merged to protected `main` after Code
    Review, Security, and Release Quality approve the package identity, public
    API, generated output, and release documentation.
 2. The package and root lockfile, `SHARED_PACKAGE_VERSION`, packed-artifact and
    SBOM verifiers, generated declarations, and version assertions must all
-   identify `0.4.1`. The protocol tag remains unchanged.
+   identify `0.4.2`. The protocol tag remains unchanged.
 3. The protected workflow must build one exact tarball and pass its full source,
    test, audit, public-export, source-map, install/import, dry-run, lock-derived
    CycloneDX SBOM, integrity, and provenance gates. Security must approve that
    exact workflow artifact.
-4. The `0.4.1` workflow must generate a CycloneDX SBOM, canonicalize npm's
+4. The `0.4.2` workflow must generate a CycloneDX SBOM, canonicalize npm's
    checkout-derived root display name to the already-verified manifest name,
    and validate every component's exact canonical registry tarball URL, single
    matching CycloneDX distribution reference, purl, and lock SHA-512 plus the
-   exact installed dependency graph and zero package runtime dependencies. The
-   tarball, SBOM, and SBOM validation report must be
-   checksummed and uploaded together for Security audit.
+   exact lockfile-derived release-target graph and zero package runtime
+   dependencies. The graph starts from root development dependencies, follows
+   required dependencies and peers, includes only target-compatible optional
+   dependencies, and includes optional peers only when another reachable edge
+   installs them. Root manifest and lock selectors must match and permit the
+   fixed target. Verification must not inspect the auditor's operating system,
+   installed dependency tree, or `node_modules`. The tarball, SBOM, and SBOM
+   validation report must be checksummed and uploaded together for Security
+   audit.
 5. The tag and publication each require their own explicit authorization. A
    source-version approval, merge, or successful verification run grants neither.
 
 After registry publication and independent integrity/provenance verification,
 the first borgmcp client and borgmcp-server releases must pin exact
-`borgmcp-shared@0.4.1` and commit their registry lockfiles. They must not ship a
+`borgmcp-shared@0.4.2` and commit their registry lockfiles. They must not ship a
 Git dependency, a version range that can resolve to the pre-cleanup artifact, or
 a fallback to the incompatible `0.3.0` v1 enrollment response.
 
