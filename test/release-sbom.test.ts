@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,19 +8,54 @@ describe('release SBOM', () => {
   let directory: string;
   let original: Record<string, any>;
   let verifierPath: string;
+  let lockfileDependencyGraph: (lock: Record<string, any>, rootRef: string) => Map<string, string[]>;
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'borgmcp-shared-sbom-'));
     verifierPath = join(process.cwd(), 'scripts/verify-release-sbom.mjs');
-    const rawPath = join(directory, 'raw.cdx.json');
-    const normalizedPath = join(directory, 'normalized.cdx.json');
-    await writeFile(rawPath, execFileSync(
-      'npm',
-      ['sbom', '--sbom-format', 'cyclonedx'],
-      { encoding: 'utf8' },
-    ));
-    execFileSync('node', ['scripts/normalize-release-sbom.mjs', rawPath, normalizedPath]);
-    original = JSON.parse(await readFile(normalizedPath, 'utf8'));
+    ({ lockfileDependencyGraph } = await import(verifierPath));
+    const manifest = JSON.parse(await readFile('package.json', 'utf8'));
+    const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
+    const rootRef = `${manifest.name}@${manifest.version}`;
+    const graph = lockfileDependencyGraph(lock, rootRef);
+    const componentFor = (ref: string) => {
+      const [name, version] = ref.lastIndexOf('@') > 0
+        ? [ref.slice(0, ref.lastIndexOf('@')), ref.slice(ref.lastIndexOf('@') + 1)]
+        : ['', ''];
+      const entry = Object.entries(lock.packages).find(([path, locked]: [string, any]) =>
+        path !== '' && path.split('node_modules/').at(-1) === name && locked.version === version,
+      ) as [string, any] | undefined;
+      if (!entry) throw new Error(`Missing lock fixture for ${ref}`);
+      const [path, locked] = entry;
+      const unscoped = name.startsWith('@') ? name.slice(name.indexOf('/') + 1) : name;
+      return {
+        'bom-ref': ref,
+        name,
+        version,
+        purl: `pkg:npm/${encodeURIComponent(name).replaceAll('%2F', '/')}@${encodeURIComponent(version)}`,
+        externalReferences: [{
+          type: 'distribution',
+          url: `https://registry.npmjs.org/${name}/-/${unscoped}-${version}.tgz`,
+        }],
+        hashes: [{
+          alg: 'SHA-512',
+          content: Buffer.from(locked.integrity.slice('sha512-'.length), 'base64').toString('hex'),
+        }],
+        properties: [{ name: 'cdx:npm:package:path', value: path }],
+      };
+    };
+    original = {
+      bomFormat: 'CycloneDX',
+      specVersion: '1.5',
+      metadata: { component: {
+        'bom-ref': rootRef,
+        name: manifest.name,
+        version: manifest.version,
+        purl: `pkg:npm/${manifest.name}@${manifest.version}`,
+      } },
+      components: [...graph.keys()].filter((ref) => ref !== rootRef).map(componentFor),
+      dependencies: [...graph].map(([ref, dependsOn]) => ({ ref, dependsOn })),
+    };
   });
 
   afterAll(async () => {
@@ -46,10 +81,25 @@ describe('release SBOM', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.4.1',
+      version: '0.4.2',
       format: 'CycloneDX-1.5',
       runtimeDependencies: 0,
     });
+  });
+
+  it('derives the fixed Linux release graph from the lockfile, not this machine', async () => {
+    const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
+    const graph = lockfileDependencyGraph(lock, 'borgmcp-shared@0.4.2');
+    expect(graph.has('@esbuild/linux-x64@0.28.1')).toBe(true);
+    expect(graph.has('@esbuild/darwin-arm64@0.28.1')).toBe(false);
+  });
+
+  it('fails when a required lock dependency is incompatible with the fixed release target', async () => {
+    const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
+    lock.packages['node_modules/vitest'].os = ['!linux'];
+    expect(() => lockfileDependencyGraph(lock, 'borgmcp-shared@0.4.2')).toThrow(
+      'incompatible with release target',
+    );
   });
 
   it('accepts npm 11 SBOM components without package-path properties', async () => {
@@ -131,7 +181,7 @@ describe('release SBOM', () => {
   it('rejects a dependency graph that diverges from the installed locked tree', async () => {
     const result = await verify('wrong-graph', (sbom) => {
       const root = sbom.dependencies.find(
-        (dependency: { ref: string }) => dependency.ref === 'borgmcp-shared@0.4.1',
+        (dependency: { ref: string }) => dependency.ref === 'borgmcp-shared@0.4.2',
       );
       root.dependsOn = root.dependsOn.slice(1);
     });

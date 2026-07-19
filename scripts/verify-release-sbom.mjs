@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,20 +18,117 @@ function packageNameFromLockPath(path) {
   return path.split('node_modules/').at(-1);
 }
 
-function dependencyGraph(node, name, graph = new Map()) {
-  if (!node || typeof node.version !== 'string') return graph;
-  const ref = `${name}@${node.version}`;
-  const installed = Object.entries(node.dependencies ?? {})
-    .filter(([, dependency]) => typeof dependency.version === 'string');
-  const existing = graph.get(ref) ?? [];
-  graph.set(ref, [...new Set([
-    ...existing,
-    ...installed.map(([dependencyName, dependency]) => (
-      `${dependencyName}@${dependency.version}`
-    )),
-  ])].sort());
-  for (const [dependencyName, dependency] of installed) {
-    dependencyGraph(dependency, dependencyName, graph);
+// Release SBOMs are generated on ubuntu/x64.  The verifier deliberately does
+// not consult the auditor's platform, npm, or node_modules: the v3 lockfile is
+// the only authority for the released dependency graph.
+export const RELEASE_TARGET = Object.freeze({ os: 'linux', cpu: 'x64', libc: 'glibc' });
+
+function targetMatches(values, value) {
+  if (values === undefined) return true;
+  if (!Array.isArray(values) || values.some((entry) => typeof entry !== 'string')) {
+    fail('Package-lock platform constraint is invalid.');
+  }
+  const positive = values.filter((entry) => !entry.startsWith('!'));
+  const negative = values.filter((entry) => entry.startsWith('!')).map((entry) => entry.slice(1));
+  return (positive.length === 0 || positive.includes(value)) && !negative.includes(value);
+}
+
+function targetCompatible(locked) {
+  return targetMatches(locked.os, RELEASE_TARGET.os) &&
+    targetMatches(locked.cpu, RELEASE_TARGET.cpu) &&
+    targetMatches(locked.libc, RELEASE_TARGET.libc);
+}
+
+function parentLockPath(path) {
+  const nested = path.lastIndexOf('/node_modules/');
+  return nested === -1 ? '' : path.slice(0, nested);
+}
+
+function resolveLockPath(packages, fromPath, name) {
+  let cursor = fromPath;
+  while (true) {
+    const candidate = cursor ? `${cursor}/node_modules/${name}` : `node_modules/${name}`;
+    if (Object.hasOwn(packages, candidate)) return candidate;
+    if (!cursor) return undefined;
+    cursor = parentLockPath(cursor);
+  }
+}
+
+function requirementEntries(locked, field) {
+  const dependencies = locked[field];
+  if (dependencies === undefined) return [];
+  if (!dependencies || typeof dependencies !== 'object' || Array.isArray(dependencies)) {
+    fail(`Package-lock ${field} field is invalid.`);
+  }
+  return Object.keys(dependencies).sort();
+}
+
+function isOptionalPeer(locked, name) {
+  return locked.peerDependenciesMeta?.[name]?.optional === true;
+}
+
+export function lockfileDependencyGraph(lock, rootRef) {
+  const packages = lock.packages;
+  const root = packages?.[''];
+  if (!root || typeof packages !== 'object') fail('Package-lock v3 packages are required.');
+  const reachable = new Set(['']);
+  const edgesByPath = new Map([['', new Set()]]);
+  const queue = [''];
+
+  function addDependency(fromPath, name, required) {
+    const targetPath = resolveLockPath(packages, fromPath, name);
+    if (!targetPath) {
+      if (required) fail(`Required lockfile dependency is missing: ${fromPath || 'root'} -> ${name}`);
+      return;
+    }
+    const target = packages[targetPath];
+    if (!targetCompatible(target)) {
+      if (required) fail(`Required lockfile dependency is incompatible with release target: ${targetPath}`);
+      return;
+    }
+    edgesByPath.get(fromPath).add(targetPath);
+    if (!reachable.has(targetPath)) {
+      reachable.add(targetPath);
+      edgesByPath.set(targetPath, new Set());
+      queue.push(targetPath);
+    }
+  }
+
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const locked = packages[path];
+    for (const name of requirementEntries(locked, 'dependencies')) addDependency(path, name, true);
+    for (const name of requirementEntries(locked, 'devDependencies')) addDependency(path, name, true);
+    for (const name of requirementEntries(locked, 'optionalDependencies')) addDependency(path, name, false);
+    for (const name of requirementEntries(locked, 'peerDependencies')) {
+      if (!isOptionalPeer(locked, name)) addDependency(path, name, true);
+    }
+  }
+
+  // Optional peers must already be reachable through an ordinary dependency;
+  // they never introduce a platform-specific component by themselves.
+  for (const path of reachable) {
+    const locked = packages[path];
+    for (const name of requirementEntries(locked, 'peerDependencies')) {
+      if (!isOptionalPeer(locked, name)) continue;
+      const targetPath = resolveLockPath(packages, path, name);
+      if (targetPath && reachable.has(targetPath) && targetCompatible(packages[targetPath])) {
+        edgesByPath.get(path).add(targetPath);
+      }
+    }
+  }
+
+  const graph = new Map();
+  for (const path of reachable) {
+    const locked = packages[path];
+    if (path && typeof locked?.version !== 'string') fail(`Lock component has no version: ${path}`);
+    const ref = path ? `${packageNameFromLockPath(path)}@${locked.version}` : rootRef;
+    if (graph.has(ref)) fail(`Package-lock identity is ambiguous: ${ref}`);
+    const edges = [...(edgesByPath.get(path) ?? [])].map((edgePath) => {
+      const edge = packages[edgePath];
+      return `${packageNameFromLockPath(edgePath)}@${edge.version}`;
+    });
+    graph.set(ref, [...new Set(edges)].sort());
   }
   return graph;
 }
@@ -80,7 +176,7 @@ export async function verifyReleaseSbom(sbomPath) {
   const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
   const rootRef = `${manifest.name}@${manifest.version}`;
 
-  if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.4.1') {
+  if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.4.2') {
     fail(`Unexpected package identity: ${rootRef}`);
   }
   for (const field of RUNTIME_DEPENDENCY_FIELDS) {
@@ -123,7 +219,7 @@ export async function verifyReleaseSbom(sbomPath) {
       sbom.metadata.component.name !== manifest.name ||
       sbom.metadata.component.version !== manifest.version ||
       sbom.metadata.component.purl !== `pkg:npm/${manifest.name}@${manifest.version}`) {
-    fail('CycloneDX root component is not bound to borgmcp-shared@0.4.1.');
+    fail('CycloneDX root component is not bound to borgmcp-shared@0.4.2.');
   }
   if (!Array.isArray(sbom.components) || !Array.isArray(sbom.dependencies)) {
     fail('CycloneDX components and dependencies must be arrays.');
@@ -186,15 +282,11 @@ export async function verifyReleaseSbom(sbomPath) {
     }
   }
 
-  const installedTree = JSON.parse(execFileSync('npm', ['ls', '--json', '--all'], {
-    encoding: 'utf8',
-    maxBuffer: MAX_SBOM_BYTES,
-  }));
-  const expectedGraph = dependencyGraph(installedTree, installedTree.name);
+  const expectedGraph = lockfileDependencyGraph(lock, rootRef);
   const expectedComponents = new Set(expectedGraph.keys());
   expectedComponents.delete(rootRef);
   if (!sameStrings(componentRefs, expectedComponents)) {
-    fail('CycloneDX components do not match the installed locked release tree.');
+    fail('CycloneDX components do not match the locked release target graph.');
   }
 
   const actualGraph = new Map();
@@ -207,11 +299,11 @@ export async function verifyReleaseSbom(sbomPath) {
     actualGraph.set(dependency.ref, [...dependency.dependsOn].sort());
   }
   if (!sameStrings(actualGraph.keys(), expectedGraph.keys())) {
-    fail('CycloneDX dependency nodes do not match the installed locked release tree.');
+    fail('CycloneDX dependency nodes do not match the locked release target graph.');
   }
   for (const [ref, expectedDependencies] of expectedGraph) {
     if (!sameStrings(actualGraph.get(ref) ?? [], expectedDependencies)) {
-      fail(`CycloneDX dependency edges do not match the installed locked release tree: ${ref}`);
+      fail(`CycloneDX dependency edges do not match the locked release target graph: ${ref}`);
     }
   }
 

@@ -45,6 +45,7 @@ describe('npm publish workflow', () => {
     expect(verificationJob).toContain('node scripts/normalize-release-sbom.mjs "${raw_sbom}" "${sbom}"');
     expect(verificationJob).toContain('rm "${raw_sbom}"');
     expect(verificationJob).toContain('npm run verify:sbom -- "${sbom}" > release/sbom-report.json');
+    expect(verificationJob).toContain('runs-on: ubuntu-latest');
     expect(verificationJob).toContain('release/borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json');
     expect(verificationJob).toContain('release/sbom-report.json');
     expect(verificationJob).toContain('"borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json" sbom-report.json > SHA512SUMS');
@@ -111,8 +112,8 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('Run `29360398007` published `borgmcp-shared@0.2.2`');
     expect(runbook).toContain('MUST NOT be rerun, moved, or reused. Consumer\nmigration was blocked');
     expect(runbook).toContain('Security approved the recovery\nevidence.');
-    expect(runbook).toContain('does not authorize creating\n`v0.4.1`');
-    expect(runbook).toContain('must pin exact\n`borgmcp-shared@0.4.1`');
+    expect(runbook).toContain('must not publish, be rerun, moved, reused, or\nsubstituted');
+    expect(runbook).toContain('must pin exact\n`borgmcp-shared@0.4.2`');
     expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
     expect(runbook).toContain('All three jobs reject a repository-root `.npmrc` before their first npm command.');
     expect(runbook).toContain('validate` job runs first (outside');

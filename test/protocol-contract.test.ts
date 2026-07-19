@@ -55,7 +55,7 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.4.1');
+    expect(SHARED_PACKAGE_VERSION).toBe('0.4.2');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
@@ -108,7 +108,7 @@ describe('package and handshake contract', () => {
 
   it('rejects a preflight carrying any field beyond the exact tag (no fingerprint surface)', () => {
     expect(() =>
-      decodeProtocolTagPreflight({ ...tagPreflight, package: { name: 'borgmcp-shared', version: '0.4.1' } }),
+      decodeProtocolTagPreflight({ ...tagPreflight, package: { name: 'borgmcp-shared', version: '0.4.2' } }),
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeProtocolTagPreflight({ ...tagPreflight, limits: { max_request_bytes: 65_536 } }),
