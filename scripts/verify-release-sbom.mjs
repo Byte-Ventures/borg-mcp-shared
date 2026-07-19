@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MAX_SBOM_BYTES = 10 * 1024 * 1024;
+export const RELEASE_TARGET = Object.freeze({ os: 'linux', cpu: 'x64', libc: 'glibc' });
 const RUNTIME_DEPENDENCY_FIELDS = [
   'dependencies',
   'optionalDependencies',
@@ -19,26 +19,198 @@ function packageNameFromLockPath(path) {
   return path.split('node_modules/').at(-1);
 }
 
-function dependencyGraph(node, name, graph = new Map()) {
-  if (!node || typeof node.version !== 'string') return graph;
-  const ref = `${name}@${node.version}`;
-  const installed = Object.entries(node.dependencies ?? {})
-    .filter(([, dependency]) => typeof dependency.version === 'string');
-  const existing = graph.get(ref) ?? [];
-  graph.set(ref, [...new Set([
-    ...existing,
-    ...installed.map(([dependencyName, dependency]) => (
-      `${dependencyName}@${dependency.version}`
-    )),
-  ])].sort());
-  for (const [dependencyName, dependency] of installed) {
-    dependencyGraph(dependency, dependencyName, graph);
-  }
-  return graph;
-}
-
 function sameStrings(left, right) {
   return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+function parseVersion(value) {
+  const match = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?$/.exec(value);
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2] ?? 0),
+    patch: Number(match[3] ?? 0),
+    prerelease: match[4] ?? null,
+  };
+}
+
+function compareVersions(left, right) {
+  for (const field of ['major', 'minor', 'patch']) {
+    if (left[field] !== right[field]) return left[field] < right[field] ? -1 : 1;
+  }
+  if (left.prerelease === right.prerelease) return 0;
+  if (left.prerelease === null) return 1;
+  if (right.prerelease === null) return -1;
+  return left.prerelease.localeCompare(right.prerelease, 'en', { numeric: true });
+}
+
+function satisfiesComparator(version, comparator) {
+  if (comparator === '*') return true;
+  const operator = comparator.startsWith('>=') ? '>=' : comparator[0] === '^' || comparator[0] === '~'
+    ? comparator[0]
+    : '=';
+  const required = parseVersion(comparator.slice(operator === '>=' ? 2 : operator === '=' ? 0 : 1));
+  if (!required) fail(`Unsupported package-lock dependency version: ${comparator}`);
+  const lowerComparison = compareVersions(version, required);
+  if (operator === '=') return lowerComparison === 0;
+  if (operator === '>=') return lowerComparison >= 0;
+  let upper;
+  if (operator === '~') {
+    upper = { major: required.major, minor: required.minor + 1, patch: 0, prerelease: null };
+  } else if (required.major > 0) {
+    upper = { major: required.major + 1, minor: 0, patch: 0, prerelease: null };
+  } else if (required.minor > 0) {
+    upper = { major: 0, minor: required.minor + 1, patch: 0, prerelease: null };
+  } else {
+    upper = { major: 0, minor: 0, patch: required.patch + 1, prerelease: null };
+  }
+  return lowerComparison >= 0 && compareVersions(version, upper) < 0;
+}
+
+function satisfiesVersion(versionValue, specification) {
+  const version = parseVersion(versionValue);
+  if (!version || typeof specification !== 'string') return false;
+  return specification.split('||').some((comparator) => (
+    satisfiesComparator(version, comparator.trim())
+  ));
+}
+
+function matchesSelector(values, target, field, path) {
+  if (values === undefined) return true;
+  if (!Array.isArray(values) || values.length === 0 ||
+      values.some((value) => typeof value !== 'string' || !/^!?[a-z0-9][a-z0-9_-]*$/i.test(value))) {
+    fail(`Lock component has invalid ${field} selectors: ${path}`);
+  }
+  const normalized = values.map((value) => value.toLowerCase());
+  if (new Set(normalized).size !== normalized.length) {
+    fail(`Lock component has duplicate ${field} selectors: ${path}`);
+  }
+  const excluded = normalized.filter((value) => value.startsWith('!')).map((value) => value.slice(1));
+  const included = normalized.filter((value) => !value.startsWith('!'));
+  if (included.some((value) => excluded.includes(value))) {
+    fail(`Lock component has contradictory ${field} selectors: ${path}`);
+  }
+  if (excluded.includes(target)) return false;
+  return included.length === 0 || included.includes(target);
+}
+
+function matchesReleaseTarget(locked, path) {
+  return matchesSelector(locked.os, RELEASE_TARGET.os, 'os', path) &&
+    matchesSelector(locked.cpu, RELEASE_TARGET.cpu, 'cpu', path) &&
+    matchesSelector(locked.libc, RELEASE_TARGET.libc, 'libc', path);
+}
+
+function resolveDependencyPath(packages, parentPath, dependencyName) {
+  let ancestor = parentPath;
+  while (true) {
+    const candidate = ancestor
+      ? `${ancestor}/node_modules/${dependencyName}`
+      : `node_modules/${dependencyName}`;
+    if (packages.has(candidate)) return candidate;
+    if (!ancestor) return null;
+    const marker = ancestor.lastIndexOf('/node_modules/');
+    ancestor = marker === -1 ? '' : ancestor.slice(0, marker);
+  }
+}
+
+function buildExpectedGraph(lock, rootRef) {
+  if (lock.lockfileVersion !== 3 || !lock.packages || Array.isArray(lock.packages)) {
+    fail('package-lock.json must use lockfileVersion 3 with a packages map.');
+  }
+  const packages = new Map(Object.entries(lock.packages));
+  const refByPath = new Map([['', rootRef]]);
+  const pathByRef = new Map([[rootRef, '']]);
+  for (const [path, locked] of packages) {
+    if (path === '') {
+      matchesReleaseTarget(locked, '<root>');
+      continue;
+    }
+    if (typeof locked.version !== 'string') fail(`Lock component has no version: ${path}`);
+    matchesReleaseTarget(locked, path);
+    const ref = `${packageNameFromLockPath(path)}@${locked.version}`;
+    if (pathByRef.has(ref)) fail(`Package-lock identity is ambiguous: ${ref}`);
+    refByPath.set(path, ref);
+    pathByRef.set(ref, path);
+  }
+
+  function resolveDeclared(parentPath, name, specification, optionalPeer = false) {
+    const path = resolveDependencyPath(packages, parentPath, name);
+    if (!path) {
+      if (optionalPeer) return null;
+      fail(`Package-lock dependency is missing: ${parentPath || '<root>'} -> ${name}`);
+    }
+    const locked = packages.get(path);
+    if (!satisfiesVersion(locked.version, specification)) {
+      fail(`Package-lock dependency version mismatch: ${parentPath || '<root>'} -> ${name}@${specification}`);
+    }
+    return path;
+  }
+
+  function declarations(path) {
+    const locked = packages.get(path);
+    const optional = locked.optionalDependencies ?? {};
+    const required = {
+      ...(locked.dependencies ?? {}),
+      ...(path === '' ? locked.devDependencies ?? {} : {}),
+    };
+    for (const name of Object.keys(optional)) delete required[name];
+    const peers = locked.peerDependencies ?? {};
+    const optionalPeers = new Set(Object.entries(locked.peerDependenciesMeta ?? {})
+      .filter(([, metadata]) => metadata?.optional === true)
+      .map(([name]) => name));
+    return { required, optional, peers, optionalPeers };
+  }
+
+  const reachable = new Set(['']);
+  const queue = [''];
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const { required, optional, peers, optionalPeers } = declarations(path);
+    const additions = [];
+    for (const [name, specification] of Object.entries(required)) {
+      const target = resolveDeclared(path, name, specification);
+      if (!matchesReleaseTarget(packages.get(target), target)) {
+        fail(`Required dependency is incompatible with the release target: ${path || '<root>'} -> ${name}`);
+      }
+      additions.push(target);
+    }
+    for (const [name, specification] of Object.entries(optional)) {
+      const target = resolveDeclared(path, name, specification);
+      if (matchesReleaseTarget(packages.get(target), target)) additions.push(target);
+    }
+    for (const [name, specification] of Object.entries(peers)) {
+      if (optionalPeers.has(name)) continue;
+      const target = resolveDeclared(path, name, specification);
+      if (!matchesReleaseTarget(packages.get(target), target)) {
+        fail(`Required peer is incompatible with the release target: ${path || '<root>'} -> ${name}`);
+      }
+      additions.push(target);
+    }
+    for (const target of additions) {
+      if (reachable.has(target)) continue;
+      reachable.add(target);
+      queue.push(target);
+    }
+  }
+
+  const graph = new Map();
+  for (const path of reachable) {
+    const { required, optional, peers, optionalPeers } = declarations(path);
+    const targets = [];
+    for (const [name, specification] of Object.entries(required)) {
+      targets.push(resolveDeclared(path, name, specification));
+    }
+    for (const [name, specification] of Object.entries(optional)) {
+      const target = resolveDeclared(path, name, specification);
+      if (matchesReleaseTarget(packages.get(target), target)) targets.push(target);
+    }
+    for (const [name, specification] of Object.entries(peers)) {
+      const target = resolveDeclared(path, name, specification, optionalPeers.has(name));
+      if (target && (!optionalPeers.has(name) || reachable.has(target))) targets.push(target);
+    }
+    graph.set(refByPath.get(path), [...new Set(targets.map((target) => refByPath.get(target)))].sort());
+  }
+  return { graph, pathByRef };
 }
 
 function expectedPurl(name, version) {
@@ -80,7 +252,7 @@ export async function verifyReleaseSbom(sbomPath) {
   const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
   const rootRef = `${manifest.name}@${manifest.version}`;
 
-  if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.4.1') {
+  if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.4.2') {
     fail(`Unexpected package identity: ${rootRef}`);
   }
   for (const field of RUNTIME_DEPENDENCY_FIELDS) {
@@ -93,6 +265,23 @@ export async function verifyReleaseSbom(sbomPath) {
       lock.packages?.['']?.name !== manifest.name ||
       lock.packages?.['']?.version !== manifest.version) {
     fail('Root package-lock identity does not match package.json.');
+  }
+  if (!matchesReleaseTarget(manifest, 'package.json')) {
+    fail('package.json root is incompatible with the fixed release target.');
+  }
+  if (!matchesReleaseTarget(lock.packages[''], 'package-lock.json root')) {
+    fail('package-lock.json root is incompatible with the fixed release target.');
+  }
+  for (const field of ['os', 'cpu', 'libc']) {
+    const manifestSelectors = manifest[field];
+    const lockSelectors = lock.packages[''][field];
+    const match = manifestSelectors === undefined && lockSelectors === undefined ||
+      Array.isArray(manifestSelectors) && Array.isArray(lockSelectors) &&
+      sameStrings(
+        manifestSelectors.map((value) => value.toLowerCase()),
+        lockSelectors.map((value) => value.toLowerCase()),
+      );
+    if (!match) fail(`Root package ${field} selectors do not match package-lock.json.`);
   }
   for (const field of RUNTIME_DEPENDENCY_FIELDS) {
     const value = lock.packages[''][field];
@@ -123,19 +312,13 @@ export async function verifyReleaseSbom(sbomPath) {
       sbom.metadata.component.name !== manifest.name ||
       sbom.metadata.component.version !== manifest.version ||
       sbom.metadata.component.purl !== `pkg:npm/${manifest.name}@${manifest.version}`) {
-    fail('CycloneDX root component is not bound to borgmcp-shared@0.4.1.');
+    fail('CycloneDX root component is not bound to borgmcp-shared@0.4.2.');
   }
   if (!Array.isArray(sbom.components) || !Array.isArray(sbom.dependencies)) {
     fail('CycloneDX components and dependencies must be arrays.');
   }
 
-  const lockByPath = new Map(Object.entries(lock.packages).filter(([path]) => path !== ''));
-  const lockByRef = new Map();
-  for (const [path, locked] of lockByPath) {
-    const ref = `${packageNameFromLockPath(path)}@${locked.version}`;
-    if (lockByRef.has(ref)) fail(`Package-lock identity is ambiguous: ${ref}`);
-    lockByRef.set(ref, { path, locked });
-  }
+  const { graph: expectedGraph, pathByRef } = buildExpectedGraph(lock, rootRef);
   const componentRefs = new Set();
   for (const component of sbom.components) {
     const pathProperties = component.properties?.filter(
@@ -145,9 +328,11 @@ export async function verifyReleaseSbom(sbomPath) {
         (pathProperties.length === 1 && typeof pathProperties[0].value !== 'string')) {
       fail(`SBOM component has an invalid npm package path: ${component['bom-ref']}`);
     }
-    const lockMatch = lockByRef.get(component['bom-ref']);
-    if (!lockMatch) fail(`SBOM component is absent from package-lock.json: ${component['bom-ref']}`);
-    const { path, locked } = lockMatch;
+    const path = pathByRef.get(component['bom-ref']);
+    if (path === undefined || path === '') {
+      fail(`SBOM component is absent from package-lock.json: ${component['bom-ref']}`);
+    }
+    const locked = lock.packages[path];
     if (pathProperties.length === 1 && pathProperties[0].value !== path) {
       fail(`SBOM component path does not match package-lock.json: ${component['bom-ref']}`);
     }
@@ -186,15 +371,10 @@ export async function verifyReleaseSbom(sbomPath) {
     }
   }
 
-  const installedTree = JSON.parse(execFileSync('npm', ['ls', '--json', '--all'], {
-    encoding: 'utf8',
-    maxBuffer: MAX_SBOM_BYTES,
-  }));
-  const expectedGraph = dependencyGraph(installedTree, installedTree.name);
   const expectedComponents = new Set(expectedGraph.keys());
   expectedComponents.delete(rootRef);
   if (!sameStrings(componentRefs, expectedComponents)) {
-    fail('CycloneDX components do not match the installed locked release tree.');
+    fail('CycloneDX components do not match the lock-derived release-target tree.');
   }
 
   const actualGraph = new Map();
@@ -207,11 +387,11 @@ export async function verifyReleaseSbom(sbomPath) {
     actualGraph.set(dependency.ref, [...dependency.dependsOn].sort());
   }
   if (!sameStrings(actualGraph.keys(), expectedGraph.keys())) {
-    fail('CycloneDX dependency nodes do not match the installed locked release tree.');
+    fail('CycloneDX dependency nodes do not match the lock-derived release-target tree.');
   }
   for (const [ref, expectedDependencies] of expectedGraph) {
     if (!sameStrings(actualGraph.get(ref) ?? [], expectedDependencies)) {
-      fail(`CycloneDX dependency edges do not match the installed locked release tree: ${ref}`);
+      fail(`CycloneDX dependency edges do not match the lock-derived release-target tree: ${ref}`);
     }
   }
 
@@ -222,6 +402,7 @@ export async function verifyReleaseSbom(sbomPath) {
     components: componentRefs.size,
     dependencyNodes: actualGraph.size,
     runtimeDependencies: 0,
+    releaseTarget: RELEASE_TARGET,
   };
 }
 

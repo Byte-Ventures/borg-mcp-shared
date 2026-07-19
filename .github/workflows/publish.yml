@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+env:
+  RELEASE_TARGET_OS: linux
+  RELEASE_TARGET_CPU: x64
+  RELEASE_TARGET_LIBC: glibc
+
 concurrency:
   group: npm-publish-${{ github.ref_name || inputs.tag }}
   cancel-in-progress: false

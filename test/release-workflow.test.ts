@@ -111,8 +111,10 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('Run `29360398007` published `borgmcp-shared@0.2.2`');
     expect(runbook).toContain('MUST NOT be rerun, moved, or reused. Consumer\nmigration was blocked');
     expect(runbook).toContain('Security approved the recovery\nevidence.');
-    expect(runbook).toContain('does not authorize creating\n`v0.4.1`');
-    expect(runbook).toContain('must pin exact\n`borgmcp-shared@0.4.1`');
+    expect(runbook).toContain('`v0.4.1` run `29701429995`');
+    expect(runbook).toContain('never\npublish, move, reuse, rerun, or substitute them');
+    expect(runbook).toContain('does not authorize creating `v0.4.2`');
+    expect(runbook).toContain('must pin exact\n`borgmcp-shared@0.4.2`');
     expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
     expect(runbook).toContain('All three jobs reject a repository-root `.npmrc` before their first npm command.');
     expect(runbook).toContain('validate` job runs first (outside');

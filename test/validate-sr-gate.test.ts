@@ -48,27 +48,27 @@ describe('SR artifact-tuple gate', () => {
     const validRun = {
       path: '.github/workflows/publish.yml',
       event: 'push',
-      head_branch: 'v0.4.1',
+      head_branch: 'v0.4.2',
       head_sha: 'abc123',
       conclusion: 'success',
       run_attempt: 1,
     };
 
     it('accepts a valid source run', () => {
-      expect(validateSourceRun(validRun, '.github/workflows/publish.yml', 'push', 'v0.4.1', 'abc123', 1)).toBeNull();
+      expect(validateSourceRun(validRun, '.github/workflows/publish.yml', 'push', 'v0.4.2', 'abc123', 1)).toBeNull();
     });
 
     it.each([
       [{ ...validRun, path: '.github/workflows/ci.yml' }, 'workflow path'],
       [{ ...validRun, event: 'workflow_dispatch' }, 'event'],
-      [{ ...validRun, head_branch: 'refs/tags/v0.4.1' }, 'head_branch'],
+      [{ ...validRun, head_branch: 'refs/tags/v0.4.2' }, 'head_branch'],
       [{ ...validRun, head_branch: 'main' }, 'head_branch'],
       [{ ...validRun, head_sha: 'def456' }, 'head_sha'],
       [{ ...validRun, conclusion: 'failure' }, 'conclusion'],
       [{ ...validRun, conclusion: null }, 'conclusion'],
       [{ ...validRun, run_attempt: 2 }, 'run_attempt'],
     ])('rejects mismatched field: %j', (run, expectedField) => {
-      const error = validateSourceRun(run, '.github/workflows/publish.yml', 'push', 'v0.4.1', 'abc123', 1);
+      const error = validateSourceRun(run, '.github/workflows/publish.yml', 'push', 'v0.4.2', 'abc123', 1);
       expect(error).not.toBeNull();
       expect(error).toContain(expectedField);
     });
@@ -77,31 +77,31 @@ describe('SR artifact-tuple gate', () => {
   describe('validateArtifactContents', () => {
     it('accepts valid artifact contents', () => {
       const files = [
-        'borgmcp-shared-0.4.1.tgz',
+        'borgmcp-shared-0.4.2.tgz',
         'SHA512SUMS',
         'RUN_EVIDENCE',
         'artifact-report.json',
-        'borgmcp-shared-0.4.1.cdx.json',
+        'borgmcp-shared-0.4.2.cdx.json',
         'sbom-report.json',
       ];
-      expect(validateArtifactContents(files, 'borgmcp-shared-0.4.1.tgz')).toBeNull();
+      expect(validateArtifactContents(files, 'borgmcp-shared-0.4.2.tgz')).toBeNull();
     });
 
     it('rejects missing tarball', () => {
-      expect(validateArtifactContents(['SHA512SUMS'], 'borgmcp-shared-0.4.1.tgz')).toContain('tarball');
+      expect(validateArtifactContents(['SHA512SUMS'], 'borgmcp-shared-0.4.2.tgz')).toContain('tarball');
     });
 
     it('rejects unexpected entries', () => {
       const files = [
-        'borgmcp-shared-0.4.1.tgz',
+        'borgmcp-shared-0.4.2.tgz',
         'SHA512SUMS',
         'RUN_EVIDENCE',
         'artifact-report.json',
-        'borgmcp-shared-0.4.1.cdx.json',
+        'borgmcp-shared-0.4.2.cdx.json',
         'sbom-report.json',
         'unexpected-file.txt',
       ];
-      const error = validateArtifactContents(files, 'borgmcp-shared-0.4.1.tgz');
+      const error = validateArtifactContents(files, 'borgmcp-shared-0.4.2.tgz');
       expect(error).toContain('unexpected');
       expect(error).toContain('unexpected-file.txt');
     });
