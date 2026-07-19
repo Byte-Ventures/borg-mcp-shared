@@ -52,6 +52,7 @@ const FORBIDDEN_CONTENT = [
   { pattern: /\bcloud\b/i, description: 'retired product topology' },
   { pattern: /\b(?:Cloudflare|Neon|Stripe|OAuth|JWKS|RLS)\b/i, description: 'hosted authority terminology' },
   { pattern: /\b(?:billing|customer-data)\b/i, description: 'hosted account terminology' },
+  { pattern: /\bkeychain\b/i, description: 'retired credential storage' },
   { pattern: /\b[a-z0-9-]+\.workers\.dev\b/i, description: 'Worker service URL' },
   { pattern: /(?:^|[^A-Za-z])(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)/m, description: 'local absolute path' },
 ];

@@ -94,7 +94,7 @@ versioned request and success envelopes. An evicted seat's former bearer receive
 the terminal `410 DRONE_EVICTED` signal; revoked or expired sessions remain the
 generic `401 SESSION_REVOKED` case.
 See [docs/enrollment.md](docs/enrollment.md) for purpose-bound owner enrollment,
-ordinary ungranted enrollment, cube creation, pending-keychain, and retry contracts.
+ordinary ungranted enrollment, cube creation, pending enrollment, and retry contracts.
 
 ## Conformance
 

@@ -188,6 +188,7 @@ describe('packed artifact', () => {
     ['retired product topology', 'cloud authority'],
     ['hosted authority terminology', 'OAuth'],
     ['hosted account terminology', 'billing path'],
+    ['retired credential storage', 'keychain'],
   ])('rejects %s hidden in a source map', async (description, hiddenContent) => {
     const tarball = await repack(async (root) => {
       const mapPath = join(root, 'dist/protocol/version.js.map');

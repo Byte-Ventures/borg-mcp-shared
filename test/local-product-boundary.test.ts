@@ -8,6 +8,7 @@ const PRODUCT_SURFACES = [
   'package.json',
   'src',
   'dist',
+  'docs',
 ];
 
 const RETIRED_PRODUCT_PATTERNS = [
@@ -17,6 +18,7 @@ const RETIRED_PRODUCT_PATTERNS = [
   /\bcloud\b/i,
   /\b(?:Cloudflare|Neon|Stripe|OAuth|JWKS|RLS)\b/i,
   /\b(?:billing|customer-data)\b/i,
+  /\bkeychain\b/i,
 ];
 
 async function files(path: string): Promise<string[]> {
@@ -30,7 +32,7 @@ async function files(path: string): Promise<string[]> {
 describe('local product boundary', () => {
   it('keeps shipped product surfaces free of retired hosted authority vocabulary', async () => {
     const paths = (await Promise.all(PRODUCT_SURFACES.map(async (path) => (
-      path === 'src' || path === 'dist' ? files(path) : [path]
+      ['src', 'dist', 'docs'].includes(path) ? files(path) : [path]
     )))).flat();
 
     for (const path of paths) {
