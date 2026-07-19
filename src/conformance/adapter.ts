@@ -47,6 +47,18 @@ export interface ConformanceDrone {
 
 export type ConformanceCubeAccess = 'read' | 'write' | 'manage';
 
+export interface ConformanceCubeManagementState {
+  readonly directive: string;
+  readonly taxonomy_marker: string | null;
+  readonly role_ids: readonly string[];
+  readonly active_decision_ids: readonly string[];
+  readonly drones: ReadonlyArray<{
+    readonly id: string;
+    readonly role_id: string;
+    readonly evicted: boolean;
+  }>;
+}
+
 export interface ConformanceAuthorityState {
   enrolled_clients: number;
   enrollment_claims: number;
@@ -119,6 +131,8 @@ export interface ConformanceAdmin {
     readonly evicted: boolean;
     readonly session_revoked: boolean;
   }>;
+  /** Observes every cube field mutated by a represented manage-scoped operation. */
+  inspectCubeManagementState(cube: ConformanceCube): Promise<ConformanceCubeManagementState>;
   grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
   issueDroneSession(principal: ConformancePrincipal): Promise<string>;
   issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
@@ -159,6 +173,21 @@ export interface ConformanceOperations {
     request: unknown,
   ): Promise<ConformanceHttpResponse>;
   ack(
+    credential: string,
+    cube: ConformanceCube,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
+  updateCube(
+    credential: string,
+    cube: ConformanceCube,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
+  createRole(
+    credential: string,
+    cube: ConformanceCube,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
+  patchTaxonomy(
     credential: string,
     cube: ConformanceCube,
     request: unknown,
@@ -215,6 +244,7 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'claims.durable-noncursor', area: 'claims' },
   { id: 'decisions.topic-supersession', area: 'decisions' },
   { id: 'security.drone-management-authorization', area: 'security' },
+  { id: 'security.manage-access-matrix', area: 'security' },
   { id: 'drones.reassign-invariants', area: 'drones' },
   { id: 'security.cross-cube-drone-management', area: 'security' },
   { id: 'drones.evict-terminal-signal', area: 'drones' },
@@ -1058,6 +1088,8 @@ export async function runAdapterConformance(
   let workerRoleA!: ConformanceRole;
   let workerRoleB!: ConformanceRole;
   let managedWorker!: ConformanceDrone;
+  let readCredential = '';
+  let writeCredential = '';
   await record('security.drone-management-authorization', async () => {
     workerRoleA = await environment.admin.createRole(cubeA, {
       roleClass: 'worker', isHumanSeat: false,
@@ -1065,17 +1097,20 @@ export async function runAdapterConformance(
     managedWorker = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
     const deniedCredentials: Array<{ access: 'read' | 'write'; credential: string }> = [];
     for (const [index, access] of ['read', 'write'].entries()) {
-      const principal = await environment.admin.createPrincipal(`${access}-principal`);
+      const principalName = access === 'read' ? 'Coordinator' : 'write-principal';
+      const principal = await environment.admin.createPrincipal(principalName);
       await environment.admin.grantCube(principal, cubeA, access as 'read' | 'write');
       const invitation = await environment.admin.issueSingleUseInvitation(principal, 'client');
       const credential = `${(access === 'read' ? 'R' : 'W').repeat(42)}Q`;
+      if (access === 'read') readCredential = credential;
+      else writeCredential = credential;
       const enrollment = await environment.operations.enroll(createProtocolEnvelope(
         `${access}-principal-enroll`,
         {
           invitation,
           retry_key: `00000000-0000-4000-8000-${String(301 + index).padStart(12, '0')}`,
           client_credential: credential,
-          client_name: `${access}-principal`,
+          client_name: principalName,
         },
       ));
       expectStatus(enrollment, 201, `${access} principal enrollment`);
@@ -1106,6 +1141,144 @@ export async function runAdapterConformance(
       );
     }
     return { read_status: 403, write_status: 403, manage_required: true };
+  });
+
+  await record('security.manage-access-matrix', async () => {
+    const noGrantPrincipal = await environment.admin.createPrincipal('Coordinator role without cube grant');
+    const noGrantInvitation = await environment.admin.issueSingleUseInvitation(noGrantPrincipal, 'client');
+    const noGrantCredential = `${'N'.repeat(42)}Q`;
+    expectStatus(await environment.operations.enroll(createProtocolEnvelope(
+      'no-grant-principal-enroll',
+      {
+        invitation: noGrantInvitation,
+        retry_key: '00000000-0000-4000-8000-000000000303',
+        client_credential: noGrantCredential,
+        client_name: 'Coordinator',
+      },
+    )), 201, 'No-grant principal enrollment');
+
+    const droneCredential = await environment.admin.issueManagedDroneSession(managedWorker);
+    const matrixTargetRole = await environment.admin.createRole(cubeA, {
+      roleClass: 'worker', isHumanSeat: false,
+    });
+    const evictionTarget = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const unknownCube = { id: '00000000-0000-4000-8000-000000000399' };
+    const snapshot = async (): Promise<unknown> => ({
+      cubeA: await environment.admin.inspectCubeManagementState(cubeA),
+      cubeB: await environment.admin.inspectCubeManagementState(cubeB),
+    });
+    const operations: ReadonlyArray<{
+      name: string;
+      successStatus: number;
+      invoke: (credential: string, cube: ConformanceCube) => Promise<ConformanceHttpResponse>;
+    }> = [
+      {
+        name: 'cube-update',
+        successStatus: 200,
+        invoke: (credential, cube) => environment.operations.updateCube(
+          credential,
+          cube,
+          createProtocolEnvelope('matrix-cube-update', { cube_directive: 'matrix-directive' }),
+        ),
+      },
+      {
+        name: 'role-create',
+        successStatus: 201,
+        invoke: (credential, cube) => environment.operations.createRole(
+          credential,
+          cube,
+          createProtocolEnvelope('matrix-role-create', { name: 'Matrix Role' }),
+        ),
+      },
+      {
+        name: 'taxonomy-patch',
+        successStatus: 200,
+        invoke: (credential, cube) => environment.operations.patchTaxonomy(
+          credential,
+          cube,
+          createProtocolEnvelope('matrix-taxonomy-patch', { marker: 'matrix-taxonomy' }),
+        ),
+      },
+      {
+        name: 'decision-record',
+        successStatus: 201,
+        invoke: (credential, cube) => environment.operations.recordDecision(
+          credential,
+          cube,
+          createProtocolEnvelope('matrix-decision-record', {
+            topic: 'matrix-authority', decision: 'manage only',
+          }),
+        ),
+      },
+      {
+        name: 'drone-reassign',
+        successStatus: 200,
+        invoke: (credential, cube) => environment.operations.reassignDrone(
+          credential,
+          cube,
+          managedWorker,
+          createProtocolEnvelope('matrix-drone-reassign', { role_id: matrixTargetRole.id }),
+        ),
+      },
+      {
+        name: 'drone-evict',
+        successStatus: 200,
+        invoke: (credential, cube) => environment.operations.evictDrone(
+          credential,
+          cube,
+          evictionTarget,
+          createProtocolEnvelope('matrix-drone-evict', {}),
+        ),
+      },
+    ];
+
+    for (const operation of operations) {
+      for (const [kind, credential] of [
+        ['read', readCredential],
+        ['write', writeCredential],
+        ['drone-session', droneCredential],
+      ] as const) {
+        const before = await snapshot();
+        expectError(
+          await operation.invoke(credential, cubeA),
+          403,
+          ErrorCode.ACCESS_DENIED,
+          `${operation.name} by ${kind} principal`,
+        );
+        invariant(same(await snapshot(), before), `${operation.name} mutated state after ${kind} denial.`);
+      }
+      for (const [kind, credential, cube] of [
+        ['no-grant', noGrantCredential, cubeA],
+        ['foreign-principal', credentialB, cubeA],
+        ['foreign-cube', credentialA, cubeB],
+        ['unknown-cube', credentialA, unknownCube],
+      ] as const) {
+        const before = await snapshot();
+        expectError(
+          await operation.invoke(credential, cube),
+          404,
+          ErrorCode.NOT_FOUND,
+          `${operation.name} against ${kind}`,
+        );
+        invariant(same(await snapshot(), before), `${operation.name} mutated state after ${kind} denial.`);
+      }
+      const beforeSuccess = await environment.admin.inspectCubeManagementState(cubeA);
+      const success = await operation.invoke(credentialA, cubeA);
+      expectStatus(success, operation.successStatus, `${operation.name} by managing principal`);
+      invariant(
+        !same(await environment.admin.inspectCubeManagementState(cubeA), beforeSuccess),
+        `${operation.name} managing success did not mutate its declared state.`,
+      );
+    }
+    return {
+      operation_count: operations.length,
+      manage_success: true,
+      read_write_status: 403,
+      drone_session_status: 403,
+      hidden_status: 404,
+      denied_mutations: 0,
+      role_labels_authoritative: false,
+    };
   });
 
   await record('drones.reassign-invariants', async () => {
