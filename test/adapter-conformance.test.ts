@@ -19,6 +19,7 @@ import {
   runEquivalentAdapterConformance,
   utf8ByteLength,
   type ConformanceCube,
+  type ConformanceCubeAccess,
   type ConformanceEnvironment,
   type ConformanceDrone,
   type ConformanceHttpResponse,
@@ -65,11 +66,15 @@ type Fault =
   | 'allow-cross-cube-drone-management'
   | 'collapse-eviction-signal'
   | 'keep-evicted-drone-visible'
-  | 'keep-evicted-drone-routable';
+  | 'keep-evicted-drone-routable'
+  | 'allow-non-manage-drone-management'
+  | 'allow-cross-cube-drone-target'
+  | 'allow-cross-cube-role-target'
+  | 'skip-eviction-session-revocation';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
-  grants: Set<string>;
+  grants: Map<string, ConformanceCubeAccess>;
   credential: string | null;
   droneCredential: string | null;
   revoked: boolean;
@@ -196,7 +201,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const handle = { id: this.uuid() };
       this.principals.set(handle.id, {
         handle,
-        grants: new Set(),
+        grants: new Map(),
         credential: null,
         droneCredential: null,
         revoked: false,
@@ -214,8 +219,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       void name;
       return handle;
     },
-    grantCube: async (principal: ConformancePrincipal, cube: ConformanceCube): Promise<void> => {
-      this.principal(principal.id).grants.add(cube.id);
+    grantCube: async (
+      principal: ConformancePrincipal,
+      cube: ConformanceCube,
+      access: ConformanceCubeAccess = 'manage',
+    ): Promise<void> => {
+      this.principal(principal.id).grants.set(cube.id, access);
     },
     createRole: async (
       cube: ConformanceCube,
@@ -257,6 +266,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     expireManagedDroneSession: async (drone: ConformanceDrone): Promise<void> => {
       this.drone(drone.id).sessionState = 'expired';
+    },
+    inspectManagedDrone: async (drone: ConformanceDrone) => {
+      const state = this.drone(drone.id);
+      return {
+        evicted: state.evicted,
+        session_revoked: state.sessionState === 'revoked',
+      };
     },
     grantCreateCubeCapability: async (principal: ConformancePrincipal): Promise<void> => {
       this.principal(principal.id).serverCapabilities.add('create_cube');
@@ -451,7 +467,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           ]),
           drones: new Map(),
         });
-        principal.grants.add(handle.id);
+        principal.grants.set(handle.id, 'manage');
       }
       const response = invitation.purpose === 'owner'
         ? {
@@ -534,9 +550,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (this.fault === 'grant-created-cube-to-wrong-client') {
         const other = [...this.principals.values()].find((principal) => principal !== auth.principal);
         if (!other) throw new Error('Wrong-client grant fault requires another principal.');
-        other.grants.add(handle.id);
+        other.grants.set(handle.id, 'manage');
       } else {
-        auth.principal.grants.add(handle.id);
+        auth.principal.grants.set(handle.id, 'manage');
       }
       const response = {
         cube_id: handle.id,
@@ -724,12 +740,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const envelope = decodeReassignDroneRequestEnvelope(request);
       const cube = this.cube(cubeHandle.id);
-      const drone = cube.drones.get(droneHandle.id);
-      const targetRole = cube.roles.get(envelope.payload.role_id);
+      const drone = cube.drones.get(droneHandle.id) ??
+        (this.fault === 'allow-cross-cube-drone-target' ? this.drone(droneHandle.id) : undefined);
+      const targetRole = cube.roles.get(envelope.payload.role_id) ??
+        (this.fault === 'allow-cross-cube-role-target'
+          ? this.role(envelope.payload.role_id)
+          : undefined);
       if (!drone || drone.evicted || !targetRole) {
         return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       }
-      const sourceRole = cube.roles.get(drone.roleId);
+      const sourceRole = cube.roles.get(drone.roleId) ??
+        (this.fault === 'allow-cross-cube-drone-target' ? this.role(drone.roleId) : undefined);
       if (!sourceRole) throw new Error('Managed drone source role is unavailable.');
       if (targetRole.roleClass === 'queen' && !sourceRole.isHumanSeat &&
           this.fault !== 'allow-worker-queen-promotion') {
@@ -759,9 +780,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const access = this.authorizeManager(credential, cubeHandle.id);
       if (access.error) return access.error;
       const envelope = decodeEvictDroneRequestEnvelope(request);
-      const drone = this.cube(cubeHandle.id).drones.get(droneHandle.id);
+      const drone = this.cube(cubeHandle.id).drones.get(droneHandle.id) ??
+        (this.fault === 'allow-cross-cube-drone-target' ? this.drone(droneHandle.id) : undefined);
       if (!drone || drone.evicted) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       drone.evicted = true;
+      if (this.fault !== 'skip-eviction-session-revocation') drone.sessionState = 'revoked';
       return {
         status: 200,
         body: createProtocolEnvelope(envelope.request_id, {
@@ -857,10 +880,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     | { principal?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     const auth = this.authenticate(credential);
     if (auth.error) return auth;
-    if (!auth.principal.grants.has(cubeId) && this.fault !== 'allow-cross-cube-drone-management') {
+    const access = auth.principal.grants.get(cubeId);
+    if (access === undefined && this.fault !== 'allow-cross-cube-drone-management') {
       return { error: this.error(404, ErrorCode.NOT_FOUND) };
     }
     if (auth.droneSession) return { error: this.error(403, ErrorCode.ACCESS_DENIED) };
+    if (access !== 'manage' && this.fault !== 'allow-non-manage-drone-management') {
+      return { error: this.error(403, ErrorCode.ACCESS_DENIED) };
+    }
     return { principal: auth.principal, droneSession: false };
   }
 
@@ -895,6 +922,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (drone) return drone;
     }
     throw new Error(`Unknown drone ${id}.`);
+  }
+
+  private role(id: string): RoleState {
+    for (const cube of this.cubes.values()) {
+      const role = cube.roles.get(id);
+      if (role) return role;
+    }
+    throw new Error(`Unknown role ${id}.`);
   }
 
   private managedDronePayload(drone: DroneState): {
@@ -996,6 +1031,10 @@ describe('executable adapter conformance', () => {
     ['collapsed eviction into session revocation', 'collapse-eviction-signal', 'drones.evict-terminal-signal'],
     ['kept evicted drone in roster', 'keep-evicted-drone-visible', 'drones.evict-terminal-signal'],
     ['kept evicted drone routable', 'keep-evicted-drone-routable', 'drones.evict-terminal-signal'],
+    ['allowed non-manage drone management', 'allow-non-manage-drone-management', 'security.drone-management-authorization'],
+    ['allowed cross-cube drone target', 'allow-cross-cube-drone-target', 'security.cross-cube-drone-management'],
+    ['allowed cross-cube role target', 'allow-cross-cube-role-target', 'security.cross-cube-drone-management'],
+    ['skipped eviction credential revocation', 'skip-eviction-session-revocation', 'drones.evict-terminal-signal'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

@@ -15,6 +15,7 @@ export interface ConformanceRole {
 export interface ConformanceDrone {
     readonly id: string;
 }
+export type ConformanceCubeAccess = 'read' | 'write' | 'manage';
 export interface ConformanceAuthorityState {
     enrolled_clients: number;
     enrollment_claims: number;
@@ -48,7 +49,7 @@ export interface ConformanceAdmin {
     reset(): Promise<void>;
     createPrincipal(name: string): Promise<ConformancePrincipal>;
     createCube(name: string): Promise<ConformanceCube>;
-    grantCube(principal: ConformancePrincipal, cube: ConformanceCube): Promise<void>;
+    grantCube(principal: ConformancePrincipal, cube: ConformanceCube, access?: ConformanceCubeAccess): Promise<void>;
     createRole(cube: ConformanceCube, input: {
         readonly roleClass: 'queen' | 'worker';
         readonly isHumanSeat: boolean;
@@ -57,6 +58,10 @@ export interface ConformanceAdmin {
     issueManagedDroneSession(drone: ConformanceDrone): Promise<string>;
     revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
     expireManagedDroneSession(drone: ConformanceDrone): Promise<void>;
+    inspectManagedDrone(drone: ConformanceDrone): Promise<{
+        readonly evicted: boolean;
+        readonly session_revoked: boolean;
+    }>;
     grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
     issueDroneSession(principal: ConformancePrincipal): Promise<string>;
     issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
@@ -123,6 +128,9 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
 }, {
     readonly id: "decisions.topic-supersession";
     readonly area: "decisions";
+}, {
+    readonly id: "security.drone-management-authorization";
+    readonly area: "security";
 }, {
     readonly id: "drones.reassign-invariants";
     readonly area: "drones";
