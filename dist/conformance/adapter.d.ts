@@ -71,6 +71,7 @@ export interface ConformanceAdmin {
     revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
     expireManagedDroneSession(drone: ConformanceDrone): Promise<void>;
     inspectManagedDrone(drone: ConformanceDrone): Promise<{
+        readonly role_id: string;
         readonly evicted: boolean;
         readonly session_revoked: boolean;
     }>;

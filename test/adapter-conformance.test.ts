@@ -73,7 +73,8 @@ type Fault =
   | 'skip-eviction-session-revocation'
   | 'hide-known-manage-denial'
   | 'reveal-unknown-manage-denial'
-  | 'revoke-session-on-eviction-denial';
+  | 'revoke-session-on-eviction-denial'
+  | 'reveal-cross-cube-drone-session';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -276,6 +277,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     inspectManagedDrone: async (drone: ConformanceDrone) => {
       const state = this.drone(drone.id);
       return {
+        role_id: state.roleId,
         evicted: state.evicted,
         session_revoked: state.sessionState === 'revoked',
       };
@@ -965,6 +967,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     | { principal?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     const auth = this.authenticate(credential);
     if (auth.error) return auth;
+    if (auth.drone !== undefined && auth.drone.cubeId !== cubeId &&
+        this.fault !== 'reveal-cross-cube-drone-session') {
+      return { error: this.error(404, ErrorCode.NOT_FOUND) };
+    }
     const access = auth.principal.grants.get(cubeId);
     if (access === undefined && this.fault !== 'allow-cross-cube-drone-management') {
       return { error: this.fault === 'reveal-unknown-manage-denial'
@@ -1131,6 +1137,7 @@ describe('executable adapter conformance', () => {
     ['hid known non-manage denial as 404', 'hide-known-manage-denial', 'security.manage-access-matrix'],
     ['revealed unknown cube through 403', 'reveal-unknown-manage-denial', 'security.manage-access-matrix'],
     ['revoked target session on denied eviction', 'revoke-session-on-eviction-denial', 'security.manage-access-matrix'],
+    ['revealed cross-cube target to bound drone session', 'reveal-cross-cube-drone-session', 'security.cross-cube-drone-management'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

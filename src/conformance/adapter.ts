@@ -129,6 +129,7 @@ export interface ConformanceAdmin {
   revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
   expireManagedDroneSession(drone: ConformanceDrone): Promise<void>;
   inspectManagedDrone(drone: ConformanceDrone): Promise<{
+    readonly role_id: string;
     readonly evicted: boolean;
     readonly session_revoked: boolean;
   }>;
@@ -1091,6 +1092,7 @@ export async function runAdapterConformance(
   let managedWorker!: ConformanceDrone;
   let readCredential = '';
   let writeCredential = '';
+  let workerSession = '';
   await record('security.drone-management-authorization', async () => {
     workerRoleA = await environment.admin.createRole(cubeA, {
       roleClass: 'worker', isHumanSeat: false,
@@ -1299,7 +1301,7 @@ export async function runAdapterConformance(
     const humanSource = await environment.admin.createDrone(principalA, cubeA, humanSourceRole);
     await environment.admin.createDrone(principalA, cubeA, occupiedHumanRole);
     const contender = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
-    const workerSession = await environment.admin.issueManagedDroneSession(managedWorker);
+    workerSession = await environment.admin.issueManagedDroneSession(managedWorker);
 
     const reassigned = await environment.operations.reassignDrone(
       credentialA,
@@ -1426,10 +1428,43 @@ export async function runAdapterConformance(
       ErrorCode.NOT_FOUND,
       'Foreign role reassignment through authorized cube route',
     );
+    await environment.admin.grantCube(principalA, cubeB, 'read');
+    const foreignDroneBefore = await environment.admin.inspectManagedDrone(foreignDrone);
+    expectError(
+      await environment.operations.reassignDrone(
+        workerSession,
+        cubeB,
+        foreignDrone,
+        createProtocolEnvelope('bound-drone-cross-cube-reassign', { role_id: foreignRole.id }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Bound drone cross-cube reassignment',
+    );
+    invariant(
+      same(await environment.admin.inspectManagedDrone(foreignDrone), foreignDroneBefore),
+      'Bound drone cross-cube reassignment mutated the foreign target.',
+    );
+    expectError(
+      await environment.operations.evictDrone(
+        workerSession,
+        cubeB,
+        foreignDrone,
+        createProtocolEnvelope('bound-drone-cross-cube-evict', {}),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Bound drone cross-cube eviction',
+    );
+    invariant(
+      same(await environment.admin.inspectManagedDrone(foreignDrone), foreignDroneBefore),
+      'Bound drone cross-cube eviction mutated the foreign target.',
+    );
     return {
       unauthorized_cube_status: 404,
       foreign_drone_status: 404,
       foreign_role_status: 404,
+      bound_drone_cross_cube_status: 404,
       code: ErrorCode.NOT_FOUND,
     };
   });
@@ -1466,6 +1501,7 @@ export async function runAdapterConformance(
     );
     invariant(
       same(await environment.admin.inspectManagedDrone(evictedDrone), {
+        role_id: workerRoleA.id,
         evicted: true,
         session_revoked: true,
       }),
