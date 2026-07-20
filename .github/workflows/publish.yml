@@ -190,6 +190,9 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       tarball: ${{ steps.validate-gate.outputs.tarball }}
+      sr_sha512: ${{ steps.validate-gate.outputs.sr_sha512 }}
+      sr_run_id: ${{ steps.validate-gate.outputs.sr_run_id }}
+      sr_run_attempt: ${{ steps.validate-gate.outputs.sr_run_attempt }}
     steps:
       - name: Check out tagged source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -314,6 +317,9 @@ jobs:
 
             core.info(`SR tuple verified: run=${runId} attempt=${runAttempt} checksum=${sha512.slice(0, 16)}...`);
             core.setOutput('tarball', expectedTarball);
+            core.setOutput('sr_sha512', sha512);
+            core.setOutput('sr_run_id', runId);
+            core.setOutput('sr_run_attempt', runAttempt);
 
   publish:
     if: github.event_name == 'workflow_dispatch'
@@ -327,9 +333,9 @@ jobs:
       id-token: write
       actions: read
     env:
-      ARTIFACT_SR_SHA512: ${{ vars.ARTIFACT_SR_SHA512 }}
-      ARTIFACT_SR_RUN_ID: ${{ vars.ARTIFACT_SR_RUN_ID }}
-      ARTIFACT_SR_RUN_ATTEMPT: ${{ vars.ARTIFACT_SR_RUN_ATTEMPT }}
+      ARTIFACT_SR_SHA512: ${{ needs.validate.outputs.sr_sha512 }}
+      ARTIFACT_SR_RUN_ID: ${{ needs.validate.outputs.sr_run_id }}
+      ARTIFACT_SR_RUN_ATTEMPT: ${{ needs.validate.outputs.sr_run_attempt }}
     steps:
       - name: Check out tagged source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -386,7 +392,7 @@ jobs:
         with:
           name: npm-release-${{ needs.validate.outputs.version }}
           path: release
-          run-id: ${{ env.ARTIFACT_SR_RUN_ID }}
+          run-id: ${{ needs.validate.outputs.sr_run_id }}
           github-token: ${{ github.token }}
 
       - name: Re-bind SR approval tuple in publish context
