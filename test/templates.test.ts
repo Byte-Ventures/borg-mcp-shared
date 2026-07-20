@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  SERIALIZED_REVIEW_ROUNDS_DISCIPLINE,
   TEMPLATES,
   getTemplate,
   resolveCubeDirectiveForCreate,
@@ -246,22 +247,17 @@ describe('Sprint 14: Template.cube_directive field', () => {
       default_to: ['coordinator', 'queen'],
     });
     expect(byClass.get('status-claim')?.prefixes).toContain('STARTING');
-    // gh#16: REVIEW-READY is now directed to the Coordinator + every reviewer role (decision B).
+    // The Coordinator declares the exact-SHA gate plan and routes only its next gate.
     expect(byClass.get('review-request')).toMatchObject({ routing: 'directed' });
     expect(byClass.get('review-request')?.prefixes).toContain('REVIEW-READY');
-    expect(byClass.get('review-request')?.default_to).toEqual([
-      'coordinator',
-      'queen',
-      'code-reviewer',
-      'security-auditor',
-      'release-quality',
-      'product-design',
-    ]);
+    expect(byClass.get('review-request')?.default_to).toEqual(['coordinator', 'queen']);
     // gh#16: only DECISION / HALT stay genuinely cube-wide.
     expect(byClass.get('cube-wide')).toMatchObject({ routing: 'broadcast' });
     expect(byClass.get('cube-wide')?.prefixes).toEqual(['DECISION', 'HALT']);
-    // gh#23: completion-gate verdicts broadcast so all review lanes (especially RQ as tail) can read them.
-    expect(byClass.get('completion-gate')).toMatchObject({ routing: 'broadcast' });
+    expect(byClass.get('completion-gate')).toMatchObject({
+      routing: 'directed',
+      default_to: ['coordinator', 'queen'],
+    });
     expect(byClass.get('completion-gate')?.lifecycle).toBe('completion');
     // gh#16: merge state is directed to the Coordinator, not a cube-wide wake.
     expect(byClass.get('merge-status')).toMatchObject({ routing: 'directed' });
@@ -292,24 +288,17 @@ describe('Sprint 14: Template.cube_directive field', () => {
     expect(status?.prefixes).toContain('STARTING');
   });
 
-  it('gh#16 sweep: every taxonomy class except cube-wide and completion-gate is directed (regression guard)', () => {
-    for (const name of ['software-dev', 'starter'] as const) {
+  it('routes every software-dev taxonomy class except cube-wide directly', () => {
+    for (const name of ['software-dev'] as const) {
       const taxonomy = getTemplate(name)!.message_taxonomy ?? [];
-      // exactly two broadcast classes — cube-wide (DECISION/HALT) and completion-gate (verdicts) — exist.
+      // Only DECISION/HALT wakes the whole cube. Review routing stays serialized.
       expect(
         taxonomy.some((entry) => entry.class === 'cube-wide'),
         `${name} has a cube-wide class`,
       ).toBe(true);
-      expect(
-        taxonomy.some((entry) => entry.class === 'completion-gate'),
-        `${name} has a completion-gate class`,
-      ).toBe(true);
       for (const entry of taxonomy) {
         if (entry.class === 'cube-wide') {
           expect(entry.routing, `${name} cube-wide stays broadcast`).toBe('broadcast');
-        } else if (entry.class === 'completion-gate') {
-          // gh#23: verdicts broadcast so all review lanes (especially RQ as tail) can read them.
-          expect(entry.routing, `${name} completion-gate stays broadcast`).toBe('broadcast');
         } else {
           // a class silently regressing to broadcast would reopen the gh#16 fan-out.
           expect(entry.routing, `${name} ${entry.class} stays directed`).toBe('directed');
@@ -320,6 +309,59 @@ describe('Sprint 14: Template.cube_directive field', () => {
         }
       }
     }
+  });
+
+  it('ships the serialized bounded review contract across directive and gate roles', () => {
+    const template = getTemplate('software-dev')!;
+    expect(template.cube_directive).toContain(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE);
+
+    for (const roleName of [
+      'Coordinator',
+      'Builder',
+      'Code Reviewer',
+      'Security Auditor',
+      'Release Quality',
+      'Product Design',
+    ]) {
+      const role = template.roles.find((candidate) => candidate.name === roleName);
+      expect(role?.detailed_description, roleName).toContain(
+        SERIALIZED_REVIEW_ROUNDS_DISCIPLINE,
+      );
+    }
+
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain('exact branch-head SHA');
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain(
+      'Code Review → Security Review → Release Quality',
+    );
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain('Only the next gate');
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain('ends the round immediately');
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain('approvals from an older SHA never carry forward');
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain('at most two full review rounds');
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain(
+      'third round requires an explicit human-Queen exception',
+    );
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain(
+      'correctness, security, release-integrity, or user-harm',
+    );
+    expect(SERIALIZED_REVIEW_ROUNDS_DISCIPLINE).toContain(
+      'durable follow-up issue with evidence and acceptance criteria',
+    );
+  });
+
+  it('prevents reviewer fan-out and parallel security review language', () => {
+    const template = getTemplate('software-dev')!;
+    const codeReviewer = template.roles.find((role) => role.name === 'Code Reviewer');
+    const security = template.roles.find((role) => role.name === 'Security Auditor');
+    const releaseQuality = template.roles.find((role) => role.name === 'Release Quality');
+
+    expect(codeReviewer?.detailed_description).toContain('Coordinator routes Code Review');
+    expect(security?.detailed_description).toContain('exact-SHA Code Review approval');
+    expect(releaseQuality?.detailed_description).toContain('preceding exact-SHA gate approval');
+    expect(codeReviewer?.detailed_description).not.toContain('parallel review');
+    expect(codeReviewer?.detailed_description).not.toContain('picks it up for parallel review');
+    expect(codeReviewer?.detailed_description).not.toContain(
+      'block only on patterns that compound technical debt',
+    );
   });
 
   it('Builder and Worker role text describes class-based smart defaults', () => {
