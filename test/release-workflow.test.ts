@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,53 +6,33 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 describe('npm publish workflow', () => {
-  it('is tag-only, protected, pinned, and publishes the verified tarball', async () => {
+  it('uses one protected build, package, and publish authority', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
-    const parts = workflow.split('\n  validate:\n');
-    const verificationJob = parts[0]!;
-    const rest = parts[1]!;
-    const publishParts = rest.split('\n  publish:\n');
-    const validateJob = publishParts[0]!;
-    const publishJob = publishParts[1]!;
+    const configurationGuard = await readFile('scripts/verify-release-configuration.mjs', 'utf8');
 
     expect(workflow).toContain("tags: ['v*.*.*']");
-    expect(workflow).toContain('workflow_dispatch:');
-    expect(workflow).toContain('description: Release tag to publish (must already be verified by the tag-push run)');
-    expect(workflow).toContain('required: true');
+    expect(workflow).not.toContain('workflow_dispatch:');
+    expect(workflow.match(/^  publish:$/gm)).toHaveLength(1);
+    expect(workflow).toContain('environment:\n      name: npm-publish');
+    expect(workflow).toContain('id-token: write');
+    expect(workflow).toContain('contents: read');
+    expect(workflow).toContain('test "${GITHUB_RUN_ATTEMPT}" = "1"');
+    expect(workflow).toContain('test ! -e .npmrc');
 
-    for (const job of [verificationJob, publishJob]) {
-      const guard = job.indexOf('- name: Reject untrusted release inputs before npm bootstrap');
-      const bootstrap = job.indexOf('- name: Set up exact npm');
-      expect(guard).toBeGreaterThan(-1);
-      expect(guard).toBeLessThan(bootstrap);
-      expect(job.slice(guard, bootstrap)).toContain('test "${GITHUB_RUN_ATTEMPT}" = "1"');
-      expect(job.slice(guard, bootstrap)).toContain('test ! -e .npmrc');
+    for (const command of [
+      'npm ci --ignore-scripts',
+      'npm audit --audit-level=high',
+      'npm run check',
+      'npm test',
+      'npm run build',
+      'npm pack --ignore-scripts',
+    ]) {
+      expect(workflow.split(command)).toHaveLength(2);
     }
 
-    expect(workflow.match(/npm_userconfig="\$\{RUNNER_TEMP\}\/npm-bootstrap-user\.npmrc"/g)).toHaveLength(2);
-    expect(workflow.match(/npm_cache="\$\{RUNNER_TEMP\}\/npm-bootstrap-cache"/g)).toHaveLength(2);
-    expect(workflow.match(/--registry=https:\/\/registry\.npmjs\.org install --prefix/g)).toHaveLength(2);
-    expect(workflow.match(/config get registry\)" = "https:\/\/registry\.npmjs\.org\/"/g)).toHaveLength(2);
-    expect(workflow).toContain('contents: read');
-
-    expect(verificationJob).not.toContain('id-token: write');
-    expect(verificationJob).not.toContain('environment:');
-    expect(verificationJob).not.toContain('NODE_AUTH_TOKEN');
-    expect(verificationJob).toContain('npm publish "./release/${{ steps.pack.outputs.tarball }}" --dry-run --ignore-scripts --access public --registry=https://registry.npmjs.org');
-    expect(verificationJob).toContain('Upload tarball for security audit');
-    expect(verificationJob).toContain('release/RUN_EVIDENCE');
-    expect(verificationJob).toContain('npm sbom --sbom-format cyclonedx');
-    expect(verificationJob).toContain('node scripts/normalize-release-sbom.mjs "${raw_sbom}" "${sbom}"');
-    expect(verificationJob).toContain('rm "${raw_sbom}"');
-    expect(verificationJob).toContain('npm run verify:sbom -- "${sbom}" > release/sbom-report.json');
-    expect(verificationJob).toContain('release/borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json');
-    expect(verificationJob).toContain('release/sbom-report.json');
-    expect(verificationJob).toContain('"borgmcp-shared-${{ steps.release.outputs.version }}.cdx.json" sbom-report.json > SHA512SUMS');
-    expect(verificationJob).toContain('Exercise exact tarball in a clean consumer');
-    expect(verificationJob).toContain('"dependencies":{"borgmcp-shared":"%s"}');
-    expect(verificationJob).toContain('npm install --prefix "${consumer}" --ignore-scripts --no-save "./release/${TARBALL}"');
-    expect(verificationJob).toContain('npm ls --prefix "${consumer}" --omit=dev --all');
+    expect(workflow).toContain('node scripts/verify-registry-release.mjs prepublish "release/${{ steps.pack.outputs.tarball }}"');
+    expect(workflow).toContain('Exercise exact tarball in a clean consumer');
     for (const specifier of [
       'borgmcp-shared',
       'borgmcp-shared/templates',
@@ -64,170 +43,49 @@ describe('npm publish workflow', () => {
       'borgmcp-shared/domain',
       'borgmcp-shared/conformance',
       'borgmcp-shared/package.json',
-    ]) expect(verificationJob).toContain(specifier);
+    ]) expect(workflow).toContain(specifier);
 
-    expect(validateJob).toContain('if: github.event_name == \'workflow_dispatch\'');
-    expect(validateJob).toContain('actions: read');
-    expect(validateJob).not.toContain('environment:');
-    expect(validateJob).toContain('ARTIFACT_SR_SHA512');
-    expect(validateJob).toContain('ARTIFACT_SR_RUN_ID');
-    expect(validateJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
-    expect(validateJob).toContain('sr_sha512: ${{ steps.validate-gate.outputs.sr_sha512 }}');
-    expect(validateJob).toContain('sr_run_id: ${{ steps.validate-gate.outputs.sr_run_id }}');
-    expect(validateJob).toContain('sr_run_attempt: ${{ steps.validate-gate.outputs.sr_run_attempt }}');
-    expect(validateJob).toContain('Bind SR approval tuple and verify source run');
-    expect(validateJob).toContain('getWorkflowRun');
-    expect(validateJob).toContain('publish.yml');
-    expect(validateJob).toContain('validate-sr-gate');
-    const finalEvidenceCheck = validateJob.indexOf('validateRunEvidence(evidence, runId, runAttempt)');
-    for (const output of [
-      "core.setOutput('sr_sha512', sha512)",
-      "core.setOutput('sr_run_id', runId)",
-      "core.setOutput('sr_run_attempt', runAttempt)",
-    ]) {
-      expect(validateJob.indexOf(output)).toBeGreaterThan(finalEvidenceCheck);
-    }
+    const preflight = workflow.indexOf('- name: Reject existing version and wrong owner');
+    const publish = workflow.indexOf('- name: Publish exact verified tarball with provenance');
+    const integrity = workflow.indexOf('- name: Verify exact registry integrity');
+    const signatures = workflow.indexOf('- name: Verify registry signatures and attestations');
+    expect(preflight).toBeGreaterThan(-1);
+    expect(preflight).toBeLessThan(publish);
+    expect(publish).toBeLessThan(integrity);
+    expect(integrity).toBeLessThan(signatures);
+    expect(workflow).toContain('NPM_EXPECTED_OWNER: ${{ vars.NPM_EXPECTED_OWNER }}');
+    expect(workflow).toContain('npm publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
+    expect(workflow).toContain('node scripts/verify-registry-release.mjs postpublish "${{ steps.preflight.outputs.name }}" "${{ steps.preflight.outputs.version }}" "${{ steps.preflight.outputs.integrity }}"');
+    expect(workflow).toContain('npm audit signatures --prefix registry-verification');
 
-    expect(publishJob).toContain('needs: validate');
-    expect(publishJob).toContain('run-id:');
-    expect(publishJob).toContain('github-token: ${{ github.token }}');
-    expect(publishJob).toContain('environment:\n      name: npm-publish');
-    expect(publishJob).toContain('id-token: write');
-    expect(publishJob).toContain("if: github.event_name == 'workflow_dispatch'");
-    expect(publishJob).toContain('Download artifact from SR-approved run');
-    expect(publishJob).toContain('Re-bind SR approval tuple in publish context');
-    expect(publishJob).toContain('ARTIFACT_SR_SHA512');
-    expect(publishJob).toContain('ARTIFACT_SR_RUN_ID');
-    expect(publishJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
-    expect(publishJob).not.toMatch(/vars\.ARTIFACT_SR_/);
-    expect(publishJob).toContain('ARTIFACT_SR_SHA512: ${{ needs.validate.outputs.sr_sha512 }}');
-    expect(publishJob).toContain('ARTIFACT_SR_RUN_ID: ${{ needs.validate.outputs.sr_run_id }}');
-    expect(publishJob).toContain('ARTIFACT_SR_RUN_ATTEMPT: ${{ needs.validate.outputs.sr_run_attempt }}');
-    expect(publishJob).toContain('run-id: ${{ needs.validate.outputs.sr_run_id }}');
-    expect(publishJob).not.toContain("cut -d ' ' -f1 SHA512SUMS");
-    expect(publishJob).not.toMatch(/grep[^\n]*SHA512SUMS/);
-    expect(publishJob).toContain('const pattern=/^([0-9a-f]{128})  (.+)$/');
-    expect(publishJob).toContain('if(matches.length!==1)process.exit(1)');
-    expect(publishJob).toContain('npm publish "./release/${{ needs.validate.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
-    expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(2);
+    expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(1);
     expect(workflow).not.toMatch(/npm publish "release\//);
-
-    const prepublishStep = publishJob.slice(
-      publishJob.indexOf('- name: Verify version availability and ownership'),
-      publishJob.indexOf('- name: Publish exact audited tarball with provenance'),
-    );
-    expect(prepublishStep).toContain('NPM_TOKEN_PRESENT');
-    expect(prepublishStep).not.toContain('NODE_AUTH_TOKEN');
-    expect(workflow.match(/NODE_AUTH_TOKEN/g)).toHaveLength(1);
+    expect(workflow).not.toContain('NODE_AUTH_TOKEN');
     expect(workflow).not.toContain('publishConfig.registry');
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
     expect(workflow).not.toContain('origin/main');
-    expect(workflow.match(/main_verification_ref="refs\/release-verification\/main"/g)).toHaveLength(2);
+    expect(workflow.match(/main_verification_ref="refs\/release-verification\/main"/g)).toHaveLength(1);
     expect(workflow.match(/git fetch --no-tags origin "\+refs\/heads\/main:\$\{main_verification_ref\}"/g)).toHaveLength(1);
-    expect(workflow.match(/git fetch --no-tags --unshallow origin "\+refs\/heads\/main:\$\{main_verification_ref\}"/g)).toHaveLength(1);
-    expect(workflow.match(/git merge-base --is-ancestor "\$\{release_commit\}" "\$\{main_verification_ref\}"/g)).toHaveLength(2);
+    expect(workflow.match(/git merge-base --is-ancestor "\$\{release_commit\}" "\$\{main_verification_ref\}"/g)).toHaveLength(1);
 
-    expect(runbook).toContain('The failed `v0.2.0` tag is\nimmutable and MUST NOT be moved, reused, or rerun.');
-    expect(runbook).toContain('The remote `v0.2.1` tag remains valid\nand immutable and MUST NOT be moved, reused, or rerun.');
-    expect(runbook).toContain('`v0.2.0` bootstrap run, `29353763609`');
-    expect(runbook).toContain('`v0.2.1` tag run, `29355823822`');
-    expect(runbook).toContain('verification-only proof run, `29356980492`, confirmed\nthe repaired tag/source trust checks');
-    expect(runbook).toContain('explicit `./release/<tarball>` filesystem paths.');
-    expect(runbook).toContain('proof run, `29357632667`, passed every verification gate');
-    expect(runbook).toContain('`borgmcp-shared-recovery-version` decision, `0.2.2` is the\nselected recovery version.');
-    expect(runbook).toContain('Run `29360398007` published `borgmcp-shared@0.2.2`');
-    expect(runbook).toContain('MUST NOT be rerun, moved, or reused. Consumer\nmigration was blocked');
-    expect(runbook).toContain('Security approved the recovery\nevidence.');
-    expect(runbook).toContain('`v0.4.1` run `29701429995`');
-    expect(runbook).toContain('never\npublish, move, reuse, rerun, or substitute them');
-    expect(runbook).toContain('does not authorize creating `v0.4.2`');
-    expect(runbook).toContain('must pin exact\n`borgmcp-shared@0.4.2`');
-    expect(runbook).toContain('rejects any attempt other than `1`\nbefore dependency installation');
-    expect(runbook).toContain('All three jobs reject a repository-root `.npmrc` before their first npm command.');
-    expect(runbook).toContain('validate` job runs first (outside');
-    expect(runbook).toContain('queries the source\nrun\'s workflow path, tag, conclusion, and attempt');
-  });
+    for (const retired of [
+      'ARTIFACT_SR_',
+      'validate-sr-gate',
+      'RUN_EVIDENCE',
+      'SHA512SUMS',
+      'npm sbom',
+      'upload-artifact',
+      'download-artifact',
+      'dsseEnvelope',
+      'verifyProvenanceStatement',
+    ]) expect(workflow).not.toContain(retired);
 
-  it('binds the approved checksum to exactly one tarball row in a three-file bundle', async () => {
-    const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
-    const parserStartMarker = 'artifact_sha="$(node -e \'';
-    const parserEndMarker = '\' "${{ needs.validate.outputs.tarball }}")"';
-    const parserStart = workflow.indexOf(parserStartMarker);
-    const parserEnd = workflow.indexOf(parserEndMarker, parserStart + parserStartMarker.length);
-    expect(parserStart).toBeGreaterThan(-1);
-    expect(parserEnd).toBeGreaterThan(parserStart);
-    const checksumParser = workflow.slice(parserStart + parserStartMarker.length, parserEnd);
-
-    const root = await mkdtemp(join(tmpdir(), 'borgmcp-checksum-row-'));
-    const tarball = 'borgmcp-shared-0.4.2.tgz';
-    const sbom = 'borgmcp-shared-0.4.2.cdx.json';
-    const report = 'sbom-report.json';
-    const files = new Map([
-      [tarball, 'tarball bytes'],
-      [sbom, 'sbom bytes'],
-      [report, 'report bytes'],
-    ]);
-    const hashes = new Map([...files].map(([name, content]) => [
-      name,
-      createHash('sha512').update(content).digest('hex'),
-    ]));
-    const parser = `
-      sha512sum --check SHA512SUMS
-      artifact_sha="$(node -e '${checksumParser}' "\${TARBALL}")"
-      test "\${ARTIFACT_SR_SHA512}" = "\${artifact_sha}"
-    `;
-    const row = (name: string) => `${hashes.get(name)}  ${name}`;
-    const validRows = [row(tarball), row(sbom), row(report)];
-
-    try {
-      for (const [name, content] of files) await writeFile(join(root, name), content);
-
-      const verify = async (
-        rows: string[],
-        approvedHash = hashes.get(tarball)!,
-        expectedTarball = tarball,
-      ) => {
-        await writeFile(join(root, 'SHA512SUMS'), `${rows.join('\n')}\n`);
-        execFileSync('bash', ['-euo', 'pipefail', '-c', parser], {
-          cwd: root,
-          env: {
-            ...process.env,
-            ARTIFACT_SR_SHA512: approvedHash,
-            TARBALL: expectedTarball,
-          },
-          stdio: 'pipe',
-        });
-      };
-
-      await expect(verify(validRows)).resolves.toBeUndefined();
-      await expect(verify(validRows, hashes.get(sbom)!)).rejects.toThrow();
-      await expect(verify(validRows, hashes.get(tarball)!, 'missing.tgz')).rejects.toThrow();
-      await expect(verify([row(tarball), ...validRows])).rejects.toThrow();
-      await expect(verify([`${row(tarball)} unexpected`, row(sbom), row(report)])).rejects.toThrow();
-      await expect(verify([
-        `${hashes.get(tarball)?.toUpperCase()}  ${tarball}`,
-        row(sbom),
-        row(report),
-      ])).rejects.toThrow();
-
-      for (const lookalike of [
-        `./${tarball}`,
-        `nested/${tarball}`,
-        `prefix-${tarball}`,
-        `${tarball}.bak`,
-      ]) {
-        const path = join(root, lookalike);
-        if (lookalike.includes('/')) await mkdir(join(path, '..'), { recursive: true });
-        await writeFile(path, files.get(tarball)!);
-        await expect(verify([
-          `${hashes.get(tarball)}  ${lookalike}`,
-          row(sbom),
-          row(report),
-        ])).rejects.toThrow();
-      }
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+    expect(runbook).toContain('`minimal-package-release-assurance`');
+    expect(runbook).toContain('one protected workflow job');
+    expect(runbook).toContain('does not authorize a tag or publication');
+    expect(runbook).not.toContain('ARTIFACT_SR_');
+    expect(runbook).not.toContain('Security must download and audit that exact workflow artifact');
+    expect(configurationGuard).not.toContain('ALLOW_UNCLAIMED_FIRST_PUBLISH');
   });
 
   it('release-source docs affirm the current package version, not a pre-bump future claim', async () => {
@@ -248,23 +106,6 @@ describe('npm publish workflow', () => {
     expect(enrollment).toMatch(/this source now identifies/i);
     // ...and the Distribution guidance names the current package version.
     expect(distribution).toContain(`\`${pkg.version}\``);
-  });
-
-  it.each([
-    ['tag', 'v0.2.1'],
-    ['branch', 'release-candidate'],
-  ])('rejects a %s dispatch from %s instead of protected main', (refType, refName) => {
-    expect(() => execFileSync('bash', ['-eu', '-c',
-      'test "${GITHUB_REF_TYPE}" = branch && test "${GITHUB_REF_NAME}" = main && test "${GITHUB_REF}" = refs/heads/main',
-    ], {
-      env: {
-        ...process.env,
-        GITHUB_REF_TYPE: refType,
-        GITHUB_REF_NAME: refName,
-        GITHUB_REF: refType === 'tag' ? `refs/tags/${refName}` : `refs/heads/${refName}`,
-      },
-      stdio: 'ignore',
-    })).toThrow();
   });
 
   it.each(['2', '3'])('rejects workflow rerun attempt %s', (attempt) => {
@@ -288,19 +129,6 @@ describe('npm publish workflow', () => {
         env: { ...process.env, MARKER: marker, PATH: `${fakeBin}:${process.env.PATH}` },
         stdio: 'ignore',
       })).toThrow();
-      await expect(access(marker)).rejects.toThrow();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('treats a hostile dispatch tag as environment data, not shell source', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'borgmcp-dispatch-input-'));
-    const marker = join(root, 'injected');
-    try {
-      execFileSync('bash', ['-eu', '-c', 'release_tag="${DISPATCH_TAG}"; test "${release_tag}" = "${DISPATCH_TAG}"'], {
-        env: { ...process.env, DISPATCH_TAG: `$(touch "${marker}")` },
-      });
       await expect(access(marker)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });

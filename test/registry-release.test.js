@@ -1,46 +1,12 @@
-import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
+  postpublish,
+  prepublish,
   readWithPropagationRetry,
-  verifyProvenanceStatement,
 } from '../scripts/verify-registry-release.mjs';
 
-const commit = '0123456789abcdef0123456789abcdef01234567';
-const digest = 'ab'.repeat(64);
-const integrity = `sha512-${Buffer.from(digest, 'hex').toString('base64')}`;
-
-function statement(path = '.github/workflows/publish.yml') {
-  return {
-    _type: 'https://in-toto.io/Statement/v1',
-    predicateType: 'https://slsa.dev/provenance/v1',
-    subject: [{
-      name: 'pkg:npm/borgmcp-shared@0.2.2',
-      digest: { sha512: digest },
-    }],
-    predicate: {
-      buildDefinition: {
-        externalParameters: {
-          workflow: {
-            ref: 'refs/tags/v0.2.2',
-            repository: 'https://github.com/Byte-Ventures/borg-mcp-shared',
-            path,
-          },
-        },
-        internalParameters: { github: { event_name: 'push' } },
-        resolvedDependencies: [{
-          uri: 'git+https://github.com/Byte-Ventures/borg-mcp-shared@refs/tags/v0.2.2',
-          digest: { gitCommit: commit },
-        }],
-      },
-      runDetails: {
-        builder: { id: 'https://github.com/actions/runner/github-hosted' },
-      },
-    },
-  };
-}
-
-describe('registry provenance verification', () => {
-  it('survives provenance propagation beyond the former twelve-read window', async () => {
+describe('registry release verification', () => {
+  it('survives registry propagation beyond the former twelve-read window', async () => {
     const responses = [
       ...Array.from({ length: 12 }, () => ({ status: 404 })),
       { status: 200, ok: true },
@@ -48,7 +14,7 @@ describe('registry provenance verification', () => {
     const waits = [];
     const response = await readWithPropagationRetry(
       async () => responses.shift(),
-      'Provenance bundle verification',
+      'Published version verification',
       { wait: async (milliseconds) => waits.push(milliseconds) },
     );
     expect(response.status).toBe(200);
@@ -88,9 +54,9 @@ describe('registry provenance verification', () => {
         reads += 1;
         return { status: 404 };
       },
-      'Provenance bundle verification',
+      'Published version verification',
       { attempts: 3, wait: async (milliseconds) => waits.push(milliseconds) },
-    )).rejects.toThrow('Provenance bundle verification remained HTTP 404 after 3 attempts.');
+    )).rejects.toThrow('Published version verification remained HTTP 404 after 3 attempts.');
     expect(reads).toBe(3);
     expect(waits).toEqual([1_000, 2_000]);
   });
@@ -102,9 +68,9 @@ describe('registry provenance verification', () => {
         reads += 1;
         return { status: 404 };
       },
-      'Provenance bundle verification',
+      'Published version verification',
       { wait: async () => {} },
-    )).rejects.toThrow('Provenance bundle verification remained HTTP 404 after 18 attempts.');
+    )).rejects.toThrow('Published version verification remained HTTP 404 after 18 attempts.');
     expect(reads).toBe(18);
   });
 
@@ -118,43 +84,53 @@ describe('registry provenance verification', () => {
     expect(reads).toBe(1);
   });
 
-  it('accepts the real npm SLSA v1 GitHub Actions schema', () => {
-    expect(() => verifyProvenanceStatement(
-      statement(),
-      'application/vnd.in-toto+json',
-      'borgmcp-shared',
-      '0.2.2',
-      integrity,
-      commit,
-    )).not.toThrow();
+  it('rejects an existing immutable version before publish', async () => {
+    await expect(prepublish('borgmcp-shared', '0.4.2', {
+      expectedOwner: 'byteventures',
+      read: async () => new Response('{}', { status: 200 }),
+    })).rejects.toThrow('borgmcp-shared@0.4.2 already exists and is immutable');
   });
 
-  it('rejects a noncanonical workflow path', () => {
-    expect(() => verifyProvenanceStatement(
-      statement('/.github/workflows/publish.yml'),
-      'application/vnd.in-toto+json',
-      'borgmcp-shared',
-      '0.2.2',
-      integrity,
-      commit,
-    )).toThrow(/workflow identity/);
+  it('rejects a wrong package owner before publish', async () => {
+    const responses = [
+      new Response('', { status: 404 }),
+      Response.json({ maintainers: [{ name: 'attacker' }] }),
+    ];
+    await expect(prepublish('borgmcp-shared', '0.4.3', {
+      expectedOwner: 'byteventures',
+      read: async () => responses.shift(),
+    })).rejects.toThrow('Package is not owned by NPM_EXPECTED_OWNER');
   });
 
-  it.each([
-    ['DSSE payload type', 'text/plain', undefined, undefined],
-    ['statement type', 'application/vnd.in-toto+json', 'https://in-toto.io/Statement/v0.1', undefined],
-    ['predicate type', 'application/vnd.in-toto+json', undefined, 'https://example.invalid/predicate'],
-  ])('rejects an invalid signed %s', (_description, payloadType, type, predicateType) => {
-    const value = statement();
-    if (type) value._type = type;
-    if (predicateType) value.predicateType = predicateType;
-    expect(() => verifyProvenanceStatement(
-      value,
-      payloadType,
-      'borgmcp-shared',
-      '0.2.2',
-      integrity,
-      commit,
-    )).toThrow(/in-toto Statement v1/);
+  it('accepts an absent version owned by the configured maintainer', async () => {
+    const responses = [
+      new Response('', { status: 404 }),
+      Response.json({ maintainers: [{ name: 'byteventures' }] }),
+    ];
+    await expect(prepublish('borgmcp-shared', '0.4.3', {
+      expectedOwner: 'byteventures',
+      read: async () => responses.shift(),
+    })).resolves.toEqual({
+      name: 'borgmcp-shared',
+      version: '0.4.3',
+      registryState: 'owned',
+    });
+  });
+
+  it('verifies only exact post-publish registry integrity', async () => {
+    await expect(postpublish('borgmcp-shared', '0.4.3', 'sha512-expected', {
+      read: async () => Response.json({ dist: { integrity: 'sha512-expected' } }),
+      retry: { wait: async () => {} },
+    })).resolves.toEqual({
+      name: 'borgmcp-shared',
+      version: '0.4.3',
+      integrity: 'sha512-expected',
+      registryState: 'verified',
+    });
+
+    await expect(postpublish('borgmcp-shared', '0.4.3', 'sha512-expected', {
+      read: async () => Response.json({ dist: { integrity: 'sha512-wrong' } }),
+      retry: { wait: async () => {} },
+    })).rejects.toThrow('Registry integrity mismatch');
   });
 });

@@ -70,14 +70,6 @@ const variableMap = new Map(variables.variables?.map((variable) => [variable.nam
 if (variableMap.get('NPM_EXPECTED_OWNER') !== 'byteventures') {
   throw new Error('NPM_EXPECTED_OWNER must equal byteventures.');
 }
-const registryResponse = await fetch('https://registry.npmjs.org/borgmcp-shared', { cache: 'no-store' });
-const expectedBootstrap = registryResponse.status === 404 ? 'true' : 'false';
-if (registryResponse.status !== 404 && !registryResponse.ok) {
-  throw new Error(`npm package-state check returned HTTP ${registryResponse.status}.`);
-}
-if (variableMap.get('ALLOW_UNCLAIMED_FIRST_PUBLISH') !== expectedBootstrap) {
-  throw new Error(`ALLOW_UNCLAIMED_FIRST_PUBLISH must equal ${expectedBootstrap}.`);
-}
 
 const rulesets = await github(`/repos/${REPOSITORY}/rulesets?includes_parents=true`);
 const activeRulesets = [];
@@ -155,5 +147,4 @@ console.log(JSON.stringify({
   main: 'review-and-check-protected',
   actions: 'github-owned-sha-pinned',
   expectedOwner: 'byteventures',
-  bootstrap: expectedBootstrap === 'true',
 }, null, 2));
