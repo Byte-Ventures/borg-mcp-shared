@@ -71,10 +71,21 @@ describe('npm publish workflow', () => {
     expect(validateJob).toContain('ARTIFACT_SR_SHA512');
     expect(validateJob).toContain('ARTIFACT_SR_RUN_ID');
     expect(validateJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
+    expect(validateJob).toContain('sr_sha512: ${{ steps.validate-gate.outputs.sr_sha512 }}');
+    expect(validateJob).toContain('sr_run_id: ${{ steps.validate-gate.outputs.sr_run_id }}');
+    expect(validateJob).toContain('sr_run_attempt: ${{ steps.validate-gate.outputs.sr_run_attempt }}');
     expect(validateJob).toContain('Bind SR approval tuple and verify source run');
     expect(validateJob).toContain('getWorkflowRun');
     expect(validateJob).toContain('publish.yml');
     expect(validateJob).toContain('validate-sr-gate');
+    const finalEvidenceCheck = validateJob.indexOf('validateRunEvidence(evidence, runId, runAttempt)');
+    for (const output of [
+      "core.setOutput('sr_sha512', sha512)",
+      "core.setOutput('sr_run_id', runId)",
+      "core.setOutput('sr_run_attempt', runAttempt)",
+    ]) {
+      expect(validateJob.indexOf(output)).toBeGreaterThan(finalEvidenceCheck);
+    }
 
     expect(publishJob).toContain('needs: validate');
     expect(publishJob).toContain('run-id:');
@@ -87,6 +98,11 @@ describe('npm publish workflow', () => {
     expect(publishJob).toContain('ARTIFACT_SR_SHA512');
     expect(publishJob).toContain('ARTIFACT_SR_RUN_ID');
     expect(publishJob).toContain('ARTIFACT_SR_RUN_ATTEMPT');
+    expect(publishJob).not.toMatch(/vars\.ARTIFACT_SR_/);
+    expect(publishJob).toContain('ARTIFACT_SR_SHA512: ${{ needs.validate.outputs.sr_sha512 }}');
+    expect(publishJob).toContain('ARTIFACT_SR_RUN_ID: ${{ needs.validate.outputs.sr_run_id }}');
+    expect(publishJob).toContain('ARTIFACT_SR_RUN_ATTEMPT: ${{ needs.validate.outputs.sr_run_attempt }}');
+    expect(publishJob).toContain('run-id: ${{ needs.validate.outputs.sr_run_id }}');
     expect(publishJob).toContain('npm publish "./release/${{ needs.validate.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
     expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(2);
     expect(workflow).not.toMatch(/npm publish "release\//);
