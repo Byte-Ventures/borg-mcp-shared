@@ -416,7 +416,7 @@ jobs:
             exit 1
           }
           sha512sum --check SHA512SUMS
-          artifact_sha="$(cut -d ' ' -f1 SHA512SUMS)"
+          artifact_sha="$(node -e 'const fs=require("node:fs");const filename=process.argv[1];const pattern=/^([0-9a-f]{128})  (.+)$/;const matches=fs.readFileSync("SHA512SUMS","utf8").split("\n").map(line=>pattern.exec(line)).filter(match=>match?.[2]===filename);if(matches.length!==1)process.exit(1);process.stdout.write(matches[0][1]);' "${{ needs.validate.outputs.tarball }}")"
           test "${ARTIFACT_SR_SHA512}" = "${artifact_sha}" || {
             echo "::error::ARTIFACT_SR_SHA512 does not match audited tarball checksum"
             exit 1

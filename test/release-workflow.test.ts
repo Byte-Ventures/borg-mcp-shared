@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -103,6 +104,10 @@ describe('npm publish workflow', () => {
     expect(publishJob).toContain('ARTIFACT_SR_RUN_ID: ${{ needs.validate.outputs.sr_run_id }}');
     expect(publishJob).toContain('ARTIFACT_SR_RUN_ATTEMPT: ${{ needs.validate.outputs.sr_run_attempt }}');
     expect(publishJob).toContain('run-id: ${{ needs.validate.outputs.sr_run_id }}');
+    expect(publishJob).not.toContain("cut -d ' ' -f1 SHA512SUMS");
+    expect(publishJob).not.toMatch(/grep[^\n]*SHA512SUMS/);
+    expect(publishJob).toContain('const pattern=/^([0-9a-f]{128})  (.+)$/');
+    expect(publishJob).toContain('if(matches.length!==1)process.exit(1)');
     expect(publishJob).toContain('npm publish "./release/${{ needs.validate.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
     expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(2);
     expect(workflow).not.toMatch(/npm publish "release\//);
@@ -141,6 +146,88 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('All three jobs reject a repository-root `.npmrc` before their first npm command.');
     expect(runbook).toContain('validate` job runs first (outside');
     expect(runbook).toContain('queries the source\nrun\'s workflow path, tag, conclusion, and attempt');
+  });
+
+  it('binds the approved checksum to exactly one tarball row in a three-file bundle', async () => {
+    const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
+    const parserStartMarker = 'artifact_sha="$(node -e \'';
+    const parserEndMarker = '\' "${{ needs.validate.outputs.tarball }}")"';
+    const parserStart = workflow.indexOf(parserStartMarker);
+    const parserEnd = workflow.indexOf(parserEndMarker, parserStart + parserStartMarker.length);
+    expect(parserStart).toBeGreaterThan(-1);
+    expect(parserEnd).toBeGreaterThan(parserStart);
+    const checksumParser = workflow.slice(parserStart + parserStartMarker.length, parserEnd);
+
+    const root = await mkdtemp(join(tmpdir(), 'borgmcp-checksum-row-'));
+    const tarball = 'borgmcp-shared-0.4.2.tgz';
+    const sbom = 'borgmcp-shared-0.4.2.cdx.json';
+    const report = 'sbom-report.json';
+    const files = new Map([
+      [tarball, 'tarball bytes'],
+      [sbom, 'sbom bytes'],
+      [report, 'report bytes'],
+    ]);
+    const hashes = new Map([...files].map(([name, content]) => [
+      name,
+      createHash('sha512').update(content).digest('hex'),
+    ]));
+    const parser = `
+      sha512sum --check SHA512SUMS
+      artifact_sha="$(node -e '${checksumParser}' "\${TARBALL}")"
+      test "\${ARTIFACT_SR_SHA512}" = "\${artifact_sha}"
+    `;
+    const row = (name: string) => `${hashes.get(name)}  ${name}`;
+    const validRows = [row(tarball), row(sbom), row(report)];
+
+    try {
+      for (const [name, content] of files) await writeFile(join(root, name), content);
+
+      const verify = async (
+        rows: string[],
+        approvedHash = hashes.get(tarball)!,
+        expectedTarball = tarball,
+      ) => {
+        await writeFile(join(root, 'SHA512SUMS'), `${rows.join('\n')}\n`);
+        execFileSync('bash', ['-euo', 'pipefail', '-c', parser], {
+          cwd: root,
+          env: {
+            ...process.env,
+            ARTIFACT_SR_SHA512: approvedHash,
+            TARBALL: expectedTarball,
+          },
+          stdio: 'pipe',
+        });
+      };
+
+      await expect(verify(validRows)).resolves.toBeUndefined();
+      await expect(verify(validRows, hashes.get(sbom)!)).rejects.toThrow();
+      await expect(verify(validRows, hashes.get(tarball)!, 'missing.tgz')).rejects.toThrow();
+      await expect(verify([row(tarball), ...validRows])).rejects.toThrow();
+      await expect(verify([`${row(tarball)} unexpected`, row(sbom), row(report)])).rejects.toThrow();
+      await expect(verify([
+        `${hashes.get(tarball)?.toUpperCase()}  ${tarball}`,
+        row(sbom),
+        row(report),
+      ])).rejects.toThrow();
+
+      for (const lookalike of [
+        `./${tarball}`,
+        `nested/${tarball}`,
+        `prefix-${tarball}`,
+        `${tarball}.bak`,
+      ]) {
+        const path = join(root, lookalike);
+        if (lookalike.includes('/')) await mkdir(join(path, '..'), { recursive: true });
+        await writeFile(path, files.get(tarball)!);
+        await expect(verify([
+          `${hashes.get(tarball)}  ${lookalike}`,
+          row(sbom),
+          row(report),
+        ])).rejects.toThrow();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('release-source docs affirm the current package version, not a pre-bump future claim', async () => {
