@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 describe('npm publish workflow', () => {
@@ -99,6 +100,11 @@ describe('npm publish workflow', () => {
     expect(workflow.match(/NODE_AUTH_TOKEN/g)).toHaveLength(1);
     expect(workflow).not.toContain('publishConfig.registry');
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
+    expect(workflow).not.toContain('origin/main');
+    expect(workflow.match(/main_verification_ref="refs\/release-verification\/main"/g)).toHaveLength(2);
+    expect(workflow.match(/git fetch --no-tags origin "\+refs\/heads\/main:\$\{main_verification_ref\}"/g)).toHaveLength(1);
+    expect(workflow.match(/git fetch --no-tags --unshallow origin "\+refs\/heads\/main:\$\{main_verification_ref\}"/g)).toHaveLength(1);
+    expect(workflow.match(/git merge-base --is-ancestor "\$\{release_commit\}" "\$\{main_verification_ref\}"/g)).toHaveLength(2);
 
     expect(runbook).toContain('The failed `v0.2.0` tag is\nimmutable and MUST NOT be moved, reused, or rerun.');
     expect(runbook).toContain('The remote `v0.2.1` tag remains valid\nand immutable and MUST NOT be moved, reused, or rerun.');
@@ -255,6 +261,110 @@ describe('npm publish workflow', () => {
       git(checkout, 'fetch', '--no-tags', 'origin', 'refs/tags/v0.2.1:refs/release-verification/v0.2.1');
       expect(git(checkout, 'cat-file', '-t', 'refs/release-verification/v0.2.1')).toBe('tag');
       expect(git(checkout, 'rev-parse', 'refs/release-verification/v0.2.1^{commit}')).toBe(commit);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('verifies complete and shallow tag checkouts against an explicit full main ref', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'borgmcp-release-main-'));
+    const remote = join(root, 'remote.git');
+    const source = join(root, 'source');
+    const completeCheckout = join(root, 'complete-checkout');
+    const checkout = join(root, 'checkout');
+    const git = (cwd: string, ...args: string[]) => execFileSync(
+      'git',
+      args,
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+
+    try {
+      git(root, 'init', '--bare', remote);
+      git(root, 'init', '--initial-branch=main', source);
+      git(source, 'config', 'user.name', 'Release Test');
+      git(source, 'config', 'user.email', 'release-test@example.invalid');
+      git(source, 'commit', '--allow-empty', '-m', 'release source');
+      git(source, 'tag', '--annotate', 'v0.4.2', '--message', 'v0.4.2');
+      const releaseCommit = git(source, 'rev-parse', 'HEAD');
+      git(source, 'commit', '--allow-empty', '-m', 'post-release main');
+      git(source, 'switch', '--orphan', 'unrelated');
+      git(source, 'commit', '--allow-empty', '-m', 'unrelated source');
+      git(source, 'switch', 'main');
+      git(source, 'remote', 'add', 'origin', pathToFileURL(remote).href);
+      git(source, 'push', 'origin', 'main', 'unrelated', 'refs/tags/v0.4.2');
+
+      git(root, 'init', completeCheckout);
+      git(completeCheckout, 'remote', 'add', 'origin', pathToFileURL(remote).href);
+      git(
+        completeCheckout,
+        'fetch',
+        '--no-tags',
+        'origin',
+        'refs/tags/v0.4.2:refs/release-verification/v0.4.2',
+      );
+      git(
+        completeCheckout,
+        'fetch',
+        '--no-tags',
+        'origin',
+        '+refs/heads/main:refs/release-verification/main',
+      );
+      expect(git(completeCheckout, 'rev-parse', '--is-shallow-repository')).toBe('false');
+      expect(() => git(
+        completeCheckout,
+        'merge-base',
+        '--is-ancestor',
+        releaseCommit,
+        'refs/release-verification/main',
+      )).not.toThrow();
+
+      git(root, 'init', checkout);
+      git(checkout, 'remote', 'add', 'origin', pathToFileURL(remote).href);
+      git(checkout, 'fetch', '--depth=1', '--no-tags', 'origin', `+${releaseCommit}:refs/tags/v0.4.2`);
+      git(checkout, 'switch', '--detach', 'refs/tags/v0.4.2');
+      expect(git(checkout, 'rev-parse', '--is-shallow-repository')).toBe('true');
+      expect(() => git(checkout, 'show-ref', '--verify', 'refs/remotes/origin/main')).toThrow();
+      expect(() => git(
+        checkout,
+        'merge-base',
+        '--is-ancestor',
+        releaseCommit,
+        'refs/release-verification/main',
+      )).toThrow();
+
+      git(checkout, 'fetch', '--no-tags', 'origin', 'refs/tags/v0.4.2:refs/release-verification/v0.4.2');
+      git(
+        checkout,
+        'fetch',
+        '--no-tags',
+        '--unshallow',
+        'origin',
+        '+refs/heads/main:refs/release-verification/main',
+      );
+      expect(git(checkout, 'rev-parse', '--is-shallow-repository')).toBe('false');
+      expect(git(checkout, 'rev-list', '--count', 'refs/release-verification/main')).toBe('2');
+      expect(() => git(
+        checkout,
+        'merge-base',
+        '--is-ancestor',
+        releaseCommit,
+        'refs/release-verification/main',
+      )).not.toThrow();
+
+      git(
+        checkout,
+        'fetch',
+        '--no-tags',
+        'origin',
+        '+refs/heads/unrelated:refs/release-verification/unrelated',
+      );
+      expect(() => git(
+        checkout,
+        'merge-base',
+        '--is-ancestor',
+        releaseCommit,
+        'refs/release-verification/unrelated',
+      )).toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
