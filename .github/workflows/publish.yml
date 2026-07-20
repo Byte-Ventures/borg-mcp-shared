@@ -74,12 +74,14 @@ jobs:
           test "${GITHUB_REF_TYPE}" = "tag"
           test "${GITHUB_REF_NAME}" = "v${version}"
           verification_ref="refs/release-verification/${GITHUB_REF_NAME}"
+          main_verification_ref="refs/release-verification/main"
           git fetch --no-tags origin "refs/tags/${GITHUB_REF_NAME}:${verification_ref}"
+          git fetch --no-tags origin "+refs/heads/main:${main_verification_ref}"
           test "$(git cat-file -t "${verification_ref}")" = "tag"
           release_commit="$(git rev-parse "${verification_ref}^{commit}")"
           test "$(git rev-parse HEAD)" = "${release_commit}"
           test "${release_commit}" = "${GITHUB_SHA}"
-          git merge-base --is-ancestor "${release_commit}" origin/main
+          git merge-base --is-ancestor "${release_commit}" "${main_verification_ref}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install locked dependencies without lifecycle scripts
@@ -219,11 +221,13 @@ jobs:
           test "${GITHUB_REF_NAME}" = "main"
           test "${{ inputs.tag }}" = "v${version}"
           verification_ref="refs/release-verification/${{ inputs.tag }}"
+          main_verification_ref="refs/release-verification/main"
           git fetch --no-tags origin "refs/tags/${{ inputs.tag }}:${verification_ref}"
+          git fetch --no-tags --unshallow origin "+refs/heads/main:${main_verification_ref}"
           test "$(git cat-file -t "${verification_ref}")" = "tag"
           release_commit="$(git rev-parse "${verification_ref}^{commit}")"
           test "$(git rev-parse HEAD)" = "${release_commit}"
-          git merge-base --is-ancestor "${release_commit}" origin/main
+          git merge-base --is-ancestor "${release_commit}" "${main_verification_ref}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "release_commit=${release_commit}" >> "${GITHUB_OUTPUT}"
 
