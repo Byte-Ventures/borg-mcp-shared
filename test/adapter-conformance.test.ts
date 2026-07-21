@@ -73,7 +73,8 @@ type Fault =
   | 'hide-known-manage-denial'
   | 'reveal-unknown-manage-denial'
   | 'revoke-session-on-eviction-denial'
-  | 'reveal-cross-cube-drone-session';
+  | 'reveal-cross-cube-drone-session'
+  | 'collapse-session-expiry';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -934,8 +935,16 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             ? this.error(401, ErrorCode.SESSION_REVOKED)
             : this.error(410, ErrorCode.DRONE_EVICTED) };
         }
-        if (drone.sessionState !== 'active') {
+        if (drone.sessionState === 'revoked') {
           return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
+        }
+        if (drone.sessionState === 'expired') {
+          return { error: this.error(
+            401,
+            this.fault === 'collapse-session-expiry'
+              ? ErrorCode.SESSION_REVOKED
+              : ErrorCode.AUTH_EXPIRED,
+          ) };
         }
         const principal = this.principal(drone.principalId);
         if (principal.revoked) return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
@@ -1126,6 +1135,7 @@ describe('executable adapter conformance', () => {
     ['revealed unknown cube through 403', 'reveal-unknown-manage-denial', 'security.manage-access-matrix'],
     ['revoked target session on denied eviction', 'revoke-session-on-eviction-denial', 'security.manage-access-matrix'],
     ['revealed cross-cube target to bound drone session', 'reveal-cross-cube-drone-session', 'security.cross-cube-drone-management'],
+    ['collapsed expired session into revocation', 'collapse-session-expiry', 'security.drone-session-rejection-causes'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

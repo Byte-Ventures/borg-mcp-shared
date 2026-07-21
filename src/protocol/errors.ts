@@ -24,8 +24,9 @@ export enum ErrorCode {
   /**
    * The presented session bearer does not match the seat it targets: a fresh or
    * non-matching bearer against an already-bound active seat. Distinct from
-   * SESSION_REVOKED (a formerly valid credential that was explicitly revoked or
-   * expired). Carried by the server's typed 401 takeover rejection.
+   * SESSION_REVOKED (a formerly valid credential that was explicitly revoked).
+   * AUTH_EXPIRED is the only recoverable expired-session outcome. Carried by the
+   * server's typed 401 takeover rejection.
    */
   SESSION_REJECTED = 'SESSION_REJECTED',
 }

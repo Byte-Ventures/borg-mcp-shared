@@ -775,16 +775,17 @@ export async function runAdapterConformance(environment, options = {}) {
         const expiredCredential = await environment.admin.issueManagedDroneSession(expiredDrone);
         await environment.admin.revokeManagedDroneSession(revokedDrone);
         await environment.admin.expireManagedDroneSession(expiredDrone);
-        for (const [label, credential] of [
-            ['revoked', revokedCredential],
-            ['expired', expiredCredential],
+        for (const [label, credential, code] of [
+            ['revoked', revokedCredential, ErrorCode.SESSION_REVOKED],
+            ['expired', expiredCredential, ErrorCode.AUTH_EXPIRED],
         ]) {
-            expectError(await environment.operations.read(credential, cubeA, createProtocolEnvelope(`${label}-seat-probe`, { cursor: null, limit: 1 })), 401, ErrorCode.SESSION_REVOKED, `${label} seat probe`);
+            expectError(await environment.operations.read(credential, cubeA, createProtocolEnvelope(`${label}-seat-probe`, { cursor: null, limit: 1 })), 401, code, `${label} seat probe`);
         }
         return {
             revoked_status: 401,
             expired_status: 401,
-            code: ErrorCode.SESSION_REVOKED,
+            revoked_code: ErrorCode.SESSION_REVOKED,
+            expired_code: ErrorCode.AUTH_EXPIRED,
         };
     });
     await record('security.active-stream-revocation', async () => {
