@@ -122,5 +122,5 @@ These records remain evidence, not reusable release inputs:
   postpublish check reconstructed the wrong workflow identity and is the reason
   that machinery was removed.
 
-This source now identifies `0.4.2`. A future release requires its own reviewed
-version change and explicit authorizations.
+This source now identifies `0.4.3`. Its release requires reviewed source and
+artifact gates plus explicit publication authorization.

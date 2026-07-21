@@ -91,8 +91,9 @@ validate the operation-specific payload without accepting ambiguous fields.
 Cube managers reassign a seat with `PATCH /api/cubes/:cubeId/drones/:droneId`
 and evict one with `DELETE` on the same path. Both operations use strict
 versioned request and success envelopes. An evicted seat's former bearer receives
-the terminal `410 DRONE_EVICTED` signal; revoked or expired sessions remain the
-generic `401 SESSION_REVOKED` case.
+the terminal `410 DRONE_EVICTED` signal; revoked sessions return
+`401 SESSION_REVOKED`, while expired sessions return the only recoverable
+authentication outcome, `401 AUTH_EXPIRED`.
 See [docs/enrollment.md](docs/enrollment.md) for purpose-bound owner enrollment,
 ordinary ungranted enrollment, cube creation, pending enrollment, and retry contracts.
 
@@ -140,15 +141,15 @@ the coordinated rollout order for introducing protocol changes.
 immutable, but its artifact predates the local/self-hosted package cleanup. The
 immutable `v0.4.1` verification artifact exposed a platform-dependent SBOM audit
 and must never be published, moved, reused, rerun, or substituted.
-This source now identifies the still-unpublished `0.4.2` recovery release: its
-package manifest, lockfile, exported identity, and SBOM and packed-artifact
-verifiers all read `0.4.2`. The protocol tag and runtime behavior are unchanged.
+`borgmcp-shared@0.4.2` is published and immutable. This source now identifies
+the unpublished `0.4.3` session-lifecycle contract release: expired credentials
+return `AUTH_EXPIRED`, while explicitly revoked credentials return `SESSION_REVOKED`.
 This reviewed version bump grants no tag or publish authority; creating the
-annotated `v0.4.2` tag and publishing its exact reviewed artifact remain separate,
+annotated `v0.4.3` tag and publishing its exact reviewed artifact remain separate,
 independently gated steps. After that release, consumers pin exact
-`borgmcp-shared@0.4.2` and commit registry lockfiles. No registry token belongs in
-this repository, package metadata, lockfiles, or a committed `.npmrc`;
-publishing uses protected external credentials and provenance.
+`borgmcp-shared@0.4.3` and commit registry lockfiles. No registry token belongs in
+this repository, package metadata, lockfiles, or a committed `.npmrc`; publishing
+uses protected external credentials and provenance.
 
 The first client and server releases must consume the reviewed registry release,
 not a Git, tag, or local-path dependency. Public release requires the

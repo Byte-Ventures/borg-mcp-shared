@@ -2,7 +2,7 @@ import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION, type ProtocolVersion } from './version.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.4.2' as const;
+export const SHARED_PACKAGE_VERSION = '0.4.3' as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
@@ -28,6 +28,9 @@ export const PROTOCOL_HTTP_CONTRACT = {
   },
   auth_missing_status: 401,
   auth_invalid_status: 401,
+  auth_expired_status: 401,
+  session_revoked_status: 401,
+  session_rejected_status: 401,
   cursor_expired_status: 410,
   drone_evicted_status: 410,
   content_too_large_status: 413,

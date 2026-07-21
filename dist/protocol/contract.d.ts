@@ -1,7 +1,7 @@
 import { ErrorCode } from './errors.js';
 import { type ProtocolVersion } from './version.js';
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
-export declare const SHARED_PACKAGE_VERSION: "0.4.2";
+export declare const SHARED_PACKAGE_VERSION: "0.4.3";
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
@@ -46,6 +46,9 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
     };
     readonly auth_missing_status: 401;
     readonly auth_invalid_status: 401;
+    readonly auth_expired_status: 401;
+    readonly session_revoked_status: 401;
+    readonly session_rejected_status: 401;
     readonly cursor_expired_status: 410;
     readonly drone_evicted_status: 410;
     readonly content_too_large_status: 413;

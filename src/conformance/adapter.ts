@@ -1543,9 +1543,9 @@ export async function runAdapterConformance(
     const expiredCredential = await environment.admin.issueManagedDroneSession(expiredDrone);
     await environment.admin.revokeManagedDroneSession(revokedDrone);
     await environment.admin.expireManagedDroneSession(expiredDrone);
-    for (const [label, credential] of [
-      ['revoked', revokedCredential],
-      ['expired', expiredCredential],
+    for (const [label, credential, code] of [
+      ['revoked', revokedCredential, ErrorCode.SESSION_REVOKED],
+      ['expired', expiredCredential, ErrorCode.AUTH_EXPIRED],
     ] as const) {
       expectError(
         await environment.operations.read(
@@ -1554,14 +1554,15 @@ export async function runAdapterConformance(
           createProtocolEnvelope(`${label}-seat-probe`, { cursor: null, limit: 1 }),
         ),
         401,
-        ErrorCode.SESSION_REVOKED,
+        code,
         `${label} seat probe`,
       );
     }
     return {
       revoked_status: 401,
       expired_status: 401,
-      code: ErrorCode.SESSION_REVOKED,
+      revoked_code: ErrorCode.SESSION_REVOKED,
+      expired_code: ErrorCode.AUTH_EXPIRED,
     };
   });
 

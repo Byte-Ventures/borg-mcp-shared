@@ -55,7 +55,7 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.4.2');
+    expect(SHARED_PACKAGE_VERSION).toBe('0.4.3');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
@@ -86,6 +86,9 @@ describe('package and handshake contract', () => {
         authenticated: true,
       },
       drone_evicted_status: 410,
+      auth_expired_status: 401,
+      session_revoked_status: 401,
+      session_rejected_status: 401,
       redirect_policy: 'error',
     });
   });
@@ -346,7 +349,25 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
   });
 
-  it('decodes the SESSION_REJECTED takeover error code', () => {
+  it('keeps expired, revoked, takeover, and evicted session outcomes distinct', () => {
+    expect(PROTOCOL_HTTP_CONTRACT.auth_expired_status).toBe(401);
+    expect(PROTOCOL_HTTP_CONTRACT.session_revoked_status).toBe(401);
+    expect(PROTOCOL_HTTP_CONTRACT.session_rejected_status).toBe(401);
+    expect(PROTOCOL_HTTP_CONTRACT.drone_evicted_status).toBe(410);
+    expect(
+      decodeProtocolErrorEnvelope({
+        protocol_version: '2',
+        request_id: 'req-12345678',
+        error: { code: 'AUTH_EXPIRED', message: 'Session expired.' },
+      }),
+    ).toMatchObject({ error: { code: 'AUTH_EXPIRED' } });
+    expect(
+      decodeProtocolErrorEnvelope({
+        protocol_version: '2',
+        request_id: 'req-12345678',
+        error: { code: 'SESSION_REVOKED', message: 'Session revoked.' },
+      }),
+    ).toMatchObject({ error: { code: 'SESSION_REVOKED' } });
     expect(
       decodeProtocolErrorEnvelope({
         protocol_version: '2',
@@ -354,10 +375,6 @@ describe('package and handshake contract', () => {
         error: { code: 'SESSION_REJECTED', message: 'Seat already bound.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REJECTED' } });
-  });
-
-  it('decodes the terminal DRONE_EVICTED error code', () => {
-    expect(PROTOCOL_HTTP_CONTRACT.drone_evicted_status).toBe(410);
     expect(
       decodeProtocolErrorEnvelope({
         protocol_version: '2',
