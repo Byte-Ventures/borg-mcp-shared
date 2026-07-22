@@ -124,6 +124,7 @@ These records remain evidence, not reusable release inputs:
 
 `borgmcp-shared@0.4.3` is published and immutable. This source identifies the
 unpublished `0.5.0` protocol v3 release. Its release requires reviewed source and
-artifact gates plus explicit publication authorization. Consumers must update the
-reviewed shared artifact before adopting the matching server and client releases;
-protocol v2 and v3 peers fail closed at credential-free preflight.
+explicit publication authorization through one protected publish run, followed by
+postpublish registry integrity, signature, and attestation verification. Consumers
+must update the reviewed shared artifact before adopting the matching server and
+client releases; protocol v2 and v3 peers fail closed at credential-free preflight.
