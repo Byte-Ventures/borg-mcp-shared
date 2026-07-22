@@ -179,7 +179,6 @@ export interface AttachDrone {
 }
 export interface AttachSession {
     id: string;
-    expires_at: string;
 }
 export interface AttachResponse {
     result: 'created' | 'reused';

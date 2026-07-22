@@ -639,7 +639,6 @@ export interface AttachDrone {
 
 export interface AttachSession {
   id: string;
-  expires_at: string;
 }
 
 export interface AttachResponse {
@@ -692,10 +691,9 @@ function decodeAttachDrone(value: unknown, path: readonly (string | number)[]): 
 
 function decodeAttachSession(value: unknown, path: readonly (string | number)[]): AttachSession {
   const input = record(value, path);
-  exactKeys(input, ['id', 'expires_at'], ['id', 'expires_at'], path);
+  exactKeys(input, ['id'], ['id'], path);
   return {
     id: decodeUuid(input.id, [...path, 'id']),
-    expires_at: decodeCanonicalTimestamp(input.expires_at, [...path, 'expires_at']),
   };
 }
 
@@ -766,8 +764,7 @@ export function decodeAttachRequestEnvelope(
 }
 
 /**
- * Decode a v2 attach response. Strict: exact keys, result discriminant,
- * expires_at required non-null finite ISO-8601.
+ * Decode a v2 attach response. Strict: exact keys and result discriminant.
  */
 export function decodeAttachResponse(value: unknown): AttachResponse {
   const input = record(value);

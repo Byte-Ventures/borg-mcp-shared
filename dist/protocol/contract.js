@@ -448,10 +448,9 @@ function decodeAttachDrone(value, path) {
 }
 function decodeAttachSession(value, path) {
     const input = record(value, path);
-    exactKeys(input, ['id', 'expires_at'], ['id', 'expires_at'], path);
+    exactKeys(input, ['id'], ['id'], path);
     return {
         id: decodeUuid(input.id, [...path, 'id']),
-        expires_at: decodeCanonicalTimestamp(input.expires_at, [...path, 'expires_at']),
     };
 }
 export function decodeAttachRequest(value) {

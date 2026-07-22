@@ -691,10 +691,7 @@ describe('v2 clean-slate wire types', () => {
     cube: { id: '10000000-0000-4000-8000-000000000001', name: 'test-cube' },
     role: { id: '20000000-0000-4000-8000-000000000001', name: 'Builder' },
     drone: { id: '30000000-0000-4000-8000-000000000001', label: 'forty-of-forty-builder' },
-    session: {
-      id: '40000000-0000-4000-8000-000000000001',
-      expires_at: '2026-07-18T15:00:00.000Z',
-    },
+    session: { id: '40000000-0000-4000-8000-000000000001' },
   };
 
   it('decodes a valid attach request', () => {
@@ -743,7 +740,7 @@ describe('v2 clean-slate wire types', () => {
     const decoded = decodeAttachResponse(validAttachResponse);
     expect(decoded.result).toBe('created');
     expect(decoded.cube.name).toBe('test-cube');
-    expect(decoded.session.expires_at).toBe('2026-07-18T15:00:00.000Z');
+    expect(decoded.session.id).toBe('40000000-0000-4000-8000-000000000001');
   });
 
   it('decodes a valid attach response with result "reused"', () => {
@@ -758,6 +755,15 @@ describe('v2 clean-slate wire types', () => {
     ).toThrow(ProtocolContractError);
   });
 
+  it('rejects attach response with expires_at', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        session: { ...validAttachResponse.session, expires_at: '2026-07-18T15:00:00.000Z' },
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
   it('rejects attach response with null expires_at', () => {
     expect(() =>
       decodeAttachResponse({
@@ -767,11 +773,20 @@ describe('v2 clean-slate wire types', () => {
     ).toThrow(ProtocolContractError);
   });
 
-  it('rejects attach response with missing expires_at', () => {
+  it('rejects attach response with missing session id', () => {
     expect(() =>
       decodeAttachResponse({
         ...validAttachResponse,
-        session: { id: validAttachResponse.session.id },
+        session: {},
+      }),
+    ).toThrow(ProtocolContractError);
+  });
+
+  it('rejects attach response with non-UUID session id', () => {
+    expect(() =>
+      decodeAttachResponse({
+        ...validAttachResponse,
+        session: { id: 'not-a-uuid' },
       }),
     ).toThrow(ProtocolContractError);
   });
@@ -856,11 +871,11 @@ describe('v2 clean-slate wire types', () => {
     expect(() => decodeAttachResponseEnvelope(envelope)).toThrow(ProtocolContractError);
   });
 
-  it('rejects attach response with non-finite expires_at', () => {
+  it('rejects attach response with an additional session field', () => {
     expect(() =>
       decodeAttachResponse({
         ...validAttachResponse,
-        session: { ...validAttachResponse.session, expires_at: 'not-a-timestamp' },
+        session: { ...validAttachResponse.session, lifetime: 'forever' },
       }),
     ).toThrow(ProtocolContractError);
   });
