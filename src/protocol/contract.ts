@@ -2,7 +2,7 @@ import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION, type ProtocolVersion } from './version.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.4.3' as const;
+export const SHARED_PACKAGE_VERSION = '0.5.0' as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
@@ -607,7 +607,7 @@ export function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCurso
   return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
 }
 
-// ── v2 clean-slate wire types ──────────────────────────────────────────────
+// ── v3 clean-slate wire types ──────────────────────────────────────────────
 
 export const ATTACH_PATH = '/api/client/attach' as const;
 
@@ -639,7 +639,6 @@ export interface AttachDrone {
 
 export interface AttachSession {
   id: string;
-  expires_at: string;
 }
 
 export interface AttachResponse {
@@ -692,15 +691,14 @@ function decodeAttachDrone(value: unknown, path: readonly (string | number)[]): 
 
 function decodeAttachSession(value: unknown, path: readonly (string | number)[]): AttachSession {
   const input = record(value, path);
-  exactKeys(input, ['id', 'expires_at'], ['id', 'expires_at'], path);
+  exactKeys(input, ['id'], ['id'], path);
   return {
     id: decodeUuid(input.id, [...path, 'id']),
-    expires_at: decodeCanonicalTimestamp(input.expires_at, [...path, 'expires_at']),
   };
 }
 
 /**
- * Decode a v2 attach request. Strict: exact keys, bounded sizes,
+ * Decode a v3 attach request. Strict: exact keys, bounded sizes,
  * session_credential is token-safe and never echoed in errors.
  */
 export function decodeAttachRequest(value: unknown): AttachRequest {
@@ -722,7 +720,7 @@ export function decodeAttachRequest(value: unknown): AttachRequest {
 }
 
 /**
- * Create a v2 attach request envelope. Stamps the canonical protocol version.
+ * Create a v3 attach request envelope. Stamps the canonical protocol version.
  */
 export function createAttachRequestEnvelope(
   requestId: string,
@@ -736,7 +734,7 @@ export function createAttachRequestEnvelope(
 }
 
 /**
- * Decode a v2 attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
+ * Decode a v3 attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
  * BEFORE decoding the payload — a wrong tag never invokes the payload decoder
  * and never exposes or returns the supplied session_credential.
  * Uses a static token-safe diagnostic; does not interpolate attacker-controlled text.
@@ -766,8 +764,7 @@ export function decodeAttachRequestEnvelope(
 }
 
 /**
- * Decode a v2 attach response. Strict: exact keys, result discriminant,
- * expires_at required non-null finite ISO-8601.
+ * Decode a v3 attach response. Strict: exact keys and result discriminant.
  */
 export function decodeAttachResponse(value: unknown): AttachResponse {
   const input = record(value);
@@ -791,7 +788,7 @@ export function decodeAttachResponse(value: unknown): AttachResponse {
 }
 
 /**
- * Decode a v2 attach response wrapped in a ProtocolEnvelope.
+ * Decode a v3 attach response wrapped in a ProtocolEnvelope.
  * Verifies protocol_version === PROTOCOL_VERSION before decoding payload.
  */
 export function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelope<AttachResponse> {

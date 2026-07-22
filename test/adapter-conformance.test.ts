@@ -422,7 +422,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '2',
+                protocol_version: '3',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -442,7 +442,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '2',
+                protocol_version: '3',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -536,7 +536,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '2',
+              protocol_version: '3',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -1069,7 +1069,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '2',
+        protocol_version: '3',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message: 'Conformance request failed.' },
       },

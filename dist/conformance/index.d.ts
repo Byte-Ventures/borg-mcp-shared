@@ -61,4 +61,10 @@ export declare const ENROLLMENT_AUTHORITY_CONFORMANCE: readonly [{
     };
 }];
 export declare const ENROLLMENT_REDACTION_CONFORMANCE: readonly ConformanceVector<string, string>[];
+export interface AttachSessionConformanceVector {
+    name: string;
+    response: unknown;
+    accepts: boolean;
+}
+export declare const ATTACH_SESSION_CONFORMANCE: readonly AttachSessionConformanceVector[];
 //# sourceMappingURL=index.d.ts.map

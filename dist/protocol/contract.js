@@ -1,7 +1,7 @@
 import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION } from './version.js';
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared';
-export const SHARED_PACKAGE_VERSION = '0.4.3';
+export const SHARED_PACKAGE_VERSION = '0.5.0';
 export const HEALTH_PATH = '/healthz';
 export const PROTOCOL_INFO_PATH = '/api/protocol';
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange';
@@ -448,10 +448,9 @@ function decodeAttachDrone(value, path) {
 }
 function decodeAttachSession(value, path) {
     const input = record(value, path);
-    exactKeys(input, ['id', 'expires_at'], ['id', 'expires_at'], path);
+    exactKeys(input, ['id'], ['id'], path);
     return {
         id: decodeUuid(input.id, [...path, 'id']),
-        expires_at: decodeCanonicalTimestamp(input.expires_at, [...path, 'expires_at']),
     };
 }
 export function decodeAttachRequest(value) {
