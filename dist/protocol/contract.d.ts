@@ -1,7 +1,7 @@
 import { ErrorCode } from './errors.js';
 import { type ProtocolVersion } from './version.js';
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
-export declare const SHARED_PACKAGE_VERSION: "0.4.3";
+export declare const SHARED_PACKAGE_VERSION: "0.5.0";
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";

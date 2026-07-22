@@ -1,5 +1,5 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
-import type { EnrollmentExchangeRequest } from '../protocol/contract.js';
+import type { AttachResponse, EnrollmentExchangeRequest } from '../protocol/contract.js';
 
 export * from './adapter.js';
 
@@ -203,5 +203,34 @@ export const ENROLLMENT_REDACTION_CONFORMANCE: readonly ConformanceVector<string
     name: 'preserves unrelated public UUIDs',
     input: `cube_id=${ENROLLMENT_RETRY_KEY}`,
     expected: `cube_id=${ENROLLMENT_RETRY_KEY}`,
+  },
+];
+
+export interface AttachSessionConformanceVector {
+  name: string;
+  response: unknown;
+  accepts: boolean;
+}
+
+const ATTACH_RESPONSE = {
+  result: 'created',
+  cube: { id: '10000000-0000-4000-8000-000000000001', name: 'test-cube' },
+  role: { id: '20000000-0000-4000-8000-000000000001', name: 'Coordinator' },
+  drone: { id: '30000000-0000-4000-8000-000000000001', label: 'one-of-one-coordinator' },
+  session: { id: '40000000-0000-4000-8000-000000000001' },
+} satisfies AttachResponse;
+
+/** Wire vectors for the v3 non-expiring attach-session response. */
+export const ATTACH_SESSION_CONFORMANCE: readonly AttachSessionConformanceVector[] = [
+  { name: 'accepts exact non-expiring session id', response: ATTACH_RESPONSE, accepts: true },
+  {
+    name: 'rejects retired expires_at field',
+    response: { ...ATTACH_RESPONSE, session: { ...ATTACH_RESPONSE.session, expires_at: null } },
+    accepts: false,
+  },
+  {
+    name: 'rejects session fields beyond id',
+    response: { ...ATTACH_RESPONSE, session: { ...ATTACH_RESPONSE.session, extra: 'value' } },
+    accepts: false,
   },
 ];

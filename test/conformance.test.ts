@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   DRONE_ADDRESS_CONFORMANCE,
+  ATTACH_SESSION_CONFORMANCE,
   ENROLLMENT_AUTHORITY_CONFORMANCE,
   ENROLLMENT_REDACTION_CONFORMANCE,
   ENROLLMENT_RETRY_CONFORMANCE,
   ROLE_SECTION_ROUND_TRIP_CONFORMANCE,
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeResponse,
+  decodeAttachResponse,
   formatDroneAddressToken,
   parseRoleSections,
   redactProtocolDiagnostic,
@@ -52,6 +54,18 @@ describe('public conformance vectors', () => {
   it('pins enrollment secret redaction vectors', () => {
     for (const vector of ENROLLMENT_REDACTION_CONFORMANCE) {
       expect(redactProtocolDiagnostic(vector.input), vector.name).toBe(vector.expected);
+    }
+  });
+
+  it('pins the v3 exact non-expiring attach session', () => {
+    for (const vector of ATTACH_SESSION_CONFORMANCE) {
+      if (vector.accepts) {
+        expect(decodeAttachResponse(vector.response), vector.name).toMatchObject({
+          session: { id: '40000000-0000-4000-8000-000000000001' },
+        });
+      } else {
+        expect(() => decodeAttachResponse(vector.response), vector.name).toThrow();
+      }
     }
   });
 });

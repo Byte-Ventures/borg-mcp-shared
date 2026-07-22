@@ -122,5 +122,8 @@ These records remain evidence, not reusable release inputs:
   postpublish check reconstructed the wrong workflow identity and is the reason
   that machinery was removed.
 
-This source now identifies `0.4.3`. Its release requires reviewed source and
-artifact gates plus explicit publication authorization.
+`borgmcp-shared@0.4.3` is published and immutable. This source identifies the
+unpublished `0.5.0` protocol v3 release. Its release requires reviewed source and
+artifact gates plus explicit publication authorization. Consumers must update the
+reviewed shared artifact before adopting the matching server and client releases;
+protocol v2 and v3 peers fail closed at credential-free preflight.
