@@ -9,11 +9,11 @@ This contract replaced the server-generated bearer response used by the
 published `borgmcp-shared@0.3.0` v1 baseline and shipped in the immutable
 `0.4.0` clean-slate v2 release. The immutable `v0.4.1` verification artifact
 failed its cross-platform SBOM audit and must never be published or rerun.
-`borgmcp-shared@0.4.2` is published and immutable. This source now identifies
-the unpublished `0.4.3` session-lifecycle contract release: an expired credential is
-`401 AUTH_EXPIRED`, while a revoked credential is `401 SESSION_REVOKED`. The
-version bump grants no tag or publication authority: creating the `v0.4.3` tag and
-publishing the reviewed artifact remain separate, independently gated steps.
+`borgmcp-shared@0.4.2` and `borgmcp-shared@0.4.3` are published and immutable.
+This source now identifies the unpublished `0.5.0` protocol v3 attach-session contract
+release. The version bump grants no tag or publication authority: creating the
+`v0.5.0` tag and publishing the reviewed artifact remain separate, independently
+gated steps.
 There is no compatibility path that returns a bearer from the server.
 
 A client verifies the credential-free `GET /api/protocol` tag preflight before

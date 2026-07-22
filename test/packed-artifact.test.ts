@@ -50,7 +50,7 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.4.3',
+      version: '0.5.0',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
   });
@@ -87,7 +87,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.4.3' },
+      dependencies: { 'borgmcp-shared': '0.5.0' },
     }));
     execFileSync('npm', [
       'install',

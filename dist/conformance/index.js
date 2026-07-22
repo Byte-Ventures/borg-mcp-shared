@@ -157,4 +157,27 @@ export const ENROLLMENT_REDACTION_CONFORMANCE = [
         expected: `cube_id=${ENROLLMENT_RETRY_KEY}`,
     },
 ];
+const ATTACH_RESPONSE = {
+    result: 'created',
+    cube: { id: '10000000-0000-4000-8000-000000000001', name: 'test-cube' },
+    role: { id: '20000000-0000-4000-8000-000000000001', name: 'Coordinator' },
+    drone: { id: '30000000-0000-4000-8000-000000000001', label: 'one-of-one-coordinator' },
+    session: { id: '40000000-0000-4000-8000-000000000001' },
+};
+export const ATTACH_SESSION_CONFORMANCE = [
+    { name: 'accepts exact non-expiring session id', response: ATTACH_RESPONSE, accepts: true },
+    {
+        name: 'rejects retired expires_at field',
+        response: {
+            ...ATTACH_RESPONSE,
+            session: { ...ATTACH_RESPONSE.session, expires_at: '2026-07-18T15:00:00.000Z' },
+        },
+        accepts: false,
+    },
+    {
+        name: 'rejects session fields beyond id',
+        response: { ...ATTACH_RESPONSE, session: { ...ATTACH_RESPONSE.session, extra: 'value' } },
+        accepts: false,
+    },
+];
 //# sourceMappingURL=index.js.map
