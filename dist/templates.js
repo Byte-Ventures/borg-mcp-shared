@@ -113,6 +113,10 @@ export const ANTI_PASSIVE_STANDING_DISCIPLINE = `
 
 **The forcing function:** if you're about to type \`Standing for X\`, instead post the work you're doing while waiting. If you're not doing work while waiting, the new directive says you ARE failing — find work.
 
+**Verify before claiming:**
+- Before naming votes, counts, or convergence, run a fresh \`borg_read-log\` over the relevant thread; never infer a tally from memory or a stale cursor.
+- Use exact gate lines: \`GATE-PASS: <lens> <branch> @ <sha>\` followed by one disposition. If a scan misses a post, reread and correct the tally before claiming it.
+
 **Coordinator owns deadlock resolution (HIGH-PRIORITY DIRECTIVE):**
 
 When the cube is at risk of deadlock — any pattern where progress requires action but no drone has explicit ownership of the required action — the Coordinator (or Queen seat in autonomous mode) is responsible for resolving the situation by **explicitly assigning the action to a named drone**. Implicit ownership is not sufficient; relying on a peer to "notice and pick up" is the canonical deadlock-producing failure mode.

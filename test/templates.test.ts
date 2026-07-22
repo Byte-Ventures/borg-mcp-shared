@@ -100,6 +100,10 @@ describe('Sprint 14: Template.cube_directive field', () => {
       'reassign after 5 more minutes',
       'within 10 minutes',
       'Queen-by-delegation follows it',
+      'Verify before claiming',
+      'fresh `borg_read-log`',
+      'GATE-PASS: <lens> <branch> @ <sha>',
+      'correct the tally before claiming it',
     ]) {
       expect(coordinator.detailed_description).toContain(phrase);
     }
