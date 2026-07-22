@@ -607,7 +607,7 @@ export function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCurso
   return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
 }
 
-// ── v2 clean-slate wire types ──────────────────────────────────────────────
+// ── v3 clean-slate wire types ──────────────────────────────────────────────
 
 export const ATTACH_PATH = '/api/client/attach' as const;
 
@@ -698,7 +698,7 @@ function decodeAttachSession(value: unknown, path: readonly (string | number)[])
 }
 
 /**
- * Decode a v2 attach request. Strict: exact keys, bounded sizes,
+ * Decode a v3 attach request. Strict: exact keys, bounded sizes,
  * session_credential is token-safe and never echoed in errors.
  */
 export function decodeAttachRequest(value: unknown): AttachRequest {
@@ -720,7 +720,7 @@ export function decodeAttachRequest(value: unknown): AttachRequest {
 }
 
 /**
- * Create a v2 attach request envelope. Stamps the canonical protocol version.
+ * Create a v3 attach request envelope. Stamps the canonical protocol version.
  */
 export function createAttachRequestEnvelope(
   requestId: string,
@@ -734,7 +734,7 @@ export function createAttachRequestEnvelope(
 }
 
 /**
- * Decode a v2 attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
+ * Decode a v3 attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
  * BEFORE decoding the payload — a wrong tag never invokes the payload decoder
  * and never exposes or returns the supplied session_credential.
  * Uses a static token-safe diagnostic; does not interpolate attacker-controlled text.
@@ -764,7 +764,7 @@ export function decodeAttachRequestEnvelope(
 }
 
 /**
- * Decode a v2 attach response. Strict: exact keys and result discriminant.
+ * Decode a v3 attach response. Strict: exact keys and result discriminant.
  */
 export function decodeAttachResponse(value: unknown): AttachResponse {
   const input = record(value);
@@ -788,7 +788,7 @@ export function decodeAttachResponse(value: unknown): AttachResponse {
 }
 
 /**
- * Decode a v2 attach response wrapped in a ProtocolEnvelope.
+ * Decode a v3 attach response wrapped in a ProtocolEnvelope.
  * Verifies protocol_version === PROTOCOL_VERSION before decoding payload.
  */
 export function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelope<AttachResponse> {

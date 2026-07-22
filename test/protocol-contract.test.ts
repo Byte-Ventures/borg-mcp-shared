@@ -101,6 +101,9 @@ describe('package and handshake contract', () => {
   });
 
   it('fails the preflight closed on a mismatched tag before any secret', () => {
+    expect(() => decodeProtocolTagPreflight({ protocol_version: '2' })).toThrowError(
+      expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }),
+    );
     expect(() => decodeProtocolTagPreflight({ protocol_version: '1' })).toThrowError(
       expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }),
     );
@@ -855,7 +858,7 @@ describe('v3 clean-slate wire types', () => {
 
   it('rejects attach response envelope with wrong protocol version', () => {
     const envelope = {
-      protocol_version: '1',
+      protocol_version: '2',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
@@ -905,7 +908,7 @@ describe('v3 clean-slate wire types', () => {
 
   it('rejects attach request envelope with wrong protocol version BEFORE decoding payload', () => {
     const raw = {
-      protocol_version: '1',
+      protocol_version: '2',
       request_id: 'test-req-003',
       payload: validAttachRequest,
     };

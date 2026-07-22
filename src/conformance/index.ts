@@ -225,7 +225,10 @@ export const ATTACH_SESSION_CONFORMANCE: readonly AttachSessionConformanceVector
   { name: 'accepts exact non-expiring session id', response: ATTACH_RESPONSE, accepts: true },
   {
     name: 'rejects retired expires_at field',
-    response: { ...ATTACH_RESPONSE, session: { ...ATTACH_RESPONSE.session, expires_at: null } },
+    response: {
+      ...ATTACH_RESPONSE,
+      session: { ...ATTACH_RESPONSE.session, expires_at: '2026-07-18T15:00:00.000Z' },
+    },
     accepts: false,
   },
   {
