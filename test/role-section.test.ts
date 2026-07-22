@@ -103,22 +103,22 @@ describe('parseRoleSections / serializeSections — round-trip', () => {
     const builder = SOFTWARE_DEV.roles.find((r) => r.name === 'Builder')!;
     const sections = parseRoleSections(builder.detailed_description);
     const labels = sections.filter((s) => s.kind === 'label').map((s) => s.heading);
-    // Builder text has a preamble + at least Workflow + Project conventions.
-    expect(labels).toContain('Workflow');
-    expect(labels).toContain('Project conventions');
+    expect(labels).toContain('Before changing code');
+    expect(labels).toContain('While working');
+    expect(labels).toContain('Handoff');
+    expect(labels).toContain('Git safety');
+    expect(labels).toContain('Push discipline');
+    expect(labels).toContain('Escalation');
     expect(sections[0].kind).toBe('preamble');
   });
 
-  it('woven **bold:** discipline headings stay inside the last label section', () => {
+  it('uses patchable plain-label discipline sections instead of decorative headings', () => {
     const builder = SOFTWARE_DEV.roles.find((r) => r.name === 'Builder')!;
     const sections = parseRoleSections(builder.detailed_description);
-    // The trailing ESCALATION_DISCIPLINE etc. text contains
-    // "**Escalation discipline:**" — it must NOT become its own section.
     const labels = sections.map((s) => s.heading);
-    expect(labels).not.toContain('**Escalation discipline**');
-    expect(labels).not.toContain('Escalation discipline');
-    // The literal text is still present somewhere in the serialized output.
-    expect(serializeSections(sections)).toContain('**Escalation discipline:**');
+    expect(labels).toContain('Escalation');
+    expect(labels.some((label) => label?.includes('**'))).toBe(false);
+    expect(serializeSections(sections)).toContain('\nEscalation:\n');
   });
 });
 
