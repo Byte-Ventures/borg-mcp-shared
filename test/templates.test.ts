@@ -22,6 +22,9 @@ import {
   resolveMessageTaxonomyForCreate,
   type Template,
 } from '../src/templates.js';
+import * as generatedTemplates from '../dist/templates.js';
+
+const MAX_ROLE_DETAILED_DESCRIPTION_CHARS = 51_200;
 
 describe('Sprint 14: Template.cube_directive field', () => {
   it('software-dev template ships with cube_directive populated', () => {
@@ -78,6 +81,44 @@ describe('Sprint 14: Template.cube_directive field', () => {
     // intervene only on unclaimed-past-SLA or stale-claim
     expect(coord?.detailed_description).toContain('unclaimed past the SLA');
     expect(coord?.detailed_description).toMatch(/claim has gone stale/);
+  });
+
+  it('Coordinator owns activation and Queen-by-delegation follows the same discipline', () => {
+    const coordinator = getTemplate('software-dev')!.roles.find((role) => role.name === 'Coordinator')!;
+    expect(coordinator.short_description).toContain('Orders named drones to start exact work');
+    for (const phrase of [
+      'assignment is incomplete until',
+      '`STARTING:`',
+      '`PROGRESS:`',
+      '`START NOW`',
+      '`RESUME NOW`',
+      '`REVIEW NOW`',
+      '`HOLD`',
+      'ACK is receipt only',
+      'within 2 minutes',
+      'kick a miss',
+      'reassign after 5 more minutes',
+      'within 10 minutes',
+      'Queen-by-delegation follows it',
+    ]) {
+      expect(coordinator.detailed_description).toContain(phrase);
+    }
+  });
+
+  it('keeps every rendered role within the server size bound', () => {
+    for (const [templateName, template] of Object.entries(TEMPLATES)) {
+      for (const role of template.roles) {
+        expect(role.detailed_description.length, `${templateName}/${role.name}`).toBeLessThanOrEqual(
+          MAX_ROLE_DETAILED_DESCRIPTION_CHARS,
+        );
+      }
+    }
+    const coordinator = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!;
+    expect(coordinator.detailed_description.length).toBeLessThanOrEqual(45_000);
+  });
+
+  it('keeps generated template output in parity with source output', () => {
+    expect(generatedTemplates.TEMPLATES).toEqual(TEMPLATES);
   });
 
   it('Coordinator role-text frames borg_decide as the ratification act (gh#740)', () => {
