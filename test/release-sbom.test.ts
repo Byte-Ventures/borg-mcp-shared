@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const DEPENDENCY_VERSION = '1.0.0';
 const INTEGRITY = `sha512-${Buffer.alloc(64).toString('base64')}`;
 const HASH = Buffer.alloc(64).toString('hex');

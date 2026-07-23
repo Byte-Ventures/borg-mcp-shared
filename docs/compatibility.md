@@ -31,7 +31,7 @@ A wire-shape change must include:
 3. A package version bump so the new protocol tag never ships under a version
    whose already-published artifact carries a different tag.
 
-Protocol v3 is carried by the unpublished `borgmcp-shared@0.5.0` candidate. It
+Protocol v3 is carried by the published `borgmcp-shared@0.5.0` release. It
 removes `session.expires_at` from attach responses: the exact session shape is
 `{ "id": "<UUID>" }`. A v2 peer rejects v3 at preflight and envelope boundaries
 before it decodes this response; a v3 peer likewise rejects v2. There is no

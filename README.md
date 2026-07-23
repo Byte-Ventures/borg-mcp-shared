@@ -142,11 +142,12 @@ immutable, but its artifact predates the local/self-hosted package cleanup. The
 immutable `v0.4.1` verification artifact exposed a platform-dependent SBOM audit
 and must never be published, moved, reused, rerun, or substituted.
 `borgmcp-shared@0.4.2` is published and immutable. `borgmcp-shared@0.4.3` is the
-immutable protocol v2 session-lifecycle release. This source now identifies the
-unpublished `0.5.0` protocol v3 attach-session contract release: attach responses
-carry the exact non-expiring `session: { id }` shape. This reviewed version bump
-grants no tag or publish authority; creating the annotated `v0.5.0` tag and
-publishing its exact reviewed artifact remain separate, independently gated steps.
+immutable protocol v2 session-lifecycle release. `borgmcp-shared@0.5.0` is the
+published protocol v3 attach-session contract release: attach responses carry the
+exact non-expiring `session: { id }` shape. This source now identifies the
+unpublished `0.5.1` package release. This reviewed version bump grants no tag or
+publish authority; creating the annotated `v0.5.1` tag and publishing its exact
+reviewed artifact remain separate, independently gated steps.
 Consumers update shared, server, and client together: peers carrying protocol v2
 and v3 reject each other during credential-free preflight. No registry token
 belongs in this repository, package metadata, lockfiles, or a committed `.npmrc`;
