@@ -101,6 +101,8 @@ An authenticated drone session updates only its own advisory identity with
 `PATCH /api/cubes/:cubeId/drones/self/metadata`. The strict patch carries no
 target seat ID. Metadata never grants authority or changes role, wake, liveness,
 timestamp, log, routing, or model-execution state.
+Identity responses include `runtime_metadata_reported`, keeping an omitted
+attach report distinct from a reported all-null or explicitly cleared state.
 See [docs/enrollment.md](docs/enrollment.md) for purpose-bound owner enrollment,
 ordinary ungranted enrollment, cube creation, pending enrollment, and retry contracts.
 

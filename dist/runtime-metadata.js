@@ -52,6 +52,43 @@ function hasMalformedUnicode(value) {
 function invalid(field, reason) {
     throw new RuntimeMetadataValidationError(field, reason);
 }
+const METADATA_KEYS = [
+    'agent_kind',
+    'reported_model',
+    'working_repo_name',
+    'working_repo_origin',
+];
+function metadataRecord(value) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        invalid('runtime_metadata', 'must be an object');
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+        invalid('runtime_metadata', 'must be a plain object');
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.some((key) => typeof key !== 'string' || !METADATA_KEYS.includes(key))) {
+        invalid('runtime_metadata', 'contains an unsupported field');
+    }
+    if (keys.some((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, 'value');
+    })) {
+        invalid('runtime_metadata', 'fields must be plain data values');
+    }
+    return value;
+}
+function agentKind(value) {
+    if (value === null || value === 'claude' || value === 'codex' || value === 'opencode') {
+        return value;
+    }
+    invalid('agent_kind', 'must be claude, codex, opencode, or null');
+}
+function nullableString(value, field) {
+    if (value === null || typeof value === 'string')
+        return value;
+    invalid(field, 'must be a string or null');
+}
 export function validateReportedModel(value) {
     const bytes = byteLength(value);
     if (bytes < 1 || bytes > RUNTIME_METADATA_LIMITS.reported_model_bytes) {
@@ -141,7 +178,17 @@ export function canonicalizeRepositoryIdentity(inputOrigin, expectedName) {
         working_repo_origin: `https://${host}/${name}`,
     };
 }
-export function validateRuntimeMetadata(metadata) {
+export function validateRuntimeMetadata(value) {
+    const input = metadataRecord(value);
+    if (METADATA_KEYS.some((key) => !Object.prototype.hasOwnProperty.call(input, key))) {
+        invalid('runtime_metadata', 'must contain all four metadata fields');
+    }
+    const metadata = {
+        agent_kind: agentKind(input.agent_kind),
+        reported_model: nullableString(input.reported_model, 'reported_model'),
+        working_repo_name: nullableString(input.working_repo_name, 'working_repo_name'),
+        working_repo_origin: nullableString(input.working_repo_origin, 'working_repo_origin'),
+    };
     if (metadata.reported_model !== null)
         validateReportedModel(metadata.reported_model);
     if ((metadata.working_repo_name === null) !== (metadata.working_repo_origin === null)) {
@@ -153,7 +200,23 @@ export function validateRuntimeMetadata(metadata) {
     }
     return { ...metadata };
 }
-export function validateRuntimeMetadataPatch(patch) {
+export function validateRuntimeMetadataPatch(value) {
+    const input = metadataRecord(value);
+    if (Reflect.ownKeys(input).length === 0)
+        invalid('runtime_metadata', 'patch must not be empty');
+    const patch = {};
+    if (Object.prototype.hasOwnProperty.call(input, 'agent_kind')) {
+        patch.agent_kind = agentKind(input.agent_kind);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'reported_model')) {
+        patch.reported_model = nullableString(input.reported_model, 'reported_model');
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'working_repo_name')) {
+        patch.working_repo_name = nullableString(input.working_repo_name, 'working_repo_name');
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'working_repo_origin')) {
+        patch.working_repo_origin = nullableString(input.working_repo_origin, 'working_repo_origin');
+    }
     if (patch.reported_model !== undefined && patch.reported_model !== null) {
         validateReportedModel(patch.reported_model);
     }

@@ -174,6 +174,7 @@ export declare function decodeDroneRuntimeMetadata(value: unknown): DroneRuntime
 export declare function decodeDroneRuntimeMetadataPatch(value: unknown): DroneRuntimeMetadataPatch;
 export interface UpdateDroneRuntimeMetadataResponse {
     runtime_metadata: DroneRuntimeMetadata;
+    runtime_metadata_reported: boolean;
 }
 export declare function decodeUpdateDroneRuntimeMetadataResponse(value: unknown): UpdateDroneRuntimeMetadataResponse;
 export declare function decodeUpdateDroneRuntimeMetadataRequestEnvelope(value: unknown): ProtocolEnvelope<DroneRuntimeMetadataPatch>;
@@ -200,6 +201,7 @@ export interface AttachDrone {
     id: string;
     label: string;
     runtime_metadata: DroneRuntimeMetadata;
+    runtime_metadata_reported: boolean;
 }
 export interface AttachSession {
     id: string;

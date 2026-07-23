@@ -819,6 +819,7 @@ export async function runAdapterConformance(environment, options = {}) {
         const createdPayload = decodeAttachResponseEnvelope(created.body).payload;
         invariant(createdPayload.result === 'created', 'First metadata attach did not create a seat.');
         invariant(same(createdPayload.drone.runtime_metadata, knownMetadata), 'Attach did not echo canonical metadata.');
+        invariant(createdPayload.drone.runtime_metadata_reported, 'Present attach report was not marked reported.');
         metadataDroneA = { id: createdPayload.drone.id };
         const unavailableSession = 'N'.repeat(43);
         const unavailable = await environment.operations.attach(credentialA, createProtocolEnvelope('metadata-attach-unavailable', {
@@ -827,12 +828,28 @@ export async function runAdapterConformance(environment, options = {}) {
             session_credential: unavailableSession,
         }));
         expectStatus(unavailable, 200, 'Unavailable metadata attach');
-        invariant(same(decodeAttachResponseEnvelope(unavailable.body).payload.drone.runtime_metadata, {
+        const unavailableDrone = decodeAttachResponseEnvelope(unavailable.body).payload.drone;
+        invariant(same(unavailableDrone.runtime_metadata, {
             agent_kind: null,
             reported_model: null,
             working_repo_name: null,
             working_repo_origin: null,
         }), 'Omitted attach report synthesized metadata.');
+        invariant(!unavailableDrone.runtime_metadata_reported, 'Omitted attach report was marked reported.');
+        const explicitUnknown = await environment.operations.attach(credentialA, createProtocolEnvelope('metadata-attach-explicit-unknown', {
+            cube_id: cubeA.id,
+            role_id: workerRoleA.id,
+            session_credential: 'U'.repeat(43),
+            runtime_metadata: {
+                agent_kind: null,
+                reported_model: null,
+                working_repo_name: null,
+                working_repo_origin: null,
+            },
+        }));
+        expectStatus(explicitUnknown, 200, 'Explicit unknown metadata attach');
+        const explicitUnknownDrone = decodeAttachResponseEnvelope(explicitUnknown.body).payload.drone;
+        invariant(explicitUnknownDrone.runtime_metadata_reported, 'All-null attach report was not marked reported.');
         const reused = await environment.operations.attach(credentialA, createProtocolEnvelope('metadata-attach-reused', {
             cube_id: cubeA.id,
             role_id: workerRoleA.id,
@@ -842,7 +859,27 @@ export async function runAdapterConformance(environment, options = {}) {
         }));
         expectStatus(reused, 200, 'Metadata attach reuse');
         invariant(decodeAttachResponseEnvelope(reused.body).payload.result === 'reused', 'Prior seat was not reused.');
-        return { created: true, reused: true, omitted_is_unavailable: true, canonical_response: true };
+        const cleared = await environment.operations.selfMetadataUpdate(metadataSessionA, cubeA, createProtocolEnvelope('metadata-clear-all', {
+            agent_kind: null,
+            reported_model: null,
+            working_repo_name: null,
+            working_repo_origin: null,
+        }));
+        expectStatus(cleared, 200, 'Clear-all metadata patch');
+        const clearedPayload = decodeUpdateDroneRuntimeMetadataResponseEnvelope(cleared.body).payload;
+        invariant(clearedPayload.runtime_metadata_reported, 'Clear-all patch lost reported state.');
+        invariant(same(clearedPayload.runtime_metadata, explicitUnknownDrone.runtime_metadata), 'Clear-all patch did not produce explicit unknown metadata.');
+        expectStatus(await environment.operations.selfMetadataUpdate(metadataSessionA, cubeA, createProtocolEnvelope('metadata-restore-known', knownMetadata)), 200, 'Restore known metadata');
+        return {
+            created: true,
+            reused: true,
+            report_states: [
+                unavailableDrone.runtime_metadata_reported,
+                explicitUnknownDrone.runtime_metadata_reported,
+                clearedPayload.runtime_metadata_reported,
+            ],
+            canonical_response: true,
+        };
     });
     await record('metadata.self-heal-patch', async () => {
         const updates = [
@@ -991,7 +1028,29 @@ export async function runAdapterConformance(environment, options = {}) {
         expectError(response, 400, ErrorCode.INVALID_INPUT, 'Secret-bearing metadata update');
         invariant(!JSON.stringify(response.body).includes(marker), 'Metadata error echoed hostile secret input.');
         invariant(same(await environment.admin.inspectDroneRuntimeState(metadataDroneA), before), 'Secret-bearing metadata input was persisted.');
-        return { rejected_pre_persistence: true, response_secret_free: true, state_secret_free: true };
+        const hostileKeys = [
+            'SECRET-METADATA-KEY-MARKER',
+            `control\u001b[2J`,
+            `bidi\u061cmarker`,
+            `token_${'a'.repeat(48)}`,
+        ];
+        for (const [index, key] of hostileKeys.entries()) {
+            const rejected = await environment.operations.selfMetadataUpdate(metadataSessionA, cubeA, createProtocolEnvelope(`metadata-secret-key-${index}`, { [key]: 'x' }));
+            expectError(rejected, 400, ErrorCode.INVALID_INPUT, `Hostile metadata key ${index}`);
+            invariant(!JSON.stringify(rejected.body).includes(key), `Metadata error echoed hostile key ${index}.`);
+        }
+        const logs = await environment.operations.read(credentialA, cubeA, createProtocolEnvelope('metadata-secret-log-read', { cursor: null, limit: 500 }));
+        expectStatus(logs, 200, 'Metadata secret log read');
+        for (const hostile of [marker, ...hostileKeys]) {
+            invariant(!JSON.stringify(logs.body).includes(hostile), 'Metadata input leaked into activity logs.');
+        }
+        return {
+            rejected_pre_persistence: true,
+            response_secret_free: true,
+            state_secret_free: true,
+            log_secret_free: true,
+            unknown_key_secret_free: true,
+        };
     });
     await record('security.active-stream-revocation', async () => {
         invariant(liveCursor, 'Stream fixture did not produce a live cursor.');

@@ -12,6 +12,8 @@ import {
   decodeUpdateDroneRuntimeMetadataRequestEnvelope,
   decodeUpdateDroneRuntimeMetadataResponseEnvelope,
   validateReportedModel,
+  validateRuntimeMetadata,
+  validateRuntimeMetadataPatch,
   validateWorkingRepoName,
 } from '../src/index.js';
 
@@ -143,6 +145,7 @@ describe('runtime metadata contract', () => {
         id: '30000000-0000-4000-8000-000000000001',
         label: 'builder-one',
         runtime_metadata: knownMetadata,
+        runtime_metadata_reported: true,
       },
       session: { id: '40000000-0000-4000-8000-000000000001' },
     } as const;
@@ -179,12 +182,76 @@ describe('runtime metadata contract', () => {
     }
   });
 
+  it('makes exported whole-object validators exact runtime boundaries', () => {
+    expect(validateRuntimeMetadata(knownMetadata)).toEqual(knownMetadata);
+    expect(validateRuntimeMetadataPatch({ agent_kind: null })).toEqual({ agent_kind: null });
+    for (const value of [
+      null,
+      [],
+      new (class Metadata { agent_kind = 'opencode'; })(),
+      { ...knownMetadata, agent_kind: 'EVIL' },
+      { ...knownMetadata, authority: 'manage' },
+      { ...knownMetadata, reported_model: undefined },
+    ]) {
+      expect(() => validateRuntimeMetadata(value)).toThrow(RuntimeMetadataValidationError);
+    }
+    for (const value of [
+      null,
+      [],
+      {},
+      { agent_kind: 'EVIL' },
+      { agent_kind: null, grants: ['manage'] },
+    ]) {
+      expect(() => validateRuntimeMetadataPatch(value)).toThrow(RuntimeMetadataValidationError);
+    }
+    const accessor = { ...knownMetadata } as Record<string, unknown>;
+    Object.defineProperty(accessor, 'agent_kind', { get: () => 'opencode', enumerable: true });
+    expect(() => validateRuntimeMetadata(accessor)).toThrow(RuntimeMetadataValidationError);
+  });
+
+  it('rejects hostile unknown keys without echoing key material', () => {
+    const keys = [
+      'SECRET-METADATA-KEY-MARKER',
+      `control\u001b[2J`,
+      `bidi\u061cmarker`,
+      `token_${'a'.repeat(48)}`,
+    ];
+    for (const key of keys) {
+      try {
+        decodeDroneRuntimeMetadataPatch({ [key]: 'x' });
+      } catch (error) {
+        expect(`${String(error)} ${JSON.stringify(error)}`).not.toContain(key);
+        expect(error).toMatchObject({ path: ['runtime_metadata'] });
+        continue;
+      }
+      throw new Error('expected unknown metadata key rejection');
+    }
+    const versionMarker = keys[0];
+    try {
+      decodeUpdateDroneRuntimeMetadataRequestEnvelope({
+        protocol_version: '2',
+        request_id: 'metadata-key-version',
+        payload: { [versionMarker]: 'x' },
+      });
+    } catch (error) {
+      expect(`${String(error)} ${JSON.stringify(error)}`).not.toContain(versionMarker);
+      expect(error).toMatchObject({ code: 'UNSUPPORTED_PROTOCOL_VERSION' });
+      return;
+    }
+    throw new Error('expected version-first unknown-key rejection');
+  });
+
   it('checks protocol version before hostile update payloads and decodes canonical responses', () => {
     const request = createProtocolEnvelope('metadata-1', { reported_model: 'openai/gpt-5.6-sol' });
     expect(decodeUpdateDroneRuntimeMetadataRequestEnvelope(request)).toEqual(request);
-    const response = createProtocolEnvelope('metadata-1', { runtime_metadata: knownMetadata });
+    const response = createProtocolEnvelope('metadata-1', {
+      runtime_metadata: knownMetadata,
+      runtime_metadata_reported: true,
+    });
     expect(decodeUpdateDroneRuntimeMetadataResponseEnvelope(response).payload.runtime_metadata)
       .toEqual(knownMetadata);
+    expect(decodeUpdateDroneRuntimeMetadataResponseEnvelope(response).payload.runtime_metadata_reported)
+      .toBe(true);
     const marker = 'SECRET-METADATA-MARKER';
     try {
       decodeUpdateDroneRuntimeMetadataRequestEnvelope({

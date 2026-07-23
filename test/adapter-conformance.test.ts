@@ -126,6 +126,7 @@ interface DroneState {
   sessionState: 'active' | 'revoked' | 'expired';
   evicted: boolean;
   metadata: DroneRuntimeMetadata;
+  metadataReported: boolean;
   metadataRevision: number;
   lastSeen: string;
   heartbeatCount: number;
@@ -277,6 +278,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         sessionState: 'active',
         evicted: false,
         metadata: this.emptyMetadata(),
+        metadataReported: false,
         metadataRevision: 0,
         lastSeen: '2026-07-14T10:00:00.000Z',
         heartbeatCount: 0,
@@ -312,6 +314,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const cube = this.cube(state.cubeId);
       return {
         metadata: { ...state.metadata },
+        metadata_reported: state.metadataReported,
         metadata_revision: state.metadataRevision,
         cube_id: state.cubeId,
         role_id: state.roleId,
@@ -690,6 +693,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           sessionState: 'active',
           evicted: false,
           metadata: this.emptyMetadata(),
+          metadataReported: false,
           metadataRevision: 0,
           lastSeen: '2026-07-14T10:00:00.000Z',
           heartbeatCount: 0,
@@ -703,6 +707,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         drone.metadata = { ...envelope.payload.runtime_metadata };
         drone.metadataRevision++;
       }
+      if (envelope.payload.runtime_metadata !== undefined) drone.metadataReported = true;
       drone.credential = envelope.payload.session_credential;
       drone.sessionState = 'active';
       return {
@@ -711,7 +716,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           result: reused ? 'reused' : 'created',
           cube: { id: cube.handle.id, name: 'conformance-cube' },
           role: { id: role.handle.id, name: 'Builder', role_class: role.roleClass, is_human_seat: role.isHumanSeat },
-          drone: { id: drone.handle.id, label: drone.label, runtime_metadata: drone.metadata },
+          drone: {
+            id: drone.handle.id,
+            label: drone.label,
+            runtime_metadata: drone.metadata,
+            runtime_metadata_reported: drone.metadataReported,
+          },
           session: { id: this.uuid() },
         }),
       };
@@ -749,6 +759,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         target.metadata = next;
         target.metadataRevision++;
       }
+      target.metadataReported = true;
       if (this.fault === 'metadata-derived-role-mutation' && envelope.payload.agent_kind !== undefined) {
         const foreignRole = [...this.cube(cubeHandle.id).roles.values()].find(
           (candidate) => candidate.handle.id !== target.roleId,
@@ -757,7 +768,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       return {
         status: 200,
-        body: createProtocolEnvelope(envelope.request_id, { runtime_metadata: target.metadata }),
+        body: createProtocolEnvelope(envelope.request_id, {
+          runtime_metadata: target.metadata,
+          runtime_metadata_reported: target.metadataReported,
+        }),
       };
     },
     append: async (
@@ -966,7 +980,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const drones = [...this.cube(cubeHandle.id).drones.values()]
         .filter((drone) => !drone.evicted || this.fault === 'keep-evicted-drone-visible')
-        .map((drone) => ({ ...this.managedDronePayload(drone), ...drone.metadata }));
+        .map((drone) => ({
+          ...this.managedDronePayload(drone),
+          ...drone.metadata,
+          runtime_metadata_reported: drone.metadataReported,
+        }));
       return {
         status: 200,
         body: createProtocolEnvelope('drones-read', { drones }),
@@ -1259,6 +1277,7 @@ describe('executable adapter conformance', () => {
       ADAPTER_CONFORMANCE_FIXTURES.map((fixture) => fixture.id),
     );
     expect(report.results.every((result) => result.ok)).toBe(true);
+    expect(JSON.stringify(report)).not.toContain('SECRET-METADATA-KEY-MARKER');
   });
 
   it.each([

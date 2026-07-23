@@ -11,6 +11,7 @@ export const RUNTIME_METADATA_LIMITS = {
 } as const;
 
 export type RuntimeMetadataField =
+  | 'runtime_metadata'
   | 'agent_kind'
   | 'reported_model'
   | 'working_repo_name'
@@ -60,6 +61,46 @@ function hasMalformedUnicode(value: string): boolean {
 
 function invalid(field: RuntimeMetadataField, reason: string): never {
   throw new RuntimeMetadataValidationError(field, reason);
+}
+
+const METADATA_KEYS = [
+  'agent_kind',
+  'reported_model',
+  'working_repo_name',
+  'working_repo_origin',
+] as const;
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    invalid('runtime_metadata', 'must be an object');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    invalid('runtime_metadata', 'must be a plain object');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => typeof key !== 'string' || !METADATA_KEYS.includes(key as typeof METADATA_KEYS[number]))) {
+    invalid('runtime_metadata', 'contains an unsupported field');
+  }
+  if (keys.some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, 'value');
+  })) {
+    invalid('runtime_metadata', 'fields must be plain data values');
+  }
+  return value as Record<string, unknown>;
+}
+
+function agentKind(value: unknown): DroneRuntimeMetadata['agent_kind'] {
+  if (value === null || value === 'claude' || value === 'codex' || value === 'opencode') {
+    return value;
+  }
+  invalid('agent_kind', 'must be claude, codex, opencode, or null');
+}
+
+function nullableString(value: unknown, field: RuntimeMetadataField): string | null {
+  if (value === null || typeof value === 'string') return value;
+  invalid(field, 'must be a string or null');
 }
 
 export function validateReportedModel(value: string): string {
@@ -173,7 +214,17 @@ export function canonicalizeRepositoryIdentity(
   };
 }
 
-export function validateRuntimeMetadata(metadata: DroneRuntimeMetadata): DroneRuntimeMetadata {
+export function validateRuntimeMetadata(value: unknown): DroneRuntimeMetadata {
+  const input = metadataRecord(value);
+  if (METADATA_KEYS.some((key) => !Object.prototype.hasOwnProperty.call(input, key))) {
+    invalid('runtime_metadata', 'must contain all four metadata fields');
+  }
+  const metadata: DroneRuntimeMetadata = {
+    agent_kind: agentKind(input.agent_kind),
+    reported_model: nullableString(input.reported_model, 'reported_model'),
+    working_repo_name: nullableString(input.working_repo_name, 'working_repo_name'),
+    working_repo_origin: nullableString(input.working_repo_origin, 'working_repo_origin'),
+  };
   if (metadata.reported_model !== null) validateReportedModel(metadata.reported_model);
   if ((metadata.working_repo_name === null) !== (metadata.working_repo_origin === null)) {
     invalid('working_repo_name', 'repository name and origin must be set or cleared together');
@@ -189,8 +240,23 @@ export function validateRuntimeMetadata(metadata: DroneRuntimeMetadata): DroneRu
 }
 
 export function validateRuntimeMetadataPatch(
-  patch: DroneRuntimeMetadataPatch,
+  value: unknown,
 ): DroneRuntimeMetadataPatch {
+  const input = metadataRecord(value);
+  if (Reflect.ownKeys(input).length === 0) invalid('runtime_metadata', 'patch must not be empty');
+  const patch: DroneRuntimeMetadataPatch = {};
+  if (Object.prototype.hasOwnProperty.call(input, 'agent_kind')) {
+    patch.agent_kind = agentKind(input.agent_kind);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'reported_model')) {
+    patch.reported_model = nullableString(input.reported_model, 'reported_model');
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'working_repo_name')) {
+    patch.working_repo_name = nullableString(input.working_repo_name, 'working_repo_name');
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'working_repo_origin')) {
+    patch.working_repo_origin = nullableString(input.working_repo_origin, 'working_repo_origin');
+  }
   if (patch.reported_model !== undefined && patch.reported_model !== null) {
     validateReportedModel(patch.reported_model);
   }

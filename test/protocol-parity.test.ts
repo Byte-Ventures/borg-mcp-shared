@@ -45,6 +45,7 @@ const drone = {
   reported_model: null,
   working_repo_name: 'example',
   working_repo_origin: 'https://example.invalid/repository.git',
+  runtime_metadata_reported: true,
   created_at: '2026-01-01T00:00:00.000Z',
 } as const;
 
@@ -166,6 +167,7 @@ describe('current public response contracts', () => {
         working_repo_name: 'owner/repo',
         working_repo_origin: 'https://github.com/owner/repo',
       },
+      runtime_metadata_reported: true,
     } satisfies WhoAmIResponse;
 
     expect(response.runtime_metadata.agent_kind).toBe('opencode');

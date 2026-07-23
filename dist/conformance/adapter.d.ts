@@ -17,6 +17,7 @@ export interface ConformanceDrone {
 }
 export interface ConformanceDroneRuntimeState {
     readonly metadata: DroneRuntimeMetadata;
+    readonly metadata_reported: boolean;
     readonly metadata_revision: number;
     readonly cube_id: string;
     readonly role_id: string;

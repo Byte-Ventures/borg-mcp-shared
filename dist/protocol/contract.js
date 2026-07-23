@@ -418,27 +418,6 @@ export function maxLogCursor(a, b) {
         return decodeLogCursor(a);
     return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
 }
-const RUNTIME_METADATA_KEYS = [
-    'agent_kind',
-    'reported_model',
-    'working_repo_name',
-    'working_repo_origin',
-];
-function decodeAgentKind(value, path) {
-    if (value === null)
-        return null;
-    if (value !== 'claude' && value !== 'codex' && value !== 'opencode') {
-        fail('Expected agent_kind "claude", "codex", "opencode", or null.', path);
-    }
-    return value;
-}
-function decodeNullableString(value, path) {
-    if (value === null)
-        return null;
-    if (typeof value !== 'string')
-        fail('Expected a string or null.', path);
-    return value;
-}
 function metadataValidation(fn) {
     try {
         return fn();
@@ -451,40 +430,24 @@ function metadataValidation(fn) {
     }
 }
 export function decodeDroneRuntimeMetadata(value) {
-    const input = record(value);
-    exactKeys(input, RUNTIME_METADATA_KEYS, RUNTIME_METADATA_KEYS);
-    const metadata = {
-        agent_kind: decodeAgentKind(input.agent_kind, ['agent_kind']),
-        reported_model: decodeNullableString(input.reported_model, ['reported_model']),
-        working_repo_name: decodeNullableString(input.working_repo_name, ['working_repo_name']),
-        working_repo_origin: decodeNullableString(input.working_repo_origin, ['working_repo_origin']),
-    };
-    return metadataValidation(() => validateRuntimeMetadata(metadata));
+    return metadataValidation(() => validateRuntimeMetadata(value));
 }
 export function decodeDroneRuntimeMetadataPatch(value) {
-    const input = record(value);
-    exactKeys(input, RUNTIME_METADATA_KEYS, []);
-    if (Object.keys(input).length === 0)
-        fail('Expected at least one metadata field.');
-    const patch = {};
-    if (Object.prototype.hasOwnProperty.call(input, 'agent_kind')) {
-        patch.agent_kind = decodeAgentKind(input.agent_kind, ['agent_kind']);
-    }
-    if (Object.prototype.hasOwnProperty.call(input, 'reported_model')) {
-        patch.reported_model = decodeNullableString(input.reported_model, ['reported_model']);
-    }
-    if (Object.prototype.hasOwnProperty.call(input, 'working_repo_name')) {
-        patch.working_repo_name = decodeNullableString(input.working_repo_name, ['working_repo_name']);
-    }
-    if (Object.prototype.hasOwnProperty.call(input, 'working_repo_origin')) {
-        patch.working_repo_origin = decodeNullableString(input.working_repo_origin, ['working_repo_origin']);
-    }
-    return metadataValidation(() => validateRuntimeMetadataPatch(patch));
+    return metadataValidation(() => validateRuntimeMetadataPatch(value));
 }
 export function decodeUpdateDroneRuntimeMetadataResponse(value) {
     const input = record(value);
-    exactKeys(input, ['runtime_metadata'], ['runtime_metadata']);
-    return { runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata) };
+    exactKeys(input, ['runtime_metadata', 'runtime_metadata_reported'], [
+        'runtime_metadata',
+        'runtime_metadata_reported',
+    ]);
+    if (typeof input.runtime_metadata_reported !== 'boolean') {
+        fail('Expected a boolean.', ['runtime_metadata_reported']);
+    }
+    return {
+        runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata),
+        runtime_metadata_reported: input.runtime_metadata_reported,
+    };
 }
 export function decodeUpdateDroneRuntimeMetadataRequestEnvelope(value) {
     return decodeProtocolEnvelope(value, decodeDroneRuntimeMetadataPatch);
@@ -523,11 +486,15 @@ function decodeAttachRole(value, path) {
 }
 function decodeAttachDrone(value, path) {
     const input = record(value, path);
-    exactKeys(input, ['id', 'label', 'runtime_metadata'], ['id', 'label', 'runtime_metadata'], path);
+    exactKeys(input, ['id', 'label', 'runtime_metadata', 'runtime_metadata_reported'], ['id', 'label', 'runtime_metadata', 'runtime_metadata_reported'], path);
+    if (typeof input.runtime_metadata_reported !== 'boolean') {
+        fail('Expected a boolean.', [...path, 'runtime_metadata_reported']);
+    }
     return {
         id: decodeUuid(input.id, [...path, 'id']),
         label: boundedString(input.label, 1, 128, [...path, 'label']),
         runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata),
+        runtime_metadata_reported: input.runtime_metadata_reported,
     };
 }
 function decodeAttachSession(value, path) {

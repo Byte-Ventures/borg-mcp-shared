@@ -59,6 +59,7 @@ export interface Drone extends DroneRuntimeMetadata {
     wake_path_client_sse_connected?: boolean | null;
     wake_path_client_monitor_armed?: boolean | null;
     wake_path_alert_class?: WakePathAlertClass | null;
+    runtime_metadata_reported: boolean;
     evicted_at?: null;
     created_at: string;
     seen_since?: boolean;
@@ -110,6 +111,7 @@ export interface WhoAmIResponse {
     role_id: string;
     role_name: string;
     runtime_metadata: DroneRuntimeMetadata;
+    runtime_metadata_reported: boolean;
 }
 export interface RosterResponse {
     drones: RosterDrone[];
