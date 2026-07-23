@@ -96,7 +96,7 @@ describe('registry release verification', () => {
       new Response('', { status: 404 }),
       Response.json({ maintainers: [{ name: 'attacker' }] }),
     ];
-    await expect(prepublish('borgmcp-shared', '0.5.1', {
+    await expect(prepublish('borgmcp-shared', '0.6.0', {
       expectedOwner: 'byteventures',
       read: async () => responses.shift(),
     })).rejects.toThrow('Package is not owned by NPM_EXPECTED_OWNER');
@@ -107,28 +107,28 @@ describe('registry release verification', () => {
       new Response('', { status: 404 }),
       Response.json({ maintainers: [{ name: 'byteventures' }] }),
     ];
-    await expect(prepublish('borgmcp-shared', '0.5.1', {
+    await expect(prepublish('borgmcp-shared', '0.6.0', {
       expectedOwner: 'byteventures',
       read: async () => responses.shift(),
     })).resolves.toEqual({
       name: 'borgmcp-shared',
-      version: '0.5.1',
+      version: '0.6.0',
       registryState: 'owned',
     });
   });
 
   it('verifies only exact post-publish registry integrity', async () => {
-    await expect(postpublish('borgmcp-shared', '0.5.1', 'sha512-expected', {
+    await expect(postpublish('borgmcp-shared', '0.6.0', 'sha512-expected', {
       read: async () => Response.json({ dist: { integrity: 'sha512-expected' } }),
       retry: { wait: async () => {} },
     })).resolves.toEqual({
       name: 'borgmcp-shared',
-      version: '0.5.1',
+      version: '0.6.0',
       integrity: 'sha512-expected',
       registryState: 'verified',
     });
 
-    await expect(postpublish('borgmcp-shared', '0.5.1', 'sha512-expected', {
+    await expect(postpublish('borgmcp-shared', '0.6.0', 'sha512-expected', {
       read: async () => Response.json({ dist: { integrity: 'sha512-wrong' } }),
       retry: { wait: async () => {} },
     })).rejects.toThrow('Registry integrity mismatch');

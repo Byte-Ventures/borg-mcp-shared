@@ -122,10 +122,16 @@ These records remain evidence, not reusable release inputs:
   postpublish check reconstructed the wrong workflow identity and is the reason
   that machinery was removed.
 
-`borgmcp-shared@0.4.3` and `borgmcp-shared@0.5.0` are published and immutable.
-This source identifies the unpublished `0.5.1` package release. Its release
-requires reviewed source and explicit publication authorization through one
-protected publish run, followed by
-postpublish registry integrity, signature, and attestation verification. Consumers
+`borgmcp-shared@0.4.3`, `borgmcp-shared@0.5.0`, and `borgmcp-shared@0.5.1`
+are published and immutable. The annotated `v0.5.1` tag object `045268aa8873da330819860012ecaddb4bc2883c`
+peels to protected-main commit `1981d7373e77f6edb4567872c1544bdbe2b1ef20`. Attempt-1 workflow run
+`29984423571` published registry integrity `sha512-XUJq+FjY/cbarU9V1dIWnhNYcqyURTiGb6KyIzg99gy5hk/fEs5ee/8X/qvp7pw1Rshqt2J6I3TVbwJdlde2tA==`; its
+postpublish signature check raced registry propagation and the immutable run ended
+failed. Independent pinned npm verification confirmed the registry signature and
+SLSA provenance, and the incident was explicitly accepted. Never rerun or move
+that tag. This source identifies the unpublished `0.6.0` runtime-metadata contract
+release. Its release requires reviewed source and explicit publication authorization
+through one protected publish run, followed by postpublish registry integrity,
+signature, and attestation verification. Consumers
 must update the reviewed shared artifact before adopting the matching server and
 client releases; protocol v2 and v3 peers fail closed at credential-free preflight.
