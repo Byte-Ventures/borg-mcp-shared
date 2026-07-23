@@ -1,16 +1,20 @@
 import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION } from './version.js';
+import { RuntimeMetadataValidationError, validateRuntimeMetadata, validateRuntimeMetadataPatch, } from '../runtime-metadata.js';
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared';
 export const SHARED_PACKAGE_VERSION = '0.5.1';
 export const HEALTH_PATH = '/healthz';
 export const PROTOCOL_INFO_PATH = '/api/protocol';
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange';
 export const CUBES_PATH = '/api/cubes';
+export const ATTACH_PATH = '/api/client/attach';
+export const SELF_RUNTIME_METADATA_PATH = '/api/cubes/:cubeId/drones/self/metadata';
 export const PROTOCOL_HTTP_CONTRACT = {
     health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
     protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: false, success_status: 200 },
     enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
     cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
+    attach: { method: 'POST', path: ATTACH_PATH, authenticated: true, success_status: 200 },
     drone_reassign: {
         method: 'PATCH',
         path: '/api/cubes/:cubeId/drones/:droneId',
@@ -21,6 +25,12 @@ export const PROTOCOL_HTTP_CONTRACT = {
         method: 'DELETE',
         path: '/api/cubes/:cubeId/drones/:droneId',
         authenticated: true,
+        success_status: 200,
+    },
+    drone_self_metadata: {
+        method: 'PATCH',
+        path: SELF_RUNTIME_METADATA_PATH,
+        authenticated: 'drone-session',
         success_status: 200,
     },
     auth_missing_status: 401,
@@ -408,7 +418,80 @@ export function maxLogCursor(a, b) {
         return decodeLogCursor(a);
     return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
 }
-export const ATTACH_PATH = '/api/client/attach';
+const RUNTIME_METADATA_KEYS = [
+    'agent_kind',
+    'reported_model',
+    'working_repo_name',
+    'working_repo_origin',
+];
+function decodeAgentKind(value, path) {
+    if (value === null)
+        return null;
+    if (value !== 'claude' && value !== 'codex' && value !== 'opencode') {
+        fail('Expected agent_kind "claude", "codex", "opencode", or null.', path);
+    }
+    return value;
+}
+function decodeNullableString(value, path) {
+    if (value === null)
+        return null;
+    if (typeof value !== 'string')
+        fail('Expected a string or null.', path);
+    return value;
+}
+function metadataValidation(fn) {
+    try {
+        return fn();
+    }
+    catch (error) {
+        if (error instanceof RuntimeMetadataValidationError) {
+            fail(`${error.field}: ${error.reason}`, [error.field]);
+        }
+        throw error;
+    }
+}
+export function decodeDroneRuntimeMetadata(value) {
+    const input = record(value);
+    exactKeys(input, RUNTIME_METADATA_KEYS, RUNTIME_METADATA_KEYS);
+    const metadata = {
+        agent_kind: decodeAgentKind(input.agent_kind, ['agent_kind']),
+        reported_model: decodeNullableString(input.reported_model, ['reported_model']),
+        working_repo_name: decodeNullableString(input.working_repo_name, ['working_repo_name']),
+        working_repo_origin: decodeNullableString(input.working_repo_origin, ['working_repo_origin']),
+    };
+    return metadataValidation(() => validateRuntimeMetadata(metadata));
+}
+export function decodeDroneRuntimeMetadataPatch(value) {
+    const input = record(value);
+    exactKeys(input, RUNTIME_METADATA_KEYS, []);
+    if (Object.keys(input).length === 0)
+        fail('Expected at least one metadata field.');
+    const patch = {};
+    if (Object.prototype.hasOwnProperty.call(input, 'agent_kind')) {
+        patch.agent_kind = decodeAgentKind(input.agent_kind, ['agent_kind']);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'reported_model')) {
+        patch.reported_model = decodeNullableString(input.reported_model, ['reported_model']);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'working_repo_name')) {
+        patch.working_repo_name = decodeNullableString(input.working_repo_name, ['working_repo_name']);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'working_repo_origin')) {
+        patch.working_repo_origin = decodeNullableString(input.working_repo_origin, ['working_repo_origin']);
+    }
+    return metadataValidation(() => validateRuntimeMetadataPatch(patch));
+}
+export function decodeUpdateDroneRuntimeMetadataResponse(value) {
+    const input = record(value);
+    exactKeys(input, ['runtime_metadata'], ['runtime_metadata']);
+    return { runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata) };
+}
+export function decodeUpdateDroneRuntimeMetadataRequestEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeDroneRuntimeMetadataPatch);
+}
+export function decodeUpdateDroneRuntimeMetadataResponseEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeUpdateDroneRuntimeMetadataResponse);
+}
 function decodeAttachCube(value, path) {
     const input = record(value, path);
     exactKeys(input, ['id', 'name'], ['id', 'name'], path);
@@ -440,10 +523,11 @@ function decodeAttachRole(value, path) {
 }
 function decodeAttachDrone(value, path) {
     const input = record(value, path);
-    exactKeys(input, ['id', 'label'], ['id', 'label'], path);
+    exactKeys(input, ['id', 'label', 'runtime_metadata'], ['id', 'label', 'runtime_metadata'], path);
     return {
         id: decodeUuid(input.id, [...path, 'id']),
         label: boundedString(input.label, 1, 128, [...path, 'label']),
+        runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata),
     };
 }
 function decodeAttachSession(value, path) {
@@ -455,7 +539,7 @@ function decodeAttachSession(value, path) {
 }
 export function decodeAttachRequest(value) {
     const input = record(value);
-    exactKeys(input, ['cube_id', 'role_id', 'session_credential', 'prior_drone_id'], [
+    exactKeys(input, ['cube_id', 'role_id', 'session_credential', 'prior_drone_id', 'runtime_metadata'], [
         'cube_id',
         'role_id',
         'session_credential',
@@ -467,6 +551,9 @@ export function decodeAttachRequest(value) {
     };
     if (input.prior_drone_id !== undefined) {
         result.prior_drone_id = decodeUuid(input.prior_drone_id, ['prior_drone_id']);
+    }
+    if (input.runtime_metadata !== undefined) {
+        result.runtime_metadata = decodeDroneRuntimeMetadata(input.runtime_metadata);
     }
     return result;
 }

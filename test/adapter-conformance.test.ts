@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   ADAPTER_CONFORMANCE_FIXTURES,
   ErrorCode,
+  ProtocolContractError,
   compareLogCursor,
   createProtocolEnvelope,
   createProtocolTagPreflight,
   decodeAckLogRequest,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
+  decodeAttachRequestEnvelope,
   decodeCreateCubeRequestEnvelope,
+  decodeDroneRuntimeMetadataPatch,
   decodeEvictDroneRequestEnvelope,
   decodeProtocolEnvelope,
   decodeReadLogRequest,
@@ -29,7 +32,12 @@ import {
   type EnrichedStreamEntry,
   type LogCursor,
   type ReadLogClaim,
+  type DroneRuntimeMetadata,
 } from '../src/index.js';
+
+function same(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
 
 type Fault =
   | 'cross-cube-leak'
@@ -74,7 +82,11 @@ type Fault =
   | 'reveal-unknown-manage-denial'
   | 'revoke-session-on-eviction-denial'
   | 'reveal-cross-cube-drone-session'
-  | 'collapse-session-expiry';
+  | 'collapse-session-expiry'
+  | 'metadata-cross-seat-write'
+  | 'metadata-partial-invalid-write'
+  | 'metadata-derived-role-mutation'
+  | 'metadata-raw-echo';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -113,6 +125,12 @@ interface DroneState {
   credential: string | null;
   sessionState: 'active' | 'revoked' | 'expired';
   evicted: boolean;
+  metadata: DroneRuntimeMetadata;
+  metadataRevision: number;
+  lastSeen: string;
+  heartbeatCount: number;
+  wakeCount: number;
+  modelTurnCount: number;
 }
 
 class AsyncQueue implements AsyncIterable<string> {
@@ -258,6 +276,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         credential: null,
         sessionState: 'active',
         evicted: false,
+        metadata: this.emptyMetadata(),
+        metadataRevision: 0,
+        lastSeen: '2026-07-14T10:00:00.000Z',
+        heartbeatCount: 0,
+        wakeCount: 0,
+        modelTurnCount: 0,
       });
       return handle;
     },
@@ -280,6 +304,39 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         role_id: state.roleId,
         evicted: state.evicted,
         session_revoked: state.sessionState === 'revoked',
+      };
+    },
+    inspectDroneRuntimeState: async (drone: ConformanceDrone) => {
+      const state = this.drone(drone.id);
+      const principal = this.principal(state.principalId);
+      const cube = this.cube(state.cubeId);
+      return {
+        metadata: { ...state.metadata },
+        metadata_revision: state.metadataRevision,
+        cube_id: state.cubeId,
+        role_id: state.roleId,
+        session_state: state.sessionState,
+        evicted: state.evicted,
+        last_seen: state.lastSeen,
+        heartbeat_count: state.heartbeatCount,
+        wake_count: state.wakeCount,
+        log_count: this.cube(state.cubeId).entries.length,
+        model_turn_count: state.modelTurnCount,
+        grant_access: principal.grants.get(state.cubeId) ?? null,
+        server_capabilities: [...principal.serverCapabilities].sort(),
+        principal_revoked: principal.revoked,
+        session_bound: state.credential !== null,
+        last_log_post: cube.entries.at(-1)?.created_at ?? null,
+        last_regen_at: null,
+        last_read_log_at: null,
+        last_event_received_at: null,
+        wake_path: 'live' as const,
+        wake_alert: null,
+        monitor_armed: true,
+        sse_connected: true,
+        claim_count: cube.claims.length,
+        decision_count: cube.decisions.length,
+        routing_eligible: !state.evicted && state.sessionState === 'active',
       };
     },
     inspectCubeManagementState: async (cube: ConformanceCube) => {
@@ -600,6 +657,109 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       });
       return { status: 201, body: createProtocolEnvelope(envelope.request_id, response) };
     },
+    attach: async (credential: string, request: unknown): Promise<ConformanceHttpResponse> => {
+      const auth = this.authenticate(credential);
+      if (auth.error) return auth.error;
+      if (auth.droneSession) return this.error(403, ErrorCode.ACCESS_DENIED);
+      let envelope;
+      try {
+        envelope = decodeAttachRequestEnvelope(request);
+      } catch (error) {
+        if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
+        throw error;
+      }
+      const cube = this.cubes.get(envelope.payload.cube_id);
+      const role = cube?.roles.get(envelope.payload.role_id);
+      if (!cube || !role || !auth.principal.grants.has(cube.handle.id)) {
+        return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      }
+      let drone = envelope.payload.prior_drone_id
+        ? cube.drones.get(envelope.payload.prior_drone_id)
+        : undefined;
+      const reused = drone !== undefined && drone.principalId === auth.principal.handle.id && !drone.evicted;
+      if (drone && !reused) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      if (!drone) {
+        const handle = { id: this.uuid() };
+        drone = {
+          handle,
+          principalId: auth.principal.handle.id,
+          cubeId: cube.handle.id,
+          roleId: role.handle.id,
+          label: `conformance-${handle.id.slice(-8)}`,
+          credential: null,
+          sessionState: 'active',
+          evicted: false,
+          metadata: this.emptyMetadata(),
+          metadataRevision: 0,
+          lastSeen: '2026-07-14T10:00:00.000Z',
+          heartbeatCount: 0,
+          wakeCount: 0,
+          modelTurnCount: 0,
+        };
+        cube.drones.set(handle.id, drone);
+      }
+      if (envelope.payload.runtime_metadata !== undefined &&
+          !same(drone.metadata, envelope.payload.runtime_metadata)) {
+        drone.metadata = { ...envelope.payload.runtime_metadata };
+        drone.metadataRevision++;
+      }
+      drone.credential = envelope.payload.session_credential;
+      drone.sessionState = 'active';
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, {
+          result: reused ? 'reused' : 'created',
+          cube: { id: cube.handle.id, name: 'conformance-cube' },
+          role: { id: role.handle.id, name: 'Builder', role_class: role.roleClass, is_human_seat: role.isHumanSeat },
+          drone: { id: drone.handle.id, label: drone.label, runtime_metadata: drone.metadata },
+          session: { id: this.uuid() },
+        }),
+      };
+    },
+    selfMetadataUpdate: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const auth = this.authenticate(credential);
+      if (auth.error) return auth.error;
+      if (!auth.droneSession || !auth.drone) return this.error(403, ErrorCode.ACCESS_DENIED);
+      if (auth.drone.cubeId !== cubeHandle.id) return this.error(404, ErrorCode.NOT_FOUND);
+      let envelope;
+      try {
+        envelope = decodeProtocolEnvelope(request, decodeDroneRuntimeMetadataPatch);
+      } catch (error) {
+        if (this.fault === 'metadata-partial-invalid-write') {
+          auth.drone.metadata.agent_kind = 'claude';
+        }
+        if (this.fault === 'metadata-raw-echo') {
+          return {
+            status: 400,
+            body: { protocol_version: '3', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+          };
+        }
+        if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
+        throw error;
+      }
+      const target = this.fault === 'metadata-cross-seat-write'
+        ? [...this.cube(cubeHandle.id).drones.values()].find((candidate) => candidate !== auth.drone) ?? auth.drone
+        : auth.drone;
+      const next = { ...target.metadata, ...envelope.payload };
+      if (!same(target.metadata, next)) {
+        target.metadata = next;
+        target.metadataRevision++;
+      }
+      if (this.fault === 'metadata-derived-role-mutation' && envelope.payload.agent_kind !== undefined) {
+        const foreignRole = [...this.cube(cubeHandle.id).roles.values()].find(
+          (candidate) => candidate.handle.id !== target.roleId,
+        );
+        if (foreignRole) target.roleId = foreignRole.handle.id;
+      }
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, { runtime_metadata: target.metadata }),
+      };
+    },
     append: async (
       credential: string,
       cubeHandle: ConformanceCube,
@@ -806,7 +966,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const drones = [...this.cube(cubeHandle.id).drones.values()]
         .filter((drone) => !drone.evicted || this.fault === 'keep-evicted-drone-visible')
-        .map((drone) => this.managedDronePayload(drone));
+        .map((drone) => ({ ...this.managedDronePayload(drone), ...drone.metadata }));
       return {
         status: 200,
         body: createProtocolEnvelope('drones-read', { drones }),
@@ -1053,6 +1213,15 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     };
   }
 
+  private emptyMetadata(): DroneRuntimeMetadata {
+    return {
+      agent_kind: null,
+      reported_model: null,
+      working_repo_name: null,
+      working_repo_origin: null,
+    };
+  }
+
   private uuid(): string {
     return `00000000-0000-4000-8000-${String(this.sequence++).padStart(12, '0')}`;
   }
@@ -1136,6 +1305,10 @@ describe('executable adapter conformance', () => {
     ['revoked target session on denied eviction', 'revoke-session-on-eviction-denial', 'security.manage-access-matrix'],
     ['revealed cross-cube target to bound drone session', 'reveal-cross-cube-drone-session', 'security.cross-cube-drone-management'],
     ['collapsed expired session into revocation', 'collapse-session-expiry', 'security.drone-session-rejection-causes'],
+    ['wrote metadata to another seat', 'metadata-cross-seat-write', 'security.metadata-own-seat'],
+    ['partially wrote an invalid metadata patch', 'metadata-partial-invalid-write', 'security.metadata-invalid-atomic'],
+    ['derived a role mutation from metadata', 'metadata-derived-role-mutation', 'security.metadata-own-seat'],
+    ['echoed raw hostile metadata', 'metadata-raw-echo', 'security.metadata-secret-non-echo'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

@@ -39,6 +39,7 @@ describe('npm publish workflow', () => {
       'borgmcp-shared/role-section',
       'borgmcp-shared/log-stream-hwm',
       'borgmcp-shared/drone-address',
+      'borgmcp-shared/runtime-metadata',
       'borgmcp-shared/protocol',
       'borgmcp-shared/domain',
       'borgmcp-shared/conformance',

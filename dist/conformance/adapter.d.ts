@@ -1,4 +1,4 @@
-import { type CreateCubeResponse, type LogCursor } from '../protocol/index.js';
+import { type CreateCubeResponse, type LogCursor, type DroneRuntimeMetadata } from '../protocol/index.js';
 export interface ConformanceHttpResponse {
     status: number;
     body: unknown;
@@ -14,6 +14,34 @@ export interface ConformanceRole {
 }
 export interface ConformanceDrone {
     readonly id: string;
+}
+export interface ConformanceDroneRuntimeState {
+    readonly metadata: DroneRuntimeMetadata;
+    readonly metadata_revision: number;
+    readonly cube_id: string;
+    readonly role_id: string;
+    readonly session_state: 'active' | 'revoked' | 'expired';
+    readonly evicted: boolean;
+    readonly last_seen: string;
+    readonly heartbeat_count: number;
+    readonly wake_count: number;
+    readonly log_count: number;
+    readonly model_turn_count: number;
+    readonly grant_access: ConformanceCubeAccess | null;
+    readonly server_capabilities: readonly string[];
+    readonly principal_revoked: boolean;
+    readonly session_bound: boolean;
+    readonly last_log_post: string | null;
+    readonly last_regen_at: string | null;
+    readonly last_read_log_at: string | null;
+    readonly last_event_received_at: string | null;
+    readonly wake_path: 'live';
+    readonly wake_alert: null;
+    readonly monitor_armed: boolean;
+    readonly sse_connected: boolean;
+    readonly claim_count: number;
+    readonly decision_count: number;
+    readonly routing_eligible: boolean;
 }
 export type ConformanceCubeAccess = 'read' | 'write' | 'manage';
 export interface ConformanceCubeManagementState {
@@ -75,6 +103,7 @@ export interface ConformanceAdmin {
         readonly evicted: boolean;
         readonly session_revoked: boolean;
     }>;
+    inspectDroneRuntimeState(drone: ConformanceDrone): Promise<ConformanceDroneRuntimeState>;
     inspectCubeManagementState(cube: ConformanceCube): Promise<ConformanceCubeManagementState>;
     grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
     issueDroneSession(principal: ConformancePrincipal): Promise<string>;
@@ -91,6 +120,8 @@ export interface ConformanceOperations {
     protocol(credential: string | null): Promise<ConformanceHttpResponse>;
     enroll(request: unknown): Promise<ConformanceHttpResponse>;
     createCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
+    attach(credential: string, request: unknown): Promise<ConformanceHttpResponse>;
+    selfMetadataUpdate(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     append(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     appendRaw(credential: string, cube: ConformanceCube, body: string): Promise<ConformanceHttpResponse>;
     read(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
@@ -162,6 +193,27 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
     readonly area: "drones";
 }, {
     readonly id: "security.drone-session-rejection-causes";
+    readonly area: "security";
+}, {
+    readonly id: "metadata.attach-report";
+    readonly area: "metadata";
+}, {
+    readonly id: "metadata.self-heal-patch";
+    readonly area: "metadata";
+}, {
+    readonly id: "security.metadata-invalid-atomic";
+    readonly area: "security";
+}, {
+    readonly id: "security.metadata-own-seat";
+    readonly area: "security";
+}, {
+    readonly id: "security.metadata-cross-cube-isolation";
+    readonly area: "security";
+}, {
+    readonly id: "security.metadata-noninterference";
+    readonly area: "security";
+}, {
+    readonly id: "security.metadata-secret-non-echo";
     readonly area: "security";
 }, {
     readonly id: "security.active-stream-revocation";

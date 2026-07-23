@@ -6,6 +6,7 @@ import type {
   RegenResponse,
   Role,
   RosterResponse,
+  WhoAmIResponse,
 } from '../src/protocol/index.js';
 
 const role = {
@@ -149,6 +150,25 @@ describe('current public response contracts', () => {
 
     expect(response.cube.directive_hash).toHaveLength(16);
     expect(response.role.detailed_description_hash).toHaveLength(16);
+  });
+
+  it('returns canonical current metadata from the own identity surface', () => {
+    const response = {
+      cube_id: 'cube-1',
+      cube_name: 'example',
+      drone_id: 'drone-1',
+      drone_label: 'one-of-one-builder',
+      role_id: 'role-1',
+      role_name: 'Builder',
+      runtime_metadata: {
+        agent_kind: 'opencode',
+        reported_model: null,
+        working_repo_name: 'owner/repo',
+        working_repo_origin: 'https://github.com/owner/repo',
+      },
+    } satisfies WhoAmIResponse;
+
+    expect(response.runtime_metadata.agent_kind).toBe('opencode');
   });
 
   it('keeps append routing metadata separate from the activity entry', () => {

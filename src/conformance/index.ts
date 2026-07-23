@@ -216,7 +216,16 @@ const ATTACH_RESPONSE = {
   result: 'created',
   cube: { id: '10000000-0000-4000-8000-000000000001', name: 'test-cube' },
   role: { id: '20000000-0000-4000-8000-000000000001', name: 'Coordinator' },
-  drone: { id: '30000000-0000-4000-8000-000000000001', label: 'one-of-one-coordinator' },
+  drone: {
+    id: '30000000-0000-4000-8000-000000000001',
+    label: 'one-of-one-coordinator',
+    runtime_metadata: {
+      agent_kind: null,
+      reported_model: null,
+      working_repo_name: null,
+      working_repo_origin: null,
+    },
+  },
   session: { id: '40000000-0000-4000-8000-000000000001' },
 } satisfies AttachResponse;
 
@@ -236,4 +245,59 @@ export const ATTACH_SESSION_CONFORMANCE: readonly AttachSessionConformanceVector
     response: { ...ATTACH_RESPONSE, session: { ...ATTACH_RESPONSE.session, extra: 'value' } },
     accepts: false,
   },
+];
+
+export interface RuntimeMetadataRepositoryConformanceVector {
+  name: string;
+  origin: string;
+  expected: { working_repo_name: string; working_repo_origin: string } | null;
+}
+
+/** One canonical corpus consumed unchanged by shared, server, and client tests. */
+export const RUNTIME_METADATA_REPOSITORY_CONFORMANCE:
+readonly RuntimeMetadataRepositoryConformanceVector[] = [
+  {
+    name: 'canonical HTTPS',
+    origin: 'https://github.com/Byte-Ventures/borg-mcp',
+    expected: {
+      working_repo_name: 'Byte-Ventures/borg-mcp',
+      working_repo_origin: 'https://github.com/Byte-Ventures/borg-mcp',
+    },
+  },
+  {
+    name: 'HTTPS default port and suffix',
+    origin: 'https://GITHUB.com:443/Byte-Ventures/borg-mcp.git',
+    expected: {
+      working_repo_name: 'Byte-Ventures/borg-mcp',
+      working_repo_origin: 'https://github.com/Byte-Ventures/borg-mcp',
+    },
+  },
+  {
+    name: 'SSH URL',
+    origin: 'ssh://git@github.com:22/Byte-Ventures/borg-mcp.git',
+    expected: {
+      working_repo_name: 'Byte-Ventures/borg-mcp',
+      working_repo_origin: 'https://github.com/Byte-Ventures/borg-mcp',
+    },
+  },
+  {
+    name: 'SCP syntax',
+    origin: 'git@github.com:Byte-Ventures/borg-mcp.git',
+    expected: {
+      working_repo_name: 'Byte-Ventures/borg-mcp',
+      working_repo_origin: 'https://github.com/Byte-Ventures/borg-mcp',
+    },
+  },
+  { name: 'HTTPS userinfo', origin: 'https://user@github.com/owner/repo', expected: null },
+  { name: 'SSH arbitrary user', origin: 'ssh://owner@github.com/owner/repo', expected: null },
+  { name: 'query', origin: 'https://github.com/owner/repo?token=value', expected: null },
+  { name: 'fragment', origin: 'https://github.com/owner/repo#fragment', expected: null },
+  { name: 'percent encoding', origin: 'https://github.com/owner/re%70o', expected: null },
+  { name: 'non-default port', origin: 'https://github.com:444/owner/repo', expected: null },
+  { name: 'local file URL', origin: ['file:/', '', 'home', 'user', 'repo'].join('/'), expected: null },
+  { name: 'relative path', origin: ['..', 'repo'].join('/'), expected: null },
+  { name: 'loopback host', origin: 'https://127.0.0.1/owner/repo', expected: null },
+  { name: 'IPv6 host', origin: 'https://[::1]/owner/repo', expected: null },
+  { name: 'single-label host', origin: 'https://git/owner/repo', expected: null },
+  { name: 'private suffix', origin: 'https://git.internal/owner/repo', expected: null },
 ];

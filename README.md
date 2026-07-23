@@ -34,6 +34,7 @@ import { TEMPLATES } from 'borgmcp-shared/templates';
 import { patchRoleSectionText } from 'borgmcp-shared/role-section';
 import { compareBroadcastHwm } from 'borgmcp-shared/log-stream-hwm';
 import { formatDroneAddressToken } from 'borgmcp-shared/drone-address';
+import { canonicalizeRepositoryIdentity } from 'borgmcp-shared/runtime-metadata';
 import type { AppendLogRequest } from 'borgmcp-shared/protocol';
 import { ADAPTER_CONFORMANCE_FIXTURES } from 'borgmcp-shared/conformance';
 ```
@@ -50,6 +51,8 @@ The supported subpaths are:
 - `borgmcp-shared/role-section`: lossless role-text parsing and patching.
 - `borgmcp-shared/log-stream-hwm`: broadcast cursor ordering.
 - `borgmcp-shared/drone-address`: stable short drone-address rendering.
+- `borgmcp-shared/runtime-metadata`: pure validation and canonical repository
+  identity helpers for advisory local seat metadata.
 
 Generated declaration files are included in every published package. Public
 functions and contracts include API documentation in their TypeScript sources.
@@ -94,6 +97,10 @@ versioned request and success envelopes. An evicted seat's former bearer receive
 the terminal `410 DRONE_EVICTED` signal; revoked sessions return
 `401 SESSION_REVOKED`, while expired sessions return the only recoverable
 authentication outcome, `401 AUTH_EXPIRED`.
+An authenticated drone session updates only its own advisory identity with
+`PATCH /api/cubes/:cubeId/drones/self/metadata`. The strict patch carries no
+target seat ID. Metadata never grants authority or changes role, wake, liveness,
+timestamp, log, routing, or model-execution state.
 See [docs/enrollment.md](docs/enrollment.md) for purpose-bound owner enrollment,
 ordinary ungranted enrollment, cube creation, pending enrollment, and retry contracts.
 
@@ -107,6 +114,9 @@ credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
 idempotency, acks, claims, decisions, cube-scoped drone reassignment, role-class
 and single-seat invariants, eviction exclusion, and terminal bearer signaling.
+The same runner covers complete attach reports, own-seat metadata self-healing,
+canonical repository identity, invalid-patch atomicity, cross-cube isolation,
+secret non-echo, and authority/liveness/log non-interference.
 Manage-scoped cube, role, taxonomy, decision, and drone operations also share an
 authority matrix: managing parents may mutate; known same-cube read/write
 parents receive `403 ACCESS_DENIED`; drone sessions remain non-managing; and
@@ -120,8 +130,8 @@ its local/self-hosted implementation. The package does not define a second
 authority, migration target, or fallback implementation.
 
 The package's own suite covers built-in templates, role-section patching,
-broadcast high-water-mark ordering, drone-address formatting, and current public
-response shapes.
+broadcast high-water-mark ordering, drone-address formatting, runtime metadata
+canonicalization, and current public response shapes.
 
 ## Compatibility
 

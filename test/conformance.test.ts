@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DRONE_ADDRESS_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
+  RUNTIME_METADATA_REPOSITORY_CONFORMANCE,
   ENROLLMENT_AUTHORITY_CONFORMANCE,
   ENROLLMENT_REDACTION_CONFORMANCE,
   ENROLLMENT_RETRY_CONFORMANCE,
@@ -12,6 +13,7 @@ import {
   formatDroneAddressToken,
   parseRoleSections,
   redactProtocolDiagnostic,
+  canonicalizeRepositoryIdentity,
   serializeSections,
 } from '../src/index.js';
 
@@ -65,6 +67,16 @@ describe('public conformance vectors', () => {
         });
       } else {
         expect(() => decodeAttachResponse(vector.response), vector.name).toThrow();
+      }
+    }
+  });
+
+  it('pins the shared repository canonicalization corpus', () => {
+    for (const vector of RUNTIME_METADATA_REPOSITORY_CONFORMANCE) {
+      if (vector.expected === null) {
+        expect(() => canonicalizeRepositoryIdentity(vector.origin), vector.name).toThrow();
+      } else {
+        expect(canonicalizeRepositoryIdentity(vector.origin), vector.name).toEqual(vector.expected);
       }
     }
   });

@@ -7,12 +7,15 @@ import {
   decodeDecisionResultEnvelope,
   decodeDecisionsResultEnvelope,
   decodeEnrollmentExchangeResponseEnvelope,
+  decodeAttachResponseEnvelope,
+  decodeDroneRuntimeMetadataPatch,
   decodeEvictDroneResultEnvelope,
   decodeProtocolEnvelope,
   decodeProtocolErrorEnvelope,
   decodeProtocolTagPreflight,
   decodeReadLogResultEnvelope,
   decodeReassignDroneResultEnvelope,
+  decodeUpdateDroneRuntimeMetadataResponseEnvelope,
   decodeSseFrames,
   PROTOCOL_LIMIT_CEILINGS,
   PROTOCOL_HTTP_CONTRACT,
@@ -21,6 +24,7 @@ import {
   type CreateCubeResponse,
   type LogCursor,
   type StreamEvent,
+  type DroneRuntimeMetadata,
 } from '../protocol/index.js';
 import { ENROLLMENT_RETRY_CONFORMANCE } from './index.js';
 
@@ -43,6 +47,35 @@ export interface ConformanceRole {
 
 export interface ConformanceDrone {
   readonly id: string;
+}
+
+export interface ConformanceDroneRuntimeState {
+  readonly metadata: DroneRuntimeMetadata;
+  readonly metadata_revision: number;
+  readonly cube_id: string;
+  readonly role_id: string;
+  readonly session_state: 'active' | 'revoked' | 'expired';
+  readonly evicted: boolean;
+  readonly last_seen: string;
+  readonly heartbeat_count: number;
+  readonly wake_count: number;
+  readonly log_count: number;
+  readonly model_turn_count: number;
+  readonly grant_access: ConformanceCubeAccess | null;
+  readonly server_capabilities: readonly string[];
+  readonly principal_revoked: boolean;
+  readonly session_bound: boolean;
+  readonly last_log_post: string | null;
+  readonly last_regen_at: string | null;
+  readonly last_read_log_at: string | null;
+  readonly last_event_received_at: string | null;
+  readonly wake_path: 'live';
+  readonly wake_alert: null;
+  readonly monitor_armed: boolean;
+  readonly sse_connected: boolean;
+  readonly claim_count: number;
+  readonly decision_count: number;
+  readonly routing_eligible: boolean;
 }
 
 export type ConformanceCubeAccess = 'read' | 'write' | 'manage';
@@ -133,6 +166,7 @@ export interface ConformanceAdmin {
     readonly evicted: boolean;
     readonly session_revoked: boolean;
   }>;
+  inspectDroneRuntimeState(drone: ConformanceDrone): Promise<ConformanceDroneRuntimeState>;
   /** Observes every cube field mutated by a represented manage-scoped operation. */
   inspectCubeManagementState(cube: ConformanceCube): Promise<ConformanceCubeManagementState>;
   grantCreateCubeCapability(principal: ConformancePrincipal): Promise<void>;
@@ -158,6 +192,12 @@ export interface ConformanceOperations {
   protocol(credential: string | null): Promise<ConformanceHttpResponse>;
   enroll(request: unknown): Promise<ConformanceHttpResponse>;
   createCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
+  attach(credential: string, request: unknown): Promise<ConformanceHttpResponse>;
+  selfMetadataUpdate(
+    credential: string,
+    cube: ConformanceCube,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
   append(
     credential: string,
     cube: ConformanceCube,
@@ -251,6 +291,13 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'security.cross-cube-drone-management', area: 'security' },
   { id: 'drones.evict-terminal-signal', area: 'drones' },
   { id: 'security.drone-session-rejection-causes', area: 'security' },
+  { id: 'metadata.attach-report', area: 'metadata' },
+  { id: 'metadata.self-heal-patch', area: 'metadata' },
+  { id: 'security.metadata-invalid-atomic', area: 'security' },
+  { id: 'security.metadata-own-seat', area: 'security' },
+  { id: 'security.metadata-cross-cube-isolation', area: 'security' },
+  { id: 'security.metadata-noninterference', area: 'security' },
+  { id: 'security.metadata-secret-non-echo', area: 'security' },
   { id: 'security.active-stream-revocation', area: 'security' },
 ] as const;
 
@@ -1086,6 +1133,9 @@ export async function runAdapterConformance(
   let readCredential = '';
   let writeCredential = '';
   let workerSession = '';
+  let metadataDroneA!: ConformanceDrone;
+  let metadataDroneB!: ConformanceDrone;
+  let metadataSessionA = '';
   await record('security.drone-management-authorization', async () => {
     workerRoleA = await environment.admin.createRole(cubeA, {
       roleClass: 'worker', isHumanSeat: false,
@@ -1564,6 +1614,326 @@ export async function runAdapterConformance(
       revoked_code: ErrorCode.SESSION_REVOKED,
       expired_code: ErrorCode.AUTH_EXPIRED,
     };
+  });
+
+  const knownMetadata = {
+    agent_kind: 'opencode' as const,
+    reported_model: 'openai/gpt-5.6-sol',
+    working_repo_name: 'Byte-Ventures/borg-mcp',
+    working_repo_origin: 'https://github.com/Byte-Ventures/borg-mcp',
+  };
+  await record('metadata.attach-report', async () => {
+    metadataSessionA = 'M'.repeat(43);
+    const created = await environment.operations.attach(
+      credentialA,
+      createProtocolEnvelope('metadata-attach-created', {
+        cube_id: cubeA.id,
+        role_id: workerRoleA.id,
+        session_credential: metadataSessionA,
+        runtime_metadata: {
+          ...knownMetadata,
+          working_repo_origin: 'git@github.com:Byte-Ventures/borg-mcp.git',
+        },
+      }),
+    );
+    expectStatus(created, 200, 'Metadata attach create');
+    const createdPayload = decodeAttachResponseEnvelope(created.body).payload;
+    invariant(createdPayload.result === 'created', 'First metadata attach did not create a seat.');
+    invariant(same(createdPayload.drone.runtime_metadata, knownMetadata), 'Attach did not echo canonical metadata.');
+    metadataDroneA = { id: createdPayload.drone.id };
+
+    const unavailableSession = 'N'.repeat(43);
+    const unavailable = await environment.operations.attach(
+      credentialA,
+      createProtocolEnvelope('metadata-attach-unavailable', {
+        cube_id: cubeA.id,
+        role_id: workerRoleA.id,
+        session_credential: unavailableSession,
+      }),
+    );
+    expectStatus(unavailable, 200, 'Unavailable metadata attach');
+    invariant(
+      same(decodeAttachResponseEnvelope(unavailable.body).payload.drone.runtime_metadata, {
+        agent_kind: null,
+        reported_model: null,
+        working_repo_name: null,
+        working_repo_origin: null,
+      }),
+      'Omitted attach report synthesized metadata.',
+    );
+
+    const reused = await environment.operations.attach(
+      credentialA,
+      createProtocolEnvelope('metadata-attach-reused', {
+        cube_id: cubeA.id,
+        role_id: workerRoleA.id,
+        prior_drone_id: metadataDroneA.id,
+        session_credential: metadataSessionA,
+        runtime_metadata: knownMetadata,
+      }),
+    );
+    expectStatus(reused, 200, 'Metadata attach reuse');
+    invariant(decodeAttachResponseEnvelope(reused.body).payload.result === 'reused', 'Prior seat was not reused.');
+    return { created: true, reused: true, omitted_is_unavailable: true, canonical_response: true };
+  });
+
+  await record('metadata.self-heal-patch', async () => {
+    const updates = [
+      { request_id: 'metadata-known-new', patch: { reported_model: 'openai/gpt-5.6-terra' } },
+      { request_id: 'metadata-null-clear', patch: { reported_model: null } },
+      { request_id: 'metadata-null-repeat', patch: { reported_model: null } },
+      { request_id: 'metadata-same-value', patch: { agent_kind: 'opencode' as const } },
+    ];
+    for (const update of updates) {
+      const response = await environment.operations.selfMetadataUpdate(
+        metadataSessionA,
+        cubeA,
+        createProtocolEnvelope(update.request_id, update.patch),
+      );
+      expectStatus(response, 200, update.request_id);
+      decodeUpdateDroneRuntimeMetadataResponseEnvelope(response.body);
+    }
+    const state = await environment.admin.inspectDroneRuntimeState(metadataDroneA);
+    invariant(state.metadata.reported_model === null, 'Explicit null did not clear model metadata.');
+    invariant(state.metadata.agent_kind === 'opencode', 'Omitted field was not preserved.');
+    return { known_replace: true, omitted_unchanged: true, null_clear: true, repeat_safe: true };
+  });
+
+  await record('security.metadata-invalid-atomic', async () => {
+    const invalidPatches: unknown[] = [
+      {},
+      { agent_kind: 'OpenCode' },
+      { reported_model: '' },
+      { reported_model: 'a'.repeat(161) },
+      { reported_model: 'safe\u001b[2J' },
+      { reported_model: 'safe\u061cnext' },
+      { working_repo_name: 'owner/repo' },
+      { working_repo_name: 'owner/repo', working_repo_origin: 'https://user:secret@github.com/owner/repo' },
+      {
+        working_repo_name: 'owner/repo',
+        working_repo_origin: ['file:/', '', 'Users', 'secret', 'repo'].join('/'),
+      },
+      { role_id: workerRoleA.id },
+      { last_seen: '2026-07-14T10:00:00.000Z' },
+    ];
+    for (const [index, patch] of invalidPatches.entries()) {
+      const before = await environment.admin.inspectDroneRuntimeState(metadataDroneA);
+      const response = await environment.operations.selfMetadataUpdate(
+        metadataSessionA,
+        cubeA,
+        createProtocolEnvelope(`metadata-invalid-${index}`, patch),
+      );
+      expectError(response, 400, ErrorCode.INVALID_INPUT, `Invalid metadata patch ${index}`);
+      invariant(
+        same(await environment.admin.inspectDroneRuntimeState(metadataDroneA), before),
+        `Invalid metadata patch ${index} partially mutated state.`,
+      );
+    }
+    return { cases: invalidPatches.length, atomic: true, prior_safe_state_retained: true };
+  });
+
+  await record('security.metadata-own-seat', async () => {
+    const peer = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const peerBefore = await environment.admin.inspectDroneRuntimeState(peer);
+    const managedBefore = await environment.admin.inspectDroneRuntimeState(managedWorker);
+    const ownBefore = await environment.admin.inspectDroneRuntimeState(metadataDroneA);
+    const response = await environment.operations.selfMetadataUpdate(
+      metadataSessionA,
+      cubeA,
+      createProtocolEnvelope('metadata-own-seat', { agent_kind: 'claude' }),
+    );
+    expectStatus(response, 200, 'Own-seat metadata update');
+    invariant(
+      same(await environment.admin.inspectDroneRuntimeState(peer), peerBefore),
+      'Own-seat update mutated a peer seat.',
+    );
+    invariant(
+      same(await environment.admin.inspectDroneRuntimeState(managedWorker), managedBefore),
+      'Own-seat update mutated another existing seat.',
+    );
+    invariant(
+      (await environment.admin.inspectDroneRuntimeState(metadataDroneA)).role_id === ownBefore.role_id,
+      'Metadata update changed the current seat role.',
+    );
+    expectError(
+      await environment.operations.selfMetadataUpdate(
+        credentialA,
+        cubeA,
+        createProtocolEnvelope('metadata-manager-denied', { agent_kind: 'codex' }),
+      ),
+      403,
+      ErrorCode.ACCESS_DENIED,
+      'Manager metadata update',
+    );
+    expectError(
+      await environment.operations.selfMetadataUpdate(
+        'Z'.repeat(43),
+        cubeA,
+        createProtocolEnvelope('metadata-invalid-session', { agent_kind: null }),
+      ),
+      401,
+      ErrorCode.AUTH_INVALID,
+      'Unknown metadata session',
+    );
+    const rejectedStates: Array<[string, ConformanceDrone, string, number, ErrorCode]> = [];
+    const revoked = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const revokedSession = await environment.admin.issueManagedDroneSession(revoked);
+    await environment.admin.revokeManagedDroneSession(revoked);
+    rejectedStates.push(['revoked', revoked, revokedSession, 401, ErrorCode.SESSION_REVOKED]);
+    const expired = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const expiredSession = await environment.admin.issueManagedDroneSession(expired);
+    await environment.admin.expireManagedDroneSession(expired);
+    rejectedStates.push(['expired', expired, expiredSession, 401, ErrorCode.AUTH_EXPIRED]);
+    const evicted = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
+    const evictedSession = await environment.admin.issueManagedDroneSession(evicted);
+    expectStatus(
+      await environment.operations.evictDrone(
+        credentialA,
+        cubeA,
+        evicted,
+        createProtocolEnvelope('metadata-evict-seat', {}),
+      ),
+      200,
+      'Metadata seat eviction',
+    );
+    rejectedStates.push(['evicted', evicted, evictedSession, 410, ErrorCode.DRONE_EVICTED]);
+    for (const [label, drone, session, status, code] of rejectedStates) {
+      const before = await environment.admin.inspectDroneRuntimeState(drone);
+      expectError(
+        await environment.operations.selfMetadataUpdate(
+          session,
+          cubeA,
+          createProtocolEnvelope(`metadata-${label}-denied`, { agent_kind: null }),
+        ),
+        status,
+        code,
+        `${label} metadata session`,
+      );
+      invariant(
+        same(await environment.admin.inspectDroneRuntimeState(drone), before),
+        `${label} metadata denial mutated state.`,
+      );
+    }
+    return {
+      own_seat_only: true,
+      manager_denied: true,
+      unknown_session_denied: true,
+      revoked_expired_evicted_denied: true,
+    };
+  });
+
+  await record('security.metadata-cross-cube-isolation', async () => {
+    const sessionB = 'P'.repeat(43);
+    const metadataRoleB = await environment.admin.createRole(cubeB, {
+      roleClass: 'worker', isHumanSeat: false,
+    });
+    const attachedB = await environment.operations.attach(
+      credentialB,
+      createProtocolEnvelope('metadata-attach-b', {
+        cube_id: cubeB.id,
+        role_id: metadataRoleB.id,
+        session_credential: sessionB,
+        runtime_metadata: {
+          agent_kind: 'codex',
+          reported_model: null,
+          working_repo_name: 'Byte-Ventures/borg-mcp-server',
+          working_repo_origin: 'https://github.com/Byte-Ventures/borg-mcp-server',
+        },
+      }),
+    );
+    expectStatus(attachedB, 200, 'Cube B metadata attach');
+    metadataDroneB = { id: decodeAttachResponseEnvelope(attachedB.body).payload.drone.id };
+    const beforeB = await environment.admin.inspectDroneRuntimeState(metadataDroneB);
+    const foreign = await environment.operations.selfMetadataUpdate(
+      metadataSessionA,
+      cubeB,
+      createProtocolEnvelope('metadata-cross-cube', { reported_model: 'foreign/probe' }),
+    );
+    expectError(foreign, 404, ErrorCode.NOT_FOUND, 'Cross-cube metadata update');
+    const unknown = await environment.operations.selfMetadataUpdate(
+      metadataSessionA,
+      { id: '90000000-0000-4000-8000-000000000001' },
+      createProtocolEnvelope('metadata-unknown-cube', { reported_model: 'foreign/probe' }),
+    );
+    expectError(unknown, 404, ErrorCode.NOT_FOUND, 'Unknown-cube metadata update');
+    invariant(same(foreign.body, unknown.body), 'Foreign and unknown metadata probes were distinguishable.');
+    invariant(
+      same(await environment.admin.inspectDroneRuntimeState(metadataDroneB), beforeB),
+      'Cross-cube metadata update mutated the foreign seat.',
+    );
+    const listedA = await environment.operations.listDrones(credentialA, cubeA);
+    invariant(!listedDroneIds(listedA).includes(metadataDroneB.id), 'Cube A roster disclosed cube B metadata seat.');
+    return { update_status: 404, foreign_unknown_indistinguishable: true, foreign_unchanged: true, roster_isolated: true };
+  });
+
+  await record('security.metadata-noninterference', async () => {
+    const before = await environment.admin.inspectDroneRuntimeState(metadataDroneA);
+    for (const [requestId, patch] of [
+      ['metadata-noninterference-known', { reported_model: 'openai/gpt-5.6-sol' }],
+      ['metadata-noninterference-repeat', { reported_model: 'openai/gpt-5.6-sol' }],
+      ['metadata-noninterference-null', { reported_model: null }],
+    ] as const) {
+      expectStatus(
+        await environment.operations.selfMetadataUpdate(
+          metadataSessionA,
+          cubeA,
+          createProtocolEnvelope(requestId, patch),
+        ),
+        200,
+        requestId,
+      );
+    }
+    expectError(
+      await environment.operations.selfMetadataUpdate(
+        metadataSessionA,
+        cubeA,
+        createProtocolEnvelope('metadata-noninterference-reject', { authority: 'manage' }),
+      ),
+      400,
+      ErrorCode.INVALID_INPUT,
+      'Rejected metadata non-interference update',
+    );
+    const reattached = await environment.operations.attach(
+      credentialA,
+      createProtocolEnvelope('metadata-noninterference-reattach', {
+        cube_id: cubeA.id,
+        role_id: workerRoleA.id,
+        prior_drone_id: metadataDroneA.id,
+        session_credential: metadataSessionA,
+      }),
+    );
+    expectStatus(reattached, 200, 'Metadata non-interference reattach');
+    const after = await environment.admin.inspectDroneRuntimeState(metadataDroneA);
+    const { metadata: _beforeMetadata, metadata_revision: _beforeRevision, ...beforeInvariant } = before;
+    const { metadata: _afterMetadata, metadata_revision: _afterRevision, ...afterInvariant } = after;
+    invariant(same(beforeInvariant, afterInvariant), 'Metadata update changed authority/liveness/log state.');
+    return {
+      authority_unchanged: true,
+      role_unchanged: true,
+      liveness_unchanged: true,
+      logs_unchanged: true,
+      model_turns_unchanged: true,
+    };
+  });
+
+  await record('security.metadata-secret-non-echo', async () => {
+    const marker = 'SECRET-METADATA-MARKER';
+    const before = await environment.admin.inspectDroneRuntimeState(metadataDroneA);
+    const response = await environment.operations.selfMetadataUpdate(
+      metadataSessionA,
+      cubeA,
+      createProtocolEnvelope('metadata-secret', {
+        working_repo_name: 'owner/repo',
+        working_repo_origin: `https://user:${marker}@github.com/owner/repo?token=${marker}`,
+      }),
+    );
+    expectError(response, 400, ErrorCode.INVALID_INPUT, 'Secret-bearing metadata update');
+    invariant(!JSON.stringify(response.body).includes(marker), 'Metadata error echoed hostile secret input.');
+    invariant(
+      same(await environment.admin.inspectDroneRuntimeState(metadataDroneA), before),
+      'Secret-bearing metadata input was persisted.',
+    );
+    return { rejected_pre_persistence: true, response_secret_free: true, state_secret_free: true };
   });
 
   await record('security.active-stream-revocation', async () => {
