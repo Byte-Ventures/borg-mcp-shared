@@ -107,6 +107,13 @@ describe('npm publish workflow', () => {
     expect(enrollment).toMatch(/this source now identifies/i);
     // ...and the Distribution guidance names the current package version.
     expect(distribution).toContain(`\`${pkg.version}\``);
+    const immutableEvidence = `${distribution}\n${enrollment}\n${runbook}`;
+    for (const evidence of [
+      '045268aa8873da330819860012ecaddb4bc2883c',
+      '1981d7373e77f6edb4567872c1544bdbe2b1ef20',
+      '29984423571',
+      'sha512-XUJq+FjY/cbarU9V1dIWnhNYcqyURTiGb6KyIzg99gy5hk/fEs5ee/8X/qvp7pw1Rshqt2J6I3TVbwJdlde2tA==',
+    ]) expect(immutableEvidence).toContain(evidence);
   });
 
   it.each(['2', '3'])('rejects workflow rerun attempt %s', (attempt) => {
