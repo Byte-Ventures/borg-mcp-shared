@@ -16,6 +16,7 @@ const EXPECTED_EXPORTS = {
   './role-section': { types: './dist/role-section.d.ts', import: './dist/role-section.js' },
   './log-stream-hwm': { types: './dist/log-stream-hwm.d.ts', import: './dist/log-stream-hwm.js' },
   './drone-address': { types: './dist/drone-address.d.ts', import: './dist/drone-address.js' },
+  './runtime-metadata': { types: './dist/runtime-metadata.d.ts', import: './dist/runtime-metadata.js' },
   './protocol': { types: './dist/protocol/index.d.ts', import: './dist/protocol/index.js' },
   './domain': { types: './dist/domain/index.d.ts', import: './dist/domain/index.js' },
   './conformance': { types: './dist/conformance/index.d.ts', import: './dist/conformance/index.js' },

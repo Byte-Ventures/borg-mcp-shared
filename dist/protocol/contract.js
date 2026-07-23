@@ -1,16 +1,20 @@
 import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION } from './version.js';
+import { RuntimeMetadataValidationError, validateRuntimeMetadata, validateRuntimeMetadataPatch, validateRuntimeMetadataReportState, } from '../runtime-metadata.js';
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared';
 export const SHARED_PACKAGE_VERSION = '0.5.1';
 export const HEALTH_PATH = '/healthz';
 export const PROTOCOL_INFO_PATH = '/api/protocol';
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange';
 export const CUBES_PATH = '/api/cubes';
+export const ATTACH_PATH = '/api/client/attach';
+export const SELF_RUNTIME_METADATA_PATH = '/api/cubes/:cubeId/drones/self/metadata';
 export const PROTOCOL_HTTP_CONTRACT = {
     health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
     protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: false, success_status: 200 },
     enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
     cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
+    attach: { method: 'POST', path: ATTACH_PATH, authenticated: true, success_status: 200 },
     drone_reassign: {
         method: 'PATCH',
         path: '/api/cubes/:cubeId/drones/:droneId',
@@ -21,6 +25,12 @@ export const PROTOCOL_HTTP_CONTRACT = {
         method: 'DELETE',
         path: '/api/cubes/:cubeId/drones/:droneId',
         authenticated: true,
+        success_status: 200,
+    },
+    drone_self_metadata: {
+        method: 'PATCH',
+        path: SELF_RUNTIME_METADATA_PATH,
+        authenticated: 'drone-session',
         success_status: 200,
     },
     auth_missing_status: 401,
@@ -408,7 +418,50 @@ export function maxLogCursor(a, b) {
         return decodeLogCursor(a);
     return compareLogCursor(a, b) >= 0 ? decodeLogCursor(a) : decodeLogCursor(b);
 }
-export const ATTACH_PATH = '/api/client/attach';
+function metadataValidation(fn) {
+    try {
+        return fn();
+    }
+    catch (error) {
+        if (error instanceof RuntimeMetadataValidationError) {
+            fail(`${error.field}: ${error.reason}`, [error.field]);
+        }
+        throw error;
+    }
+}
+export function decodeDroneRuntimeMetadata(value) {
+    return metadataValidation(() => validateRuntimeMetadata(value));
+}
+export function decodeDroneRuntimeMetadataPatch(value) {
+    return metadataValidation(() => validateRuntimeMetadataPatch(value));
+}
+export function decodeDroneRuntimeMetadataState(value) {
+    const input = record(value);
+    return metadataValidation(() => validateRuntimeMetadataReportState({
+        agent_kind: input.agent_kind,
+        reported_model: input.reported_model,
+        working_repo_name: input.working_repo_name,
+        working_repo_origin: input.working_repo_origin,
+    }, input.runtime_metadata_reported));
+}
+export function decodeWhoAmIRuntimeMetadataState(value) {
+    const input = record(value);
+    return metadataValidation(() => validateRuntimeMetadataReportState(input.runtime_metadata, input.runtime_metadata_reported));
+}
+export function decodeUpdateDroneRuntimeMetadataResponse(value) {
+    const input = record(value);
+    exactKeys(input, ['runtime_metadata', 'runtime_metadata_reported'], [
+        'runtime_metadata',
+        'runtime_metadata_reported',
+    ]);
+    return metadataValidation(() => validateRuntimeMetadataReportState(input.runtime_metadata, input.runtime_metadata_reported));
+}
+export function decodeUpdateDroneRuntimeMetadataRequestEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeDroneRuntimeMetadataPatch);
+}
+export function decodeUpdateDroneRuntimeMetadataResponseEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeUpdateDroneRuntimeMetadataResponse);
+}
 function decodeAttachCube(value, path) {
     const input = record(value, path);
     exactKeys(input, ['id', 'name'], ['id', 'name'], path);
@@ -440,10 +493,12 @@ function decodeAttachRole(value, path) {
 }
 function decodeAttachDrone(value, path) {
     const input = record(value, path);
-    exactKeys(input, ['id', 'label'], ['id', 'label'], path);
+    exactKeys(input, ['id', 'label', 'runtime_metadata', 'runtime_metadata_reported'], ['id', 'label', 'runtime_metadata', 'runtime_metadata_reported'], path);
+    const state = metadataValidation(() => validateRuntimeMetadataReportState(input.runtime_metadata, input.runtime_metadata_reported));
     return {
         id: decodeUuid(input.id, [...path, 'id']),
         label: boundedString(input.label, 1, 128, [...path, 'label']),
+        ...state,
     };
 }
 function decodeAttachSession(value, path) {
@@ -455,7 +510,7 @@ function decodeAttachSession(value, path) {
 }
 export function decodeAttachRequest(value) {
     const input = record(value);
-    exactKeys(input, ['cube_id', 'role_id', 'session_credential', 'prior_drone_id'], [
+    exactKeys(input, ['cube_id', 'role_id', 'session_credential', 'prior_drone_id', 'runtime_metadata'], [
         'cube_id',
         'role_id',
         'session_credential',
@@ -467,6 +522,9 @@ export function decodeAttachRequest(value) {
     };
     if (input.prior_drone_id !== undefined) {
         result.prior_drone_id = decodeUuid(input.prior_drone_id, ['prior_drone_id']);
+    }
+    if (input.runtime_metadata !== undefined) {
+        result.runtime_metadata = decodeDroneRuntimeMetadata(input.runtime_metadata);
     }
     return result;
 }

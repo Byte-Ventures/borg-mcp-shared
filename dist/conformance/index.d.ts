@@ -67,4 +67,13 @@ export interface AttachSessionConformanceVector {
     accepts: boolean;
 }
 export declare const ATTACH_SESSION_CONFORMANCE: readonly AttachSessionConformanceVector[];
+export interface RuntimeMetadataRepositoryConformanceVector {
+    name: string;
+    origin: string;
+    expected: {
+        working_repo_name: string;
+        working_repo_origin: string;
+    } | null;
+}
+export declare const RUNTIME_METADATA_REPOSITORY_CONFORMANCE: readonly RuntimeMetadataRepositoryConformanceVector[];
 //# sourceMappingURL=index.d.ts.map

@@ -1,11 +1,14 @@
 import { ErrorCode } from './errors.js';
 import { type ProtocolVersion } from './version.js';
+import type { DroneRuntimeMetadata, DroneRuntimeMetadataPatch } from './types.js';
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
 export declare const SHARED_PACKAGE_VERSION: "0.5.1";
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
 export declare const CUBES_PATH: "/api/cubes";
+export declare const ATTACH_PATH: "/api/client/attach";
+export declare const SELF_RUNTIME_METADATA_PATH: "/api/cubes/:cubeId/drones/self/metadata";
 export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly health: {
         readonly method: "GET";
@@ -32,6 +35,12 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly authenticated: true;
         readonly success_status: 201;
     };
+    readonly attach: {
+        readonly method: "POST";
+        readonly path: "/api/client/attach";
+        readonly authenticated: true;
+        readonly success_status: 200;
+    };
     readonly drone_reassign: {
         readonly method: "PATCH";
         readonly path: "/api/cubes/:cubeId/drones/:droneId";
@@ -42,6 +51,12 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly method: "DELETE";
         readonly path: "/api/cubes/:cubeId/drones/:droneId";
         readonly authenticated: true;
+        readonly success_status: 200;
+    };
+    readonly drone_self_metadata: {
+        readonly method: "PATCH";
+        readonly path: "/api/cubes/:cubeId/drones/self/metadata";
+        readonly authenticated: "drone-session";
         readonly success_status: 200;
     };
     readonly auth_missing_status: 401;
@@ -155,12 +170,23 @@ export declare function decodeOpaqueIdentifier(value: unknown, path?: readonly (
 export declare function redactProtocolDiagnostic(value: string): string;
 export declare function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1;
 export declare function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCursor | null;
-export declare const ATTACH_PATH: "/api/client/attach";
+export declare function decodeDroneRuntimeMetadata(value: unknown): DroneRuntimeMetadata;
+export declare function decodeDroneRuntimeMetadataPatch(value: unknown): DroneRuntimeMetadataPatch;
+export declare function decodeDroneRuntimeMetadataState(value: unknown): UpdateDroneRuntimeMetadataResponse;
+export declare function decodeWhoAmIRuntimeMetadataState(value: unknown): UpdateDroneRuntimeMetadataResponse;
+export interface UpdateDroneRuntimeMetadataResponse {
+    runtime_metadata: DroneRuntimeMetadata;
+    runtime_metadata_reported: boolean;
+}
+export declare function decodeUpdateDroneRuntimeMetadataResponse(value: unknown): UpdateDroneRuntimeMetadataResponse;
+export declare function decodeUpdateDroneRuntimeMetadataRequestEnvelope(value: unknown): ProtocolEnvelope<DroneRuntimeMetadataPatch>;
+export declare function decodeUpdateDroneRuntimeMetadataResponseEnvelope(value: unknown): ProtocolEnvelope<UpdateDroneRuntimeMetadataResponse>;
 export interface AttachRequest {
     cube_id: string;
     role_id: string;
     session_credential: string;
     prior_drone_id?: string;
+    runtime_metadata?: DroneRuntimeMetadata;
 }
 export interface AttachCube {
     id: string;
@@ -176,6 +202,8 @@ export interface AttachRole {
 export interface AttachDrone {
     id: string;
     label: string;
+    runtime_metadata: DroneRuntimeMetadata;
+    runtime_metadata_reported: boolean;
 }
 export interface AttachSession {
     id: string;

@@ -61,3 +61,31 @@ Model/provider selection is intentionally absent from the coordination contract.
 Agent CLIs own model configuration; Borg servers may expose the separate
 advisory `reported_model` field for session observability, but clients must not
 use it for routing, launch configuration, or authorization.
+
+## Advisory Runtime Metadata
+
+Protocol v3 defines one optional complete runtime-metadata report during attach
+and one authenticated own-seat patch at
+`PATCH /api/cubes/:cubeId/drones/self/metadata`. A complete report contains
+`agent_kind`, `reported_model`, `working_repo_name`, and
+`working_repo_origin`; each value may be explicitly `null`. In a patch, an
+omitted field is unchanged, `null` clears the field, and a value replaces it.
+Repository name and origin are one atomic pair.
+
+Every identity response also carries required `runtime_metadata_reported`.
+`false` means no complete report has been received, while `true` means the
+client reported metadata even when every value is explicitly `null`. A valid
+self-update patch sets the state to reported; clearing all four fields therefore
+remains distinguishable from an omitted attach report.
+
+The shared pure canonicalizer accepts public HTTPS and literal-`git` SSH/SCP
+repository identities and returns a credential-free HTTPS identity. It performs
+no DNS lookup or network request. It rejects local paths, IP and private hosts,
+userinfo, non-default ports, queries, fragments, percent encoding, malformed
+Unicode, terminal controls, and inconsistent repository pairs. Consumers use
+the exported conformance corpus rather than maintaining independent parsers.
+
+Runtime metadata is descriptive only. It cannot alter roles, grants,
+authorization, wake or liveness state, timestamps, logs, routing, or model
+execution. Mixed shared/server/client artifacts fail closed; there is no legacy
+decoder, hosted fallback, or metadata-derived authority.

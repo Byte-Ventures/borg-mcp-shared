@@ -14,6 +14,20 @@ export type WakePathAlertClass =
   | 'systemic-wake-path-deaf'
   | 'independent';
 
+export interface DroneRuntimeMetadata {
+  agent_kind: AgentKind | null;
+  reported_model: string | null;
+  working_repo_name: string | null;
+  working_repo_origin: string | null;
+}
+
+export interface DroneRuntimeMetadataPatch {
+  agent_kind?: AgentKind | null;
+  reported_model?: string | null;
+  working_repo_name?: string | null;
+  working_repo_origin?: string | null;
+}
+
 export interface Cube {
   id: string;
   owner_id: string;
@@ -45,7 +59,7 @@ export interface Role {
 
 export type PublicRole = Omit<Role, 'detailed_description' | 'detailed_description_hash'>;
 
-export interface Drone {
+export interface Drone extends DroneRuntimeMetadata {
   id: string;
   cube_id: string;
   role_id: string;
@@ -61,10 +75,7 @@ export interface Drone {
   wake_path_client_sse_connected?: boolean | null;
   wake_path_client_monitor_armed?: boolean | null;
   wake_path_alert_class?: WakePathAlertClass | null;
-  agent_kind?: AgentKind | null;
-  reported_model?: string | null;
-  working_repo_name?: string | null;
-  working_repo_origin?: string | null;
+  runtime_metadata_reported: boolean;
   evicted_at?: null;
   created_at: string;
   seen_since?: boolean;
@@ -122,6 +133,8 @@ export interface WhoAmIResponse {
   drone_label: string;
   role_id: string;
   role_name: string;
+  runtime_metadata: DroneRuntimeMetadata;
+  runtime_metadata_reported: boolean;
 }
 
 export interface RosterResponse {

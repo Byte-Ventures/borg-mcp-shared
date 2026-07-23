@@ -73,6 +73,18 @@ describe('package and handshake contract', () => {
       protocol: { method: 'GET', success_status: 200, authenticated: false },
       enrollment: { success_status: 201, authenticated: 'invitation' },
       cubes: { success_status: 201, authenticated: true },
+      attach: {
+        method: 'POST',
+        path: '/api/client/attach',
+        success_status: 200,
+        authenticated: true,
+      },
+      drone_self_metadata: {
+        method: 'PATCH',
+        path: '/api/cubes/:cubeId/drones/self/metadata',
+        success_status: 200,
+        authenticated: 'drone-session',
+      },
       drone_reassign: {
         method: 'PATCH',
         path: '/api/cubes/:cubeId/drones/:droneId',
@@ -693,7 +705,17 @@ describe('v3 clean-slate wire types', () => {
     result: 'created' as const,
     cube: { id: '10000000-0000-4000-8000-000000000001', name: 'test-cube' },
     role: { id: '20000000-0000-4000-8000-000000000001', name: 'Builder' },
-    drone: { id: '30000000-0000-4000-8000-000000000001', label: 'forty-of-forty-builder' },
+    drone: {
+      id: '30000000-0000-4000-8000-000000000001',
+      label: 'forty-of-forty-builder',
+      runtime_metadata: {
+        agent_kind: null,
+        reported_model: null,
+        working_repo_name: null,
+        working_repo_origin: null,
+      },
+      runtime_metadata_reported: false,
+    },
     session: { id: '40000000-0000-4000-8000-000000000001' },
   };
 
