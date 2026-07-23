@@ -9,11 +9,14 @@ import {
   decodeAttachResponse,
   decodeDroneRuntimeMetadata,
   decodeDroneRuntimeMetadataPatch,
+  decodeDroneRuntimeMetadataState,
   decodeUpdateDroneRuntimeMetadataRequestEnvelope,
   decodeUpdateDroneRuntimeMetadataResponseEnvelope,
+  decodeWhoAmIRuntimeMetadataState,
   validateReportedModel,
   validateRuntimeMetadata,
   validateRuntimeMetadataPatch,
+  validateRuntimeMetadataReportState,
   validateWorkingRepoName,
 } from '../src/index.js';
 
@@ -239,6 +242,74 @@ describe('runtime metadata contract', () => {
       return;
     }
     throw new Error('expected version-first unknown-key rejection');
+  });
+
+  it('binds the reported flag to one truthful response state', () => {
+    const allNull = {
+      agent_kind: null,
+      reported_model: null,
+      working_repo_name: null,
+      working_repo_origin: null,
+    };
+    expect(validateRuntimeMetadataReportState(allNull, false)).toEqual({
+      runtime_metadata: allNull,
+      runtime_metadata_reported: false,
+    });
+    expect(validateRuntimeMetadataReportState(allNull, true)).toEqual({
+      runtime_metadata: allNull,
+      runtime_metadata_reported: true,
+    });
+    expect(validateRuntimeMetadataReportState(knownMetadata, true)).toEqual({
+      runtime_metadata: knownMetadata,
+      runtime_metadata_reported: true,
+    });
+    expect(decodeDroneRuntimeMetadataState({
+      ...knownMetadata,
+      runtime_metadata_reported: true,
+      id: 'ignored-by-state-decoder',
+    }).runtime_metadata).toEqual(knownMetadata);
+    expect(decodeWhoAmIRuntimeMetadataState({
+      runtime_metadata: knownMetadata,
+      runtime_metadata_reported: true,
+      drone_id: 'ignored-by-state-decoder',
+    }).runtime_metadata).toEqual(knownMetadata);
+    for (const metadata of [
+      { ...allNull, agent_kind: 'codex' },
+      { ...allNull, reported_model: 'gpt-5' },
+      { ...allNull, working_repo_name: 'owner/repo' },
+      { ...allNull, working_repo_origin: 'https://github.com/owner/repo' },
+      knownMetadata,
+    ]) {
+      expect(() => validateRuntimeMetadataReportState(metadata, false)).toThrow(
+        RuntimeMetadataValidationError,
+      );
+      expect(() => decodeUpdateDroneRuntimeMetadataResponseEnvelope(createProtocolEnvelope(
+        'metadata-false-known',
+        { runtime_metadata: metadata, runtime_metadata_reported: false },
+      ))).toThrow();
+      expect(() => decodeDroneRuntimeMetadataState({
+        ...metadata,
+        runtime_metadata_reported: false,
+      })).toThrow();
+      expect(() => decodeWhoAmIRuntimeMetadataState({
+        runtime_metadata: metadata,
+        runtime_metadata_reported: false,
+      })).toThrow();
+    }
+
+    const attach = {
+      result: 'created',
+      cube: { id: attachRequest.cube_id, name: 'test' },
+      role: { id: attachRequest.role_id, name: 'Builder' },
+      drone: {
+        id: '30000000-0000-4000-8000-000000000001',
+        label: 'builder-one',
+        runtime_metadata: knownMetadata,
+        runtime_metadata_reported: false,
+      },
+      session: { id: '40000000-0000-4000-8000-000000000001' },
+    };
+    expect(() => decodeAttachResponse(attach)).toThrow();
   });
 
   it('checks protocol version before hostile update payloads and decodes canonical responses', () => {

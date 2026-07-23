@@ -4,6 +4,7 @@ import {
   RuntimeMetadataValidationError,
   validateRuntimeMetadata,
   validateRuntimeMetadataPatch,
+  validateRuntimeMetadataReportState,
 } from '../runtime-metadata.js';
 import type {
   DroneRuntimeMetadata,
@@ -646,6 +647,26 @@ export function decodeDroneRuntimeMetadataPatch(value: unknown): DroneRuntimeMet
   return metadataValidation(() => validateRuntimeMetadataPatch(value));
 }
 
+/** Decode the flat runtime state carried by Drone objects in roster and regen responses. */
+export function decodeDroneRuntimeMetadataState(value: unknown): UpdateDroneRuntimeMetadataResponse {
+  const input = record(value);
+  return metadataValidation(() => validateRuntimeMetadataReportState({
+    agent_kind: input.agent_kind,
+    reported_model: input.reported_model,
+    working_repo_name: input.working_repo_name,
+    working_repo_origin: input.working_repo_origin,
+  }, input.runtime_metadata_reported));
+}
+
+/** Decode the nested runtime state carried by the own-seat identity response. */
+export function decodeWhoAmIRuntimeMetadataState(value: unknown): UpdateDroneRuntimeMetadataResponse {
+  const input = record(value);
+  return metadataValidation(() => validateRuntimeMetadataReportState(
+    input.runtime_metadata,
+    input.runtime_metadata_reported,
+  ));
+}
+
 export interface UpdateDroneRuntimeMetadataResponse {
   runtime_metadata: DroneRuntimeMetadata;
   runtime_metadata_reported: boolean;
@@ -659,13 +680,10 @@ export function decodeUpdateDroneRuntimeMetadataResponse(
     'runtime_metadata',
     'runtime_metadata_reported',
   ]);
-  if (typeof input.runtime_metadata_reported !== 'boolean') {
-    fail('Expected a boolean.', ['runtime_metadata_reported']);
-  }
-  return {
-    runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata),
-    runtime_metadata_reported: input.runtime_metadata_reported,
-  };
+  return metadataValidation(() => validateRuntimeMetadataReportState(
+    input.runtime_metadata,
+    input.runtime_metadata_reported,
+  ));
 }
 
 export function decodeUpdateDroneRuntimeMetadataRequestEnvelope(
@@ -762,14 +780,14 @@ function decodeAttachDrone(value: unknown, path: readonly (string | number)[]): 
     ['id', 'label', 'runtime_metadata', 'runtime_metadata_reported'],
     path,
   );
-  if (typeof input.runtime_metadata_reported !== 'boolean') {
-    fail('Expected a boolean.', [...path, 'runtime_metadata_reported']);
-  }
+  const state = metadataValidation(() => validateRuntimeMetadataReportState(
+    input.runtime_metadata,
+    input.runtime_metadata_reported,
+  ));
   return {
     id: decodeUuid(input.id, [...path, 'id']),
     label: boundedString(input.label, 1, 128, [...path, 'label']),
-    runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata),
-    runtime_metadata_reported: input.runtime_metadata_reported,
+    ...state,
   };
 }
 

@@ -238,4 +238,14 @@ export function validateRuntimeMetadataPatch(value) {
     }
     return { ...patch };
 }
+export function validateRuntimeMetadataReportState(metadataValue, reportedValue) {
+    const runtime_metadata = validateRuntimeMetadata(metadataValue);
+    if (typeof reportedValue !== 'boolean') {
+        invalid('runtime_metadata_reported', 'must be a boolean');
+    }
+    if (!reportedValue && Object.values(runtime_metadata).some((value) => value !== null)) {
+        invalid('runtime_metadata_reported', 'false requires all metadata values to be null');
+    }
+    return { runtime_metadata, runtime_metadata_reported: reportedValue };
+}
 //# sourceMappingURL=runtime-metadata.js.map

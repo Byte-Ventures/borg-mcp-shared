@@ -12,6 +12,7 @@ export const RUNTIME_METADATA_LIMITS = {
 
 export type RuntimeMetadataField =
   | 'runtime_metadata'
+  | 'runtime_metadata_reported'
   | 'agent_kind'
   | 'reported_model'
   | 'working_repo_name'
@@ -280,4 +281,24 @@ export function validateRuntimeMetadataPatch(
     }
   }
   return { ...patch };
+}
+
+export interface ValidatedRuntimeMetadataReportState {
+  runtime_metadata: DroneRuntimeMetadata;
+  runtime_metadata_reported: boolean;
+}
+
+/** Enforce the response invariant shared by attach, self-update, and identity reads. */
+export function validateRuntimeMetadataReportState(
+  metadataValue: unknown,
+  reportedValue: unknown,
+): ValidatedRuntimeMetadataReportState {
+  const runtime_metadata = validateRuntimeMetadata(metadataValue);
+  if (typeof reportedValue !== 'boolean') {
+    invalid('runtime_metadata_reported', 'must be a boolean');
+  }
+  if (!reportedValue && Object.values(runtime_metadata).some((value) => value !== null)) {
+    invalid('runtime_metadata_reported', 'false requires all metadata values to be null');
+  }
+  return { runtime_metadata, runtime_metadata_reported: reportedValue };
 }

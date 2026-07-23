@@ -1,6 +1,6 @@
 import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION } from './version.js';
-import { RuntimeMetadataValidationError, validateRuntimeMetadata, validateRuntimeMetadataPatch, } from '../runtime-metadata.js';
+import { RuntimeMetadataValidationError, validateRuntimeMetadata, validateRuntimeMetadataPatch, validateRuntimeMetadataReportState, } from '../runtime-metadata.js';
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared';
 export const SHARED_PACKAGE_VERSION = '0.5.1';
 export const HEALTH_PATH = '/healthz';
@@ -435,19 +435,26 @@ export function decodeDroneRuntimeMetadata(value) {
 export function decodeDroneRuntimeMetadataPatch(value) {
     return metadataValidation(() => validateRuntimeMetadataPatch(value));
 }
+export function decodeDroneRuntimeMetadataState(value) {
+    const input = record(value);
+    return metadataValidation(() => validateRuntimeMetadataReportState({
+        agent_kind: input.agent_kind,
+        reported_model: input.reported_model,
+        working_repo_name: input.working_repo_name,
+        working_repo_origin: input.working_repo_origin,
+    }, input.runtime_metadata_reported));
+}
+export function decodeWhoAmIRuntimeMetadataState(value) {
+    const input = record(value);
+    return metadataValidation(() => validateRuntimeMetadataReportState(input.runtime_metadata, input.runtime_metadata_reported));
+}
 export function decodeUpdateDroneRuntimeMetadataResponse(value) {
     const input = record(value);
     exactKeys(input, ['runtime_metadata', 'runtime_metadata_reported'], [
         'runtime_metadata',
         'runtime_metadata_reported',
     ]);
-    if (typeof input.runtime_metadata_reported !== 'boolean') {
-        fail('Expected a boolean.', ['runtime_metadata_reported']);
-    }
-    return {
-        runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata),
-        runtime_metadata_reported: input.runtime_metadata_reported,
-    };
+    return metadataValidation(() => validateRuntimeMetadataReportState(input.runtime_metadata, input.runtime_metadata_reported));
 }
 export function decodeUpdateDroneRuntimeMetadataRequestEnvelope(value) {
     return decodeProtocolEnvelope(value, decodeDroneRuntimeMetadataPatch);
@@ -487,14 +494,11 @@ function decodeAttachRole(value, path) {
 function decodeAttachDrone(value, path) {
     const input = record(value, path);
     exactKeys(input, ['id', 'label', 'runtime_metadata', 'runtime_metadata_reported'], ['id', 'label', 'runtime_metadata', 'runtime_metadata_reported'], path);
-    if (typeof input.runtime_metadata_reported !== 'boolean') {
-        fail('Expected a boolean.', [...path, 'runtime_metadata_reported']);
-    }
+    const state = metadataValidation(() => validateRuntimeMetadataReportState(input.runtime_metadata, input.runtime_metadata_reported));
     return {
         id: decodeUuid(input.id, [...path, 'id']),
         label: boundedString(input.label, 1, 128, [...path, 'label']),
-        runtime_metadata: decodeDroneRuntimeMetadata(input.runtime_metadata),
-        runtime_metadata_reported: input.runtime_metadata_reported,
+        ...state,
     };
 }
 function decodeAttachSession(value, path) {

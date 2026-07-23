@@ -172,6 +172,8 @@ export declare function compareLogCursor(a: LogCursor, b: LogCursor): -1 | 0 | 1
 export declare function maxLogCursor(a: LogCursor | null, b: LogCursor | null): LogCursor | null;
 export declare function decodeDroneRuntimeMetadata(value: unknown): DroneRuntimeMetadata;
 export declare function decodeDroneRuntimeMetadataPatch(value: unknown): DroneRuntimeMetadataPatch;
+export declare function decodeDroneRuntimeMetadataState(value: unknown): UpdateDroneRuntimeMetadataResponse;
+export declare function decodeWhoAmIRuntimeMetadataState(value: unknown): UpdateDroneRuntimeMetadataResponse;
 export interface UpdateDroneRuntimeMetadataResponse {
     runtime_metadata: DroneRuntimeMetadata;
     runtime_metadata_reported: boolean;
