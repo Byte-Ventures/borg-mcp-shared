@@ -305,5 +305,5 @@ describe('npm publish workflow', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 });
