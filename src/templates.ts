@@ -30,11 +30,15 @@ export type MessageTaxonomy = MessageTaxonomyClass[];
 
 export interface Template {
   name: string;
+  label: string;
+  short_description: string;
   description: string;
   roles: TemplateRole[];
   cube_directive?: string;
   message_taxonomy?: MessageTaxonomy;
 }
+
+export const LEGACY_DEFAULT_TEMPLATE_LABEL = 'Default (legacy)';
 
 export const ESCALATION_DISCIPLINE = `
 
@@ -319,6 +323,8 @@ const SECURITY_AUDITOR = `Perform only the routed security review of an exact so
 
 const SOFTWARE_DEV: Template = {
   name: 'software-dev',
+  label: 'Software Development',
+  short_description: 'Recommended for code repositories.',
   description: 'Scope-first multi-agent software development with one human Coordinator, implementation, and proportionate review roles.',
   cube_directive: SOFTWARE_DEV_DIRECTIVE,
   message_taxonomy: SOFTWARE_DEV_TAXONOMY,
@@ -433,6 +439,8 @@ const STARTER_TAXONOMY: MessageTaxonomy = [
 
 const STARTER: Template = {
   name: 'starter',
+  label: 'Starter',
+  short_description: 'Minimal roles for general projects.',
   description: 'Minimal scope-first template for general projects: a human Coordinator, a Worker, and a Reviewer.',
   cube_directive: `## Scope and coordination
 

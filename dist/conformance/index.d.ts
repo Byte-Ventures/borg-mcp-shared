@@ -1,5 +1,5 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
-import type { EnrollmentExchangeRequest } from '../protocol/contract.js';
+import type { CreateCubeRequest, EnrollmentExchangeRequest } from '../protocol/contract.js';
 export * from './adapter.js';
 export interface ConformanceVector<Input, Output> {
     name: string;
@@ -33,6 +33,20 @@ export interface EnrollmentRetryConformanceVector {
     };
 }
 export declare const ENROLLMENT_RETRY_CONFORMANCE: readonly EnrollmentRetryConformanceVector[];
+export interface CreateCubeRetryConformanceVector {
+    name: string;
+    initial: CreateCubeRequest;
+    retry: CreateCubeRequest;
+    expected: {
+        outcome: 'resolved_response';
+        status: 201;
+    } | {
+        outcome: 'retry_tuple_mismatch';
+        status: 409;
+        error: 'INVALID_INPUT';
+    };
+}
+export declare const CREATE_CUBE_RETRY_CONFORMANCE: readonly CreateCubeRetryConformanceVector[];
 export declare const ENROLLMENT_AUTHORITY_CONFORMANCE: readonly [{
     readonly name: "ordinary enrollment creates no authority or cube state";
     readonly response: {

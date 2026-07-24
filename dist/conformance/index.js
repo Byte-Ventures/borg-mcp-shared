@@ -120,6 +120,58 @@ export const ENROLLMENT_RETRY_CONFORMANCE = [
         expected: { outcome: 'uniform_auth_invalid', status: 401, error: 'AUTH_INVALID' },
     },
 ];
+const CREATE_CUBE_RETRY_KEY = '00000000-0000-4000-8000-000000000121';
+const CREATE_CUBE_INITIAL = {
+    retry_key: CREATE_CUBE_RETRY_KEY,
+    name: 'Repository One',
+    working_repo_name: 'repository-one',
+    repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-one' },
+    template: 'default',
+};
+export const CREATE_CUBE_RETRY_CONFORMANCE = [
+    {
+        name: 'exact retry resolves the authoritative response',
+        initial: CREATE_CUBE_INITIAL,
+        retry: CREATE_CUBE_INITIAL,
+        expected: { outcome: 'resolved_response', status: 201 },
+    },
+    {
+        name: 'changed repository display metadata resolves stored authoritative display',
+        initial: CREATE_CUBE_INITIAL,
+        retry: { ...CREATE_CUBE_INITIAL, working_repo_name: 'repository-one-renamed' },
+        expected: { outcome: 'resolved_response', status: 201 },
+    },
+    {
+        name: 'cube-name mismatch is rejected',
+        initial: CREATE_CUBE_INITIAL,
+        retry: { ...CREATE_CUBE_INITIAL, name: 'Repository One Renamed' },
+        expected: { outcome: 'retry_tuple_mismatch', status: 409, error: 'INVALID_INPUT' },
+    },
+    {
+        name: 'template mismatch is rejected',
+        initial: CREATE_CUBE_INITIAL,
+        retry: { ...CREATE_CUBE_INITIAL, template: 'software-dev' },
+        expected: { outcome: 'retry_tuple_mismatch', status: 409, error: 'INVALID_INPUT' },
+    },
+    {
+        name: 'repository kind mismatch is rejected',
+        initial: CREATE_CUBE_INITIAL,
+        retry: {
+            ...CREATE_CUBE_INITIAL,
+            repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000122' },
+        },
+        expected: { outcome: 'retry_tuple_mismatch', status: 409, error: 'INVALID_INPUT' },
+    },
+    {
+        name: 'repository value mismatch is rejected',
+        initial: CREATE_CUBE_INITIAL,
+        retry: {
+            ...CREATE_CUBE_INITIAL,
+            repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-two' },
+        },
+        expected: { outcome: 'retry_tuple_mismatch', status: 409, error: 'INVALID_INPUT' },
+    },
+];
 export const ENROLLMENT_AUTHORITY_CONFORMANCE = [
     {
         name: 'ordinary enrollment creates no authority or cube state',

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ANTI_PASSIVE_STANDING_DISCIPLINE,
+  LEGACY_DEFAULT_TEMPLATE_LABEL,
   TEMPLATES,
   getTemplate,
   listTemplateNames,
@@ -30,6 +31,18 @@ describe('cube templates', () => {
   it('registers the starter and software-dev templates', () => {
     expect(listTemplateNames()).toEqual(['starter', 'software-dev']);
     expect(getTemplate('missing')).toBeNull();
+  });
+
+  it('owns the exact host-neutral template presentation copy', () => {
+    expect(LEGACY_DEFAULT_TEMPLATE_LABEL).toBe('Default (legacy)');
+    expect(TEMPLATES['software-dev']).toMatchObject({
+      label: 'Software Development',
+      short_description: 'Recommended for code repositories.',
+    });
+    expect(TEMPLATES.starter).toMatchObject({
+      label: 'Starter',
+      short_description: 'Minimal roles for general projects.',
+    });
   });
 
   it('keeps a separate platform Queen role out of use-case templates', () => {
@@ -166,6 +179,8 @@ describe('cube templates', () => {
 describe('template no-clobber resolution', () => {
   const template: Template = {
     name: 'x',
+    label: 'X',
+    short_description: 'X template.',
     description: 'x',
     cube_directive: 'template directive',
     message_taxonomy: [{ class: 'status', routing: 'directed', default_to: ['coordinator'] }],
