@@ -145,14 +145,3 @@ jobs:
 
       - name: Publish exact verified tarball with provenance
         run: npm publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org
-
-      - name: Verify exact registry integrity
-        run: node scripts/verify-registry-release.mjs postpublish "${{ steps.preflight.outputs.name }}" "${{ steps.preflight.outputs.version }}" "${{ steps.preflight.outputs.integrity }}"
-
-      - name: Verify registry signatures and attestations
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir registry-verification
-          npm install --prefix registry-verification --ignore-scripts --save-exact "borgmcp-shared@${{ steps.release.outputs.version }}"
-          npm audit signatures --prefix registry-verification

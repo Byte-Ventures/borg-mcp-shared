@@ -20,16 +20,16 @@ The release lane has one build, test, package, and publication authority:
 4. rejects an existing immutable version or a package not owned solely by the
    configured npm owner before any registry mutation;
 5. publishes that exact local tarball through npm Trusted Publishing with
-   provenance; and
-6. uses bounded registry-propagation retries to compare the published
-   `dist.integrity` with the tarball, then installs the exact registry version
-   with scripts disabled and runs `npm audit signatures`.
+   provenance. Successful completion of `npm publish` is the workflow's terminal
+   release boundary; no post-publication registry readback can fail the immutable
+   release after npm has accepted it.
 
-npm and GitHub verify the registry signature and publish attestation. The
-repository does not reconstruct DSSE or SLSA statements, transfer approval
-tuples between runs, rebuild in a second job, or place checksum, SBOM, and report
-bundles on the critical publication path. SBOM portability remains covered by
-CI and the repository's dedicated deterministic SBOM tests.
+npm and GitHub produce the registry signature and publish attestation as part of
+Trusted Publishing. The repository does not reconstruct or immediately read back
+those records, reconstruct DSSE or SLSA statements, transfer approval tuples
+between runs, rebuild in a second job, or place checksum, SBOM, and report bundles
+on the critical publication path. SBOM portability remains covered by CI and the
+repository's dedicated deterministic SBOM tests.
 
 ## Permanent Configuration
 
@@ -77,8 +77,9 @@ repository, workflow output, artifact, issue, or shell history.
    tag gets one first attempt.
 5. Obtain the separately required environment approval, then approve that exact
    pending job. Approval does not permit a local rebuild or alternate artifact.
-6. Require every job step to pass, including exact registry integrity and
-   `npm audit signatures`, before announcing the version or updating consumers.
+6. Require the protected publish job to complete successfully before announcing
+   the version or updating consumers. Registry propagation and later consumer
+   availability are operational observations, not release-workflow gates.
 
 The workflow publishes only `./release/<tarball>`. It never publishes from the
 repository directory, a package name, a URL, a prior workflow artifact, or a
@@ -96,11 +97,9 @@ and run as immutable evidence. Fix the source and begin a separately reviewed an
 authorized version/tag plan. Never move, reuse, rerun, or force-update the failed
 tag.
 
-If npm accepts the version but a bounded integrity or signature check fails, do
-not rerun or republish. Preserve the run, inspect the live registry integrity and
-`npm audit signatures` result, and require an explicit recovery decision before
-consumer adoption. npm versions are immutable; never overwrite, unpublish, or
-silently substitute a replacement.
+Once npm accepts the version, the immutable release has occurred. Never rerun,
+republish, overwrite, unpublish, or silently substitute a replacement because a
+later registry read is delayed or unavailable.
 
 ## Immutable Historical Evidence
 
