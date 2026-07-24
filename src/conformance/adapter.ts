@@ -880,9 +880,14 @@ export async function runAdapterConformance(
       createProtocolEnvelope('cube-cross-client-retry', crossClientRequest),
     );
     expectStatus(crossClientRetry, 201, 'Exact cross-client cube-create retry');
+    const crossClientResolved = decodeCreateCubeResponseEnvelope(crossClientRetry.body).payload;
+    invariant(
+      crossClientResolved.result === 'resolved',
+      'Exact cross-client cube-create retry did not report resolved readback.',
+    );
     invariant(
       same(
-        { ...decodeCreateCubeResponseEnvelope(crossClientRetry.body).payload, result: 'created' },
+        { ...crossClientResolved, result: 'created' },
         crossClientCreated,
       ),
       'Exact cross-client cube-create retry returned different authoritative fields.',

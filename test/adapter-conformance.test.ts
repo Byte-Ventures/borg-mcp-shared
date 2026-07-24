@@ -66,6 +66,7 @@ type Fault =
   | 'owner-only-accept-mismatch'
   | 'owner-only-retry-mutation'
   | 'global-cube-retry-binding'
+  | 'return-created-on-cross-client-retry'
   | 'allow-drone-cube-create'
   | 'leak-original-invitation'
   | 'leak-original-retry-key'
@@ -645,7 +646,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         }
         return {
           status: 201,
-          body: createProtocolEnvelope(envelope.request_id, { ...binding.response, result: 'resolved' }),
+          body: createProtocolEnvelope(envelope.request_id, {
+            ...binding.response,
+            result: this.fault === 'return-created-on-cross-client-retry' &&
+              envelope.payload.repository.kind === 'local'
+              ? 'created'
+              : 'resolved',
+          }),
         };
       }
       const associationKey = `${auth.principal.handle.id}/${envelope.payload.repository.kind}/${envelope.payload.repository.value}`;
@@ -1354,6 +1361,7 @@ describe('executable adapter conformance', () => {
     ['overwrote owner credential on rejected mismatch', 'owner-only-overwrite-on-reject', 'enrollment.retry-authority'],
     ['mutated owner-only exact retry', 'owner-only-retry-mutation', 'enrollment.retry-authority'],
     ['used a global cube-create retry binding', 'global-cube-retry-binding', 'enrollment.retry-authority'],
+    ['returned created on an exact cross-client retry', 'return-created-on-cross-client-retry', 'enrollment.retry-authority'],
     ['allowed drone-session cube creation', 'allow-drone-cube-create', 'enrollment.retry-authority'],
     ['leaked original invitation', 'leak-original-invitation', 'enrollment.retry-authority'],
     ['leaked original retry key', 'leak-original-retry-key', 'enrollment.retry-authority'],

@@ -377,7 +377,9 @@ export async function runAdapterConformance(environment, options = {}) {
         const beforeCrossClientRetry = await environment.admin.observeAuthorityState();
         const crossClientRetry = await environment.operations.createCube(ordinaryCredential, createProtocolEnvelope('cube-cross-client-retry', crossClientRequest));
         expectStatus(crossClientRetry, 201, 'Exact cross-client cube-create retry');
-        invariant(same({ ...decodeCreateCubeResponseEnvelope(crossClientRetry.body).payload, result: 'created' }, crossClientCreated), 'Exact cross-client cube-create retry returned different authoritative fields.');
+        const crossClientResolved = decodeCreateCubeResponseEnvelope(crossClientRetry.body).payload;
+        invariant(crossClientResolved.result === 'resolved', 'Exact cross-client cube-create retry did not report resolved readback.');
+        invariant(same({ ...crossClientResolved, result: 'created' }, crossClientCreated), 'Exact cross-client cube-create retry returned different authoritative fields.');
         assertStateDelta(beforeCrossClientRetry, await environment.admin.observeAuthorityState(), {}, 'Exact cross-client cube-create retry');
         const differentAssociationVector = CREATE_CUBE_ASSOCIATION_CONFORMANCE.find((vector) => vector.expected.outcome === 'created');
         invariant(differentAssociationVector !== undefined, 'Missing different-repository association vector.');
