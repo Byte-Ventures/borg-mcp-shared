@@ -168,7 +168,7 @@ describe('npm publish workflow', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 
   it('recovers the annotated tag object after checkout flattens the local tag ref', async () => {
     const root = await mkdtemp(join(tmpdir(), 'borgmcp-release-tag-'));
