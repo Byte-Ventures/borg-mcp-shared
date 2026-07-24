@@ -133,8 +133,9 @@ that tag. `borgmcp-shared@0.6.0` was never published. Its annotated tag object
 `90a1cf686a0ce32a7aef836b0b82a930191b9030` peels to protected-main commit
 `fd69b08586481a60c88099dede8e4e066f73f2f2`; attempt-1 workflow run
 `30054936226` failed in tests before build, packaging, authentication, or registry
-mutation. Never rerun or move that tag. This source identifies the unpublished
-`0.6.1` runtime-metadata contract release. Its release requires reviewed source and explicit publication authorization
+mutation. Never rerun or move that tag. `borgmcp-shared@0.6.1` is published and
+immutable. This source identifies the unpublished `0.6.2` Coordinator
+activation-cadence release. Its release requires reviewed source and explicit publication authorization
 through one protected publish run, followed by postpublish registry integrity,
 signature, and attestation verification. Consumers
 must update the reviewed shared artifact before adopting the matching server and

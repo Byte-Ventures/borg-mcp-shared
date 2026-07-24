@@ -11,7 +11,20 @@ import {
 } from '../src/templates.js';
 import * as generatedTemplates from '../dist/templates.js';
 
-const ROLE_BUDGET = 12_000;
+const CONCISE_ROLE_BUDGET = 12_000;
+const COORDINATOR_ROLE_LIMIT = 45_000;
+const ROLE_LIMIT = 51_200;
+
+const COORDINATOR_ACTIVATION_COPY = [
+  'START NOW, RESUME NOW, REVIEW NOW, or HOLD',
+  'ACK and claim are receipt only',
+  'STARTING or substantive PROGRESS within 2 minutes',
+  'Directly kick a miss',
+  'After 5 more minutes without substantive response, probe liveness',
+  'reassign only when eligible and authorized',
+  'substantive PROGRESS at least every 10 minutes',
+  'Require immediate BLOCKED',
+];
 
 describe('cube templates', () => {
   it('registers the starter and software-dev templates', () => {
@@ -93,28 +106,25 @@ describe('cube templates', () => {
   it('keeps role bodies concise', () => {
     for (const [templateName, template] of Object.entries(TEMPLATES)) {
       for (const role of template.roles) {
-        expect(role.detailed_description.length, `${templateName}/${role.name}`).toBeLessThanOrEqual(
-          ROLE_BUDGET,
-        );
+        expect(role.detailed_description.length, `${templateName}/${role.name} hard limit`)
+          .toBeLessThanOrEqual(ROLE_LIMIT);
+        expect(role.detailed_description.length, `${templateName}/${role.name} concise budget`)
+          .toBeLessThanOrEqual(CONCISE_ROLE_BUDGET);
       }
     }
+
+    const coordinator = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!;
+    expect(coordinator.detailed_description.length, 'software-dev/Coordinator target')
+      .toBeLessThanOrEqual(COORDINATOR_ROLE_LIMIT);
   });
 
   it('binds Coordinator activation without granting scope', () => {
     const coordinator = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!;
-    for (const phrase of [
-      'START NOW',
-      'RESUME NOW',
-      'REVIEW NOW',
-      'HOLD',
-      'ACK is receipt only',
-      'STARTING',
-      'PROGRESS',
-      'Never manufacture work',
-    ]) {
+    for (const phrase of COORDINATOR_ACTIVATION_COPY) {
       expect(coordinator.detailed_description).toContain(phrase);
     }
     expect(coordinator.detailed_description).toContain('does not authorize');
+    expect(coordinator.detailed_description).toContain('Never manufacture work');
   });
 
   it('keeps review routing serialized through the coordinating seat', () => {

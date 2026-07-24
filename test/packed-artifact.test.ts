@@ -50,9 +50,48 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.6.1',
+      version: '0.6.2',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
+  });
+
+  it('ships the canonical Coordinator activation sequence', async () => {
+    const { destination, tarball } = await pack();
+    const consumer = join(destination, 'consumer');
+    await mkdir(consumer);
+    await writeFile(join(consumer, 'package.json'), JSON.stringify({
+      name: 'borgmcp-shared-template-consumer',
+      private: true,
+      version: '0.0.0',
+    }));
+    execFileSync('npm', [
+      'install',
+      '--prefix',
+      consumer,
+      '--ignore-scripts',
+      '--no-save',
+      tarball,
+    ], { stdio: 'pipe', env: materializeNpmEnv });
+
+    const coordinator = execFileSync('node', [
+      '--input-type=module',
+      '--eval',
+      "import { TEMPLATES } from 'borgmcp-shared/templates'; process.stdout.write(TEMPLATES['software-dev'].roles.find(({ name }) => name === 'Coordinator').detailed_description);",
+    ], { cwd: consumer, encoding: 'utf8' });
+
+    for (const phrase of [
+      'START NOW, RESUME NOW, REVIEW NOW, or HOLD',
+      'ACK and claim are receipt only',
+      'STARTING or substantive PROGRESS within 2 minutes',
+      'Directly kick a miss',
+      'After 5 more minutes without substantive response, probe liveness',
+      'reassign only when eligible and authorized',
+      'substantive PROGRESS at least every 10 minutes',
+      'Require immediate BLOCKED',
+    ]) {
+      expect(coordinator).toContain(phrase);
+    }
+    expect(coordinator.length).toBeLessThanOrEqual(45_000);
   });
 
   it('rejects source maps whose referenced source is absent', async () => {
@@ -87,7 +126,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.6.1' },
+      dependencies: { 'borgmcp-shared': '0.6.2' },
     }));
     execFileSync('npm', [
       'install',

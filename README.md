@@ -165,9 +165,10 @@ never published: annotated tag object `90a1cf686a0ce32a7aef836b0b82a930191b9030`
 peels to protected-main commit `fd69b08586481a60c88099dede8e4e066f73f2f2`;
 attempt-1 workflow run `30054936226` failed in tests before build, packaging,
 authentication, or registry mutation and must never be rerun or moved.
-This source now identifies the unpublished `0.6.1` runtime-metadata contract release. This
+`borgmcp-shared@0.6.1` is published and immutable. This source now identifies the
+unpublished `0.6.2` Coordinator activation-cadence release. This
 reviewed version bump grants no tag or publish authority; creating annotated
-`v0.6.1` and publishing
+`v0.6.2` and publishing
 its exact reviewed artifact remain separate, independently gated steps.
 Consumers update shared, server, and client together: peers carrying protocol v2
 and v3 reject each other during credential-free preflight. No registry token
