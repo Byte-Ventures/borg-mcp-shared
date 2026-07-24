@@ -18,11 +18,11 @@ incident is bound to tag object `045268aa8873da330819860012ecaddb4bc2883c`, prot
 `90a1cf686a0ce32a7aef836b0b82a930191b9030` peels to protected-main commit
 `fd69b08586481a60c88099dede8e4e066f73f2f2`; attempt-1 workflow run
 `30054936226` failed in tests before build, packaging, authentication, or registry
-mutation and must never be rerun or moved. `borgmcp-shared@0.6.1` is published
-and immutable. This source now identifies the unpublished `0.6.2` Coordinator
-activation-cadence release. The version bump grants no tag or publication
-authority: creating `v0.6.2` and publishing the reviewed artifact remain separate,
-independently gated steps.
+mutation and must never be rerun or moved. `borgmcp-shared@0.6.1` and
+`borgmcp-shared@0.6.2` are published and immutable. This source now identifies
+the reviewed, unpublished `0.6.3` protocol-v4 cube-creation contract release.
+The version bump grants no tag or publication authority: creating `v0.6.3` and
+publishing the reviewed artifact remain separate, independently gated steps.
 There is no compatibility path that returns a bearer from the server.
 
 A client verifies the credential-free `GET /api/protocol` tag preflight before

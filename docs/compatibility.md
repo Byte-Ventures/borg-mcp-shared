@@ -37,11 +37,12 @@ removes `session.expires_at` from attach responses: the exact session shape is
 before it decodes this response; a v3 peer likewise rejects v2. There is no
 field-level fallback.
 
-Protocol v4 is defined by the current coordinated cube-creation source. It adds
-strict origin-or-local repository identity, separate cube and repository display
-names, named built-in templates, and authoritative created-or-resolved readback.
-The package release number is selected only after an unused-version preflight.
-A v3 peer and a v4 peer reject each other before credentials or mutation.
+The reviewed, unpublished `borgmcp-shared@0.6.3` candidate carries protocol v4.
+It adds strict origin-or-local repository identity, separate cube and repository
+display names, named built-in templates, and authoritative created-or-resolved
+readback. A v3 peer and a v4 peer reject each other before credentials or
+mutation. The candidate is not a release until its separate exact-commit tag and
+protected publication gates complete.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a

@@ -165,15 +165,19 @@ never published: annotated tag object `90a1cf686a0ce32a7aef836b0b82a930191b9030`
 peels to protected-main commit `fd69b08586481a60c88099dede8e4e066f73f2f2`;
 attempt-1 workflow run `30054936226` failed in tests before build, packaging,
 authentication, or registry mutation and must never be rerun or moved.
-`borgmcp-shared@0.6.1` is published and immutable. This source now identifies the
-unpublished `0.6.2` Coordinator activation-cadence release. This
+`borgmcp-shared@0.6.1` and `borgmcp-shared@0.6.2` are published and immutable.
+This source now identifies the reviewed, unpublished `0.6.3` protocol-v4
+cube-creation contract release. This
 reviewed version bump grants no tag or publish authority; creating annotated
-`v0.6.2` and publishing
+`v0.6.3` and publishing
 its exact reviewed artifact remain separate, independently gated steps.
-Consumers update shared, server, and client together: peers carrying protocol v2
-and v3 reject each other during credential-free preflight. No registry token
-belongs in this repository, package metadata, lockfiles, or a committed `.npmrc`;
-publishing uses protected external credentials and provenance.
+Consumers update shared, server, and client together: peers carrying protocol v2,
+v3, and v4 reject incompatible tags during credential-free preflight. No
+registry token belongs in this repository, package metadata, lockfiles, or a
+committed `.npmrc`;
+publishing uses protected external credentials and provenance. Successful
+`npm publish` is the workflow terminal boundary; post-publication registry reads
+are outside the immutable release gate.
 
 The first client and server releases must consume the reviewed registry release,
 not a Git, tag, or local-path dependency. Public release requires the
