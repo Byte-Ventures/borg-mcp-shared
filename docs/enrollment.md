@@ -13,9 +13,14 @@ failed its cross-platform SBOM audit and must never be published or rerun.
 and `borgmcp-shared@0.5.1` are published and immutable. The accepted `0.5.1`
 incident is bound to tag object `045268aa8873da330819860012ecaddb4bc2883c`, protected-main commit
 `1981d7373e77f6edb4567872c1544bdbe2b1ef20`, attempt-1 run `29984423571`, and registry integrity
-`sha512-XUJq+FjY/cbarU9V1dIWnhNYcqyURTiGb6KyIzg99gy5hk/fEs5ee/8X/qvp7pw1Rshqt2J6I3TVbwJdlde2tA==`. This source now identifies the unpublished `0.6.0`
-runtime-metadata contract release. The version bump grants no tag or publication
-authority: creating `v0.6.0` and publishing the reviewed artifact remain separate,
+`sha512-XUJq+FjY/cbarU9V1dIWnhNYcqyURTiGb6KyIzg99gy5hk/fEs5ee/8X/qvp7pw1Rshqt2J6I3TVbwJdlde2tA==`.
+`borgmcp-shared@0.6.0` was never published: annotated tag object
+`90a1cf686a0ce32a7aef836b0b82a930191b9030` peels to protected-main commit
+`fd69b08586481a60c88099dede8e4e066f73f2f2`; attempt-1 workflow run
+`30054936226` failed in tests before build, packaging, authentication, or registry
+mutation and must never be rerun or moved. This source now identifies the
+unpublished `0.6.1` runtime-metadata contract release. The version bump grants no
+tag or publication authority: creating `v0.6.1` and publishing the reviewed artifact remain separate,
 independently gated steps.
 There is no compatibility path that returns a bearer from the server.
 

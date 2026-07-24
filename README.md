@@ -160,9 +160,14 @@ release: attach responses carry the exact non-expiring `session: { id }` shape.
 registry-propagation incident: annotated tag object `045268aa8873da330819860012ecaddb4bc2883c` peels to
 `1981d7373e77f6edb4567872c1544bdbe2b1ef20`; workflow run `29984423571` published exact integrity
 `sha512-XUJq+FjY/cbarU9V1dIWnhNYcqyURTiGb6KyIzg99gy5hk/fEs5ee/8X/qvp7pw1Rshqt2J6I3TVbwJdlde2tA==` and must never be rerun. Independent npm verification
-confirmed its registry signature and SLSA provenance. This source now identifies
-the unpublished `0.6.0` runtime-metadata contract release. This reviewed version
-bump grants no tag or publish authority; creating annotated `v0.6.0` and publishing
+confirmed its registry signature and SLSA provenance. `borgmcp-shared@0.6.0` was
+never published: annotated tag object `90a1cf686a0ce32a7aef836b0b82a930191b9030`
+peels to protected-main commit `fd69b08586481a60c88099dede8e4e066f73f2f2`;
+attempt-1 workflow run `30054936226` failed in tests before build, packaging,
+authentication, or registry mutation and must never be rerun or moved.
+This source now identifies the unpublished `0.6.1` runtime-metadata contract release. This
+reviewed version bump grants no tag or publish authority; creating annotated
+`v0.6.1` and publishing
 its exact reviewed artifact remain separate, independently gated steps.
 Consumers update shared, server, and client together: peers carrying protocol v2
 and v3 reject each other during credential-free preflight. No registry token

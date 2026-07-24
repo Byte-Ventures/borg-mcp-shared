@@ -129,8 +129,12 @@ peels to protected-main commit `1981d7373e77f6edb4567872c1544bdbe2b1ef20`. Attem
 postpublish signature check raced registry propagation and the immutable run ended
 failed. Independent pinned npm verification confirmed the registry signature and
 SLSA provenance, and the incident was explicitly accepted. Never rerun or move
-that tag. This source identifies the unpublished `0.6.0` runtime-metadata contract
-release. Its release requires reviewed source and explicit publication authorization
+that tag. `borgmcp-shared@0.6.0` was never published. Its annotated tag object
+`90a1cf686a0ce32a7aef836b0b82a930191b9030` peels to protected-main commit
+`fd69b08586481a60c88099dede8e4e066f73f2f2`; attempt-1 workflow run
+`30054936226` failed in tests before build, packaging, authentication, or registry
+mutation. Never rerun or move that tag. This source identifies the unpublished
+`0.6.1` runtime-metadata contract release. Its release requires reviewed source and explicit publication authorization
 through one protected publish run, followed by postpublish registry integrity,
 signature, and attestation verification. Consumers
 must update the reviewed shared artifact before adopting the matching server and
