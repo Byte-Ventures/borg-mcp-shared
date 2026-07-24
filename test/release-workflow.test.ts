@@ -48,16 +48,13 @@ describe('npm publish workflow', () => {
 
     const preflight = workflow.indexOf('- name: Reject existing version and wrong owner');
     const publish = workflow.indexOf('- name: Publish exact verified tarball with provenance');
-    const integrity = workflow.indexOf('- name: Verify exact registry integrity');
-    const signatures = workflow.indexOf('- name: Verify registry signatures and attestations');
     expect(preflight).toBeGreaterThan(-1);
     expect(preflight).toBeLessThan(publish);
-    expect(publish).toBeLessThan(integrity);
-    expect(integrity).toBeLessThan(signatures);
     expect(workflow).toContain('NPM_EXPECTED_OWNER: ${{ vars.NPM_EXPECTED_OWNER }}');
     expect(workflow).toContain('npm publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
-    expect(workflow).toContain('node scripts/verify-registry-release.mjs postpublish "${{ steps.preflight.outputs.name }}" "${{ steps.preflight.outputs.version }}" "${{ steps.preflight.outputs.integrity }}"');
-    expect(workflow).toContain('npm audit signatures --prefix registry-verification');
+    expect(workflow).not.toContain('verify-registry-release.mjs postpublish');
+    expect(workflow).not.toContain('registry-verification');
+    expect(workflow).not.toContain('npm audit signatures');
 
     expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(1);
     expect(workflow).not.toMatch(/npm publish "release\//);
@@ -84,6 +81,7 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('`minimal-package-release-assurance`');
     expect(runbook).toContain('one protected workflow job');
     expect(runbook).toContain('does not authorize a tag or publication');
+    expect(runbook).toContain('no post-publication registry readback');
     expect(runbook).not.toContain('ARTIFACT_SR_');
     expect(runbook).not.toContain('Security must download and audit that exact workflow artifact');
     expect(configurationGuard).not.toContain('ALLOW_UNCLAIMED_FIRST_PUBLISH');
