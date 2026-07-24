@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DRONE_ADDRESS_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
+  CREATE_CUBE_RETRY_CONFORMANCE,
+  CREATE_CUBE_ASSOCIATION_CONFORMANCE,
   RUNTIME_METADATA_REPOSITORY_CONFORMANCE,
   ENROLLMENT_AUTHORITY_CONFORMANCE,
   ENROLLMENT_REDACTION_CONFORMANCE,
@@ -9,6 +11,7 @@ import {
   ROLE_SECTION_ROUND_TRIP_CONFORMANCE,
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeResponse,
+  decodeCreateCubeRequest,
   decodeAttachResponse,
   formatDroneAddressToken,
   parseRoleSections,
@@ -38,6 +41,31 @@ describe('public conformance vectors', () => {
         vector.expected.outcome === 'stable_non_secret_identity',
       );
     }
+  });
+
+  it('pins every cube-create retry tuple field', () => {
+    for (const vector of CREATE_CUBE_RETRY_CONFORMANCE) {
+      const initial = decodeCreateCubeRequest(vector.initial);
+      const retry = decodeCreateCubeRequest(vector.retry);
+      const retryTuple = ({ retry_key, name, repository, template }: typeof initial) => ({
+        retry_key,
+        name,
+        repository,
+        template,
+      });
+      expect(JSON.stringify(retryTuple(retry)) === JSON.stringify(retryTuple(initial)), vector.name).toBe(
+        vector.expected.outcome === 'resolved_response',
+      );
+    }
+  });
+
+  it('pins repository association resolution independently of retry keys', () => {
+    const [sameRepository, differentRepository] = CREATE_CUBE_ASSOCIATION_CONFORMANCE;
+    expect(sameRepository.request.retry_key).not.toBe(sameRepository.created.retry_key);
+    expect(sameRepository.request.repository).toEqual(sameRepository.created.repository);
+    expect(sameRepository.expected).toEqual({ outcome: 'resolved', authority_state_delta: {} });
+    expect(differentRepository.request.repository).not.toEqual(differentRepository.created.repository);
+    expect(differentRepository.expected.outcome).toBe('created');
   });
 
   it('pins ordinary and owner enrollment authority vectors', () => {

@@ -1,6 +1,7 @@
 import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION, type ProtocolVersion } from './version.js';
 import {
+  canonicalizeRepositoryIdentity,
   RuntimeMetadataValidationError,
   validateRuntimeMetadata,
   validateRuntimeMetadataPatch,
@@ -120,17 +121,28 @@ export type EnrollmentExchangeResponse =
   | ClientEnrollmentExchangeResponse
   | OwnerEnrollmentExchangeResponse;
 
-export const CUBE_TEMPLATES = ['default'] as const;
+export const CUBE_TEMPLATES = ['default', 'software-dev', 'starter'] as const;
 export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
+
+export type CreateCubeRepository =
+  | { kind: 'origin'; value: string }
+  | { kind: 'local'; value: string };
 
 export interface CreateCubeRequest {
   retry_key: string;
   name: string;
+  working_repo_name: string;
+  repository: CreateCubeRepository;
   template: CubeTemplate;
 }
 
 export interface CreateCubeResponse {
+  result: 'created' | 'resolved';
   cube_id: string;
+  name: string;
+  working_repo_name: string;
+  repository: CreateCubeRepository;
+  template: CubeTemplate;
   human_seat_role_id: string;
   default_worker_role_id: string;
   access: 'manage';
@@ -434,10 +446,18 @@ function decodeExactServerCapabilities(
 
 export function decodeCreateCubeRequest(value: unknown): CreateCubeRequest {
   const input = record(value);
-  exactKeys(input, ['retry_key', 'name', 'template'], ['retry_key', 'name', 'template']);
+  exactKeys(
+    input,
+    ['retry_key', 'name', 'working_repo_name', 'repository', 'template'],
+    ['retry_key', 'name', 'working_repo_name', 'repository', 'template'],
+  );
   const name = boundedString(input.name, 1, 120, ['name']);
   if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
     fail('Cube name contains unsupported characters.', ['name']);
+  }
+  const workingRepoName = boundedString(input.working_repo_name, 1, 120, ['working_repo_name']);
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(workingRepoName)) {
+    fail('Cube name contains unsupported characters.', ['working_repo_name']);
   }
   if (!CUBE_TEMPLATES.includes(input.template as CubeTemplate)) {
     fail('Unsupported cube template.', ['template']);
@@ -445,6 +465,8 @@ export function decodeCreateCubeRequest(value: unknown): CreateCubeRequest {
   return {
     retry_key: decodeUuid(input.retry_key, ['retry_key']),
     name,
+    working_repo_name: workingRepoName,
+    repository: decodeCreateCubeRepository(input.repository, ['repository']),
     template: input.template as CubeTemplate,
   };
 }
@@ -457,16 +479,80 @@ export function decodeCreateCubeResponse(value: unknown): CreateCubeResponse {
   const input = record(value);
   exactKeys(
     input,
-    ['cube_id', 'human_seat_role_id', 'default_worker_role_id', 'access'],
-    ['cube_id', 'human_seat_role_id', 'default_worker_role_id', 'access'],
+    [
+      'result',
+      'cube_id',
+      'name',
+      'working_repo_name',
+      'repository',
+      'template',
+      'human_seat_role_id',
+      'default_worker_role_id',
+      'access',
+    ],
+    [
+      'result',
+      'cube_id',
+      'name',
+      'working_repo_name',
+      'repository',
+      'template',
+      'human_seat_role_id',
+      'default_worker_role_id',
+      'access',
+    ],
   );
+  if (input.result !== 'created' && input.result !== 'resolved') {
+    fail('Invalid cube creation result.', ['result']);
+  }
+  const name = boundedString(input.name, 1, 120, ['name']);
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
+    fail('Cube name contains unsupported characters.', ['name']);
+  }
+  const workingRepoName = boundedString(input.working_repo_name, 1, 120, ['working_repo_name']);
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(workingRepoName)) {
+    fail('Cube name contains unsupported characters.', ['working_repo_name']);
+  }
+  if (!CUBE_TEMPLATES.includes(input.template as CubeTemplate)) {
+    fail('Unsupported cube template.', ['template']);
+  }
   if (input.access !== 'manage') fail('Created cube access must be manage.', ['access']);
   return {
+    result: input.result,
     cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    name,
+    working_repo_name: workingRepoName,
+    repository: decodeCreateCubeRepository(input.repository, ['repository']),
+    template: input.template as CubeTemplate,
     human_seat_role_id: decodeUuid(input.human_seat_role_id, ['human_seat_role_id']),
     default_worker_role_id: decodeUuid(input.default_worker_role_id, ['default_worker_role_id']),
     access: 'manage',
   };
+}
+
+function decodeCreateCubeRepository(
+  value: unknown,
+  path: readonly (string | number)[],
+): CreateCubeRepository {
+  const input = record(value, path);
+  exactKeys(input, ['kind', 'value'], ['kind', 'value'], path);
+  if (input.kind === 'local') {
+    return { kind: 'local', value: decodeUuid(input.value, [...path, 'value']) };
+  }
+  if (input.kind !== 'origin') fail('Unsupported repository identity kind.', [...path, 'kind']);
+  const origin = boundedString(input.value, 1, 512, [...path, 'value']);
+  try {
+    if (canonicalizeRepositoryIdentity(origin).working_repo_origin !== origin) {
+      fail('Repository origin must be canonical.', [...path, 'value']);
+    }
+  } catch (error) {
+    if (error instanceof ProtocolContractError) throw error;
+    if (error instanceof RuntimeMetadataValidationError) {
+      fail('Repository origin must be canonical.', [...path, 'value']);
+    }
+    throw error;
+  }
+  return { kind: 'origin', value: origin };
 }
 
 export function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse> {
@@ -698,7 +784,7 @@ export function decodeUpdateDroneRuntimeMetadataResponseEnvelope(
   return decodeProtocolEnvelope(value, decodeUpdateDroneRuntimeMetadataResponse);
 }
 
-// ── v3 clean-slate wire types ──────────────────────────────────────────────
+// ── Clean-slate attach wire types (introduced in v3) ──────────────────────
 
 export interface AttachRequest {
   cube_id: string;
@@ -800,7 +886,7 @@ function decodeAttachSession(value: unknown, path: readonly (string | number)[])
 }
 
 /**
- * Decode a v3 attach request. Strict: exact keys, bounded sizes,
+ * Decode an attach request. Strict: exact keys, bounded sizes,
  * session_credential is token-safe and never echoed in errors.
  */
 export function decodeAttachRequest(value: unknown): AttachRequest {
@@ -825,7 +911,7 @@ export function decodeAttachRequest(value: unknown): AttachRequest {
 }
 
 /**
- * Create a v3 attach request envelope. Stamps the canonical protocol version.
+ * Create an attach request envelope. Stamps the canonical protocol version.
  */
 export function createAttachRequestEnvelope(
   requestId: string,
@@ -839,7 +925,7 @@ export function createAttachRequestEnvelope(
 }
 
 /**
- * Decode a v3 attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
+ * Decode an attach request envelope. Verifies protocol_version === PROTOCOL_VERSION
  * BEFORE decoding the payload — a wrong tag never invokes the payload decoder
  * and never exposes or returns the supplied session_credential.
  * Uses a static token-safe diagnostic; does not interpolate attacker-controlled text.
@@ -869,7 +955,7 @@ export function decodeAttachRequestEnvelope(
 }
 
 /**
- * Decode a v3 attach response. Strict: exact keys and result discriminant.
+ * Decode an attach response. Strict: exact keys and result discriminant.
  */
 export function decodeAttachResponse(value: unknown): AttachResponse {
   const input = record(value);
@@ -893,7 +979,7 @@ export function decodeAttachResponse(value: unknown): AttachResponse {
 }
 
 /**
- * Decode a v3 attach response wrapped in a ProtocolEnvelope.
+ * Decode an attach response wrapped in a ProtocolEnvelope.
  * Verifies protocol_version === PROTOCOL_VERSION before decoding payload.
  */
 export function decodeAttachResponseEnvelope(value: unknown): ProtocolEnvelope<AttachResponse> {

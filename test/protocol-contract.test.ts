@@ -46,7 +46,7 @@ import {
 } from '../src/index.js';
 import * as sharedApi from '../src/index.js';
 
-const tagPreflight = { protocol_version: '3' } as const;
+const tagPreflight = { protocol_version: '4' } as const;
 
 describe('package and handshake contract', () => {
   it('keeps the exported identity aligned with package.json', async () => {
@@ -107,7 +107,7 @@ describe('package and handshake contract', () => {
 
   it('emits and decodes a tag-only preflight carrying nothing but the exact tag', () => {
     const emitted = createProtocolTagPreflight();
-    expect(emitted).toEqual({ protocol_version: '3' });
+    expect(emitted).toEqual({ protocol_version: '4' });
     expect(Object.keys(emitted)).toEqual(['protocol_version']);
     expect(decodeProtocolTagPreflight(tagPreflight)).toEqual(tagPreflight);
   });
@@ -246,7 +246,7 @@ describe('package and handshake contract', () => {
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
     expect(createProtocolEnvelope('req-12345678', { ok: true })).toEqual({
-      protocol_version: '3',
+      protocol_version: '4',
       request_id: 'req-12345678',
       payload: { ok: true },
     });
@@ -264,7 +264,7 @@ describe('package and handshake contract', () => {
   it('decodes canonical errors without accepting secret-bearing fields', () => {
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         request_id: 'req-12345678',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -272,7 +272,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         error: {
           code: 'AUTH_INVALID',
           message: 'Authentication failed.',
@@ -289,7 +289,7 @@ describe('package and handshake contract', () => {
     );
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         error: { code: 'AUTH_INVALID', message: `Credential ${secret} failed.` },
       }).error.message,
     ).toBe('Credential <REDACTED> failed.');
@@ -314,7 +314,7 @@ describe('package and handshake contract', () => {
       `retry_key\\u0009:<REDACTED> cube_id=${publicId}`,
     );
     expect(decodeProtocolErrorEnvelope({
-      protocol_version: '3',
+      protocol_version: '4',
       error: {
         code: 'AUTH_INVALID',
         message: `retry-key\n: ${retryKey}`,
@@ -334,7 +334,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         request_id: 'valid-id\r\nInjected',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -344,7 +344,7 @@ describe('package and handshake contract', () => {
   it('rejects retired capability-negotiation error fields', () => {
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         error: {
           code: 'AUTH_INVALID',
           message: 'Unsupported.',
@@ -354,7 +354,7 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         error: {
           code: 'UNSUPPORTED_PROTOCOL_VERSION',
           message: 'Unsupported.',
@@ -371,28 +371,28 @@ describe('package and handshake contract', () => {
     expect(PROTOCOL_HTTP_CONTRACT.drone_evicted_status).toBe(410);
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         request_id: 'req-12345678',
         error: { code: 'AUTH_EXPIRED', message: 'Session expired.' },
       }),
     ).toMatchObject({ error: { code: 'AUTH_EXPIRED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REVOKED', message: 'Session revoked.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REVOKED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REJECTED', message: 'Seat already bound.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REJECTED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '3',
+        protocol_version: '4',
         request_id: 'req-12345678',
         error: { code: 'DRONE_EVICTED', message: 'This seat was evicted.' },
       }),
@@ -586,27 +586,109 @@ describe('enrollment codecs', () => {
 
 describe('cube creation codecs', () => {
   const retryKey = '00000000-0000-4000-8000-000000000011';
+  const repository = {
+    kind: 'origin' as const,
+    value: 'https://github.com/Byte-Ventures/borg-mcp',
+  };
   const response = {
+    result: 'created' as const,
     cube_id: '00000000-0000-4000-8000-000000000012',
+    name: 'My Borg Cube',
+    working_repo_name: 'borg-mcp',
+    repository,
+    template: 'software-dev' as const,
     human_seat_role_id: '00000000-0000-4000-8000-000000000013',
     default_worker_role_id: '00000000-0000-4000-8000-000000000014',
     access: 'manage' as const,
   };
 
-  it('decodes the closed idempotent request and stable non-secret response', () => {
-    const request = { retry_key: retryKey, name: 'borg-mcp', template: 'default' };
+  it.each(['default', 'software-dev', 'starter'] as const)(
+    'decodes the closed %s request and stable authoritative response',
+    (template) => {
+      const request = {
+        retry_key: retryKey,
+        name: 'My Borg Cube',
+        working_repo_name: 'borg-mcp',
+        repository,
+        template,
+      };
+      expect(decodeCreateCubeRequest(request)).toEqual(request);
+      expect(decodeCreateCubeRequestEnvelope(createProtocolEnvelope('cube-create-1', request)).payload)
+        .toEqual(request);
+    },
+  );
+
+  it('decodes an opaque local repository identity and resolved readback', () => {
+    const localRepository = {
+      kind: 'local' as const,
+      value: '00000000-0000-4000-8000-000000000015',
+    };
+    const request = {
+      retry_key: retryKey,
+      name: 'Private Cube',
+      working_repo_name: 'private-repository',
+      repository: localRepository,
+      template: 'starter' as const,
+    };
     expect(decodeCreateCubeRequest(request)).toEqual(request);
-    expect(decodeCreateCubeRequestEnvelope(createProtocolEnvelope('cube-create-1', request)).payload).toEqual(request);
+    expect(decodeCreateCubeResponse({
+      ...response,
+      result: 'resolved',
+      name: request.name,
+      repository: localRepository,
+      working_repo_name: request.working_repo_name,
+      template: request.template,
+    })).toEqual({
+      ...response,
+      result: 'resolved',
+      name: request.name,
+      repository: localRepository,
+      working_repo_name: request.working_repo_name,
+      template: request.template,
+    });
+  });
+
+  it('decodes the exact authoritative response envelope', () => {
     expect(decodeCreateCubeResponse(response)).toEqual(response);
     expect(decodeCreateCubeResponseEnvelope(createProtocolEnvelope('cube-create-1', response)).payload).toEqual(response);
   });
 
-  it('rejects caller authority, unsupported templates, controls, and returned secrets', () => {
-    expect(() => decodeCreateCubeRequest({ retry_key: retryKey, name: 'borg-mcp', template: 'default', owner_id: response.cube_id })).toThrow(ProtocolContractError);
-    expect(() => decodeCreateCubeRequest({ retry_key: retryKey, name: 'borg-mcp', template: 'custom' })).toThrow(ProtocolContractError);
-    expect(() => decodeCreateCubeRequest({ retry_key: retryKey, name: 'borg\n-mcp', template: 'default' })).toThrow(ProtocolContractError);
+  it('rejects malformed identities, tuple fields, templates, and extra authority', () => {
+    const request = {
+      retry_key: retryKey,
+      name: 'My Borg Cube',
+      working_repo_name: 'borg-mcp',
+      repository,
+      template: 'default',
+    };
+    expect(() => decodeCreateCubeRequest({ ...request, owner_id: response.cube_id })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({ ...request, template: 'custom' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({ ...request, name: 'borg\n-mcp' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({ ...request, working_repo_name: 'borg\n-mcp' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({
+      ...request,
+      repository: { ...repository, extra: true },
+    })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({
+      ...request,
+      repository: { kind: 'origin', value: 'git@github.com:Byte-Ventures/borg-mcp.git' },
+    })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({
+      ...request,
+      repository: { kind: 'local', value: '/Users/operator/repository' },
+    })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeRequest({
+      ...request,
+      repository: { kind: 'unknown', value: repository.value },
+    })).toThrow(ProtocolContractError);
+  });
+
+  it('rejects non-authoritative or secret-bearing readback', () => {
     expect(() => decodeCreateCubeResponse({ ...response, credential: 'A'.repeat(43) })).toThrow(ProtocolContractError);
     expect(() => decodeCreateCubeResponse({ ...response, access: 'write' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeResponse({ ...response, result: 'existing' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeResponse({ ...response, template: 'custom' })).toThrow(ProtocolContractError);
+    expect(() => decodeCreateCubeResponse({ ...response, repository: { kind: 'local', value: 'not-a-uuid' } })).toThrow(ProtocolContractError);
   });
 });
 
@@ -694,7 +776,7 @@ describe('coordination request codecs', () => {
   });
 });
 
-describe('v3 clean-slate wire types', () => {
+describe('clean-slate attach wire types', () => {
   const validAttachRequest = {
     cube_id: '10000000-0000-4000-8000-000000000001',
     role_id: '20000000-0000-4000-8000-000000000001',
@@ -869,12 +951,12 @@ describe('v3 clean-slate wire types', () => {
 
   it('decodes attach response envelope with correct protocol version', () => {
     const envelope = {
-      protocol_version: '3',
+      protocol_version: '4',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
     const decoded = decodeAttachResponseEnvelope(envelope);
-    expect(decoded.protocol_version).toBe('3');
+    expect(decoded.protocol_version).toBe('4');
     expect(decoded.payload.result).toBe('created');
   });
 
@@ -889,7 +971,7 @@ describe('v3 clean-slate wire types', () => {
 
   it('rejects attach response envelope with unknown protocol version', () => {
     const envelope = {
-      protocol_version: '4',
+      protocol_version: '5',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
@@ -909,7 +991,7 @@ describe('v3 clean-slate wire types', () => {
 
   it('creates and decodes a valid attach request envelope round-trip', () => {
     const envelope = createAttachRequestEnvelope('test-req-001', validAttachRequest);
-    expect(envelope.protocol_version).toBe('3');
+    expect(envelope.protocol_version).toBe('4');
     expect(envelope.request_id).toBe('test-req-001');
     expect(envelope.payload.cube_id).toBe(validAttachRequest.cube_id);
 
@@ -920,7 +1002,7 @@ describe('v3 clean-slate wire types', () => {
 
   it('decodes attach request envelope from raw JSON', () => {
     const raw = {
-      protocol_version: '3',
+      protocol_version: '4',
       request_id: 'test-req-002',
       payload: validAttachRequest,
     };

@@ -1,4 +1,4 @@
-import { type CreateCubeResponse, type LogCursor, type DroneRuntimeMetadata } from '../protocol/index.js';
+import { type CreateCubeResponse, type CreateCubeRepository, type CubeTemplate, type LogCursor, type DroneRuntimeMetadata } from '../protocol/index.js';
 export interface ConformanceHttpResponse {
     status: number;
     body: unknown;
@@ -65,12 +65,20 @@ export interface ConformanceAuthorityState {
     grants: number;
     server_capabilities: number;
     cube_create_bindings: number;
+    repository_associations: number;
 }
 export interface ConformanceCreatedCubeState {
     cube_exists: boolean;
     creator_has_grant: boolean;
+    creator_access: 'manage' | null;
     grant_count: number;
     role_count: number;
+    name: string;
+    working_repo_name: string;
+    repository: CreateCubeRepository;
+    template: CubeTemplate;
+    human_seat_role_id: string;
+    default_worker_role_id: string;
     human_seat_role_matches: boolean;
     default_worker_role_matches: boolean;
 }

@@ -1,3 +1,16 @@
+export const LEGACY_DEFAULT_TEMPLATE_LABEL = 'Default (legacy)';
+export const NEW_CUBE_TEMPLATE_PRESENTATIONS = [
+    {
+        name: 'software-dev',
+        label: 'Software Development',
+        short_description: 'Recommended for code repositories.',
+    },
+    {
+        name: 'starter',
+        label: 'Starter',
+        short_description: 'Minimal roles for general projects.',
+    },
+];
 export const ESCALATION_DISCIPLINE = `
 
 Escalation:
@@ -256,7 +269,7 @@ const SECURITY_AUDITOR = `Perform only the routed security review of an exact so
 - Report unrelated risks separately; do not expand the implementation, start a general hardening program, or create follow-up issues without authorization.
 - Do not implement fixes, merge, deploy, publish, tag, or release.${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${ESCALATION_DISCIPLINE}`;
 const SOFTWARE_DEV = {
-    name: 'software-dev',
+    ...NEW_CUBE_TEMPLATE_PRESENTATIONS[0],
     description: 'Scope-first multi-agent software development with one human Coordinator, implementation, and proportionate review roles.',
     cube_directive: SOFTWARE_DEV_DIRECTIVE,
     message_taxonomy: SOFTWARE_DEV_TAXONOMY,
@@ -368,7 +381,7 @@ const STARTER_TAXONOMY = [
     },
 ];
 const STARTER = {
-    name: 'starter',
+    ...NEW_CUBE_TEMPLATE_PRESENTATIONS[1],
     description: 'Minimal scope-first template for general projects: a human Coordinator, a Worker, and a Reviewer.',
     cube_directive: `## Scope and coordination
 
@@ -422,8 +435,8 @@ const STARTER = {
     ],
 };
 export const TEMPLATES = {
-    starter: STARTER,
     'software-dev': SOFTWARE_DEV,
+    starter: STARTER,
 };
 export function getTemplate(name) {
     return TEMPLATES[name] ?? null;

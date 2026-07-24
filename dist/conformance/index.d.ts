@@ -1,5 +1,5 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
-import type { EnrollmentExchangeRequest } from '../protocol/contract.js';
+import type { CreateCubeRequest, EnrollmentExchangeRequest } from '../protocol/contract.js';
 export * from './adapter.js';
 export interface ConformanceVector<Input, Output> {
     name: string;
@@ -33,6 +33,39 @@ export interface EnrollmentRetryConformanceVector {
     };
 }
 export declare const ENROLLMENT_RETRY_CONFORMANCE: readonly EnrollmentRetryConformanceVector[];
+export interface CreateCubeRetryConformanceVector {
+    name: string;
+    initial: CreateCubeRequest;
+    retry: CreateCubeRequest;
+    expected: {
+        outcome: 'resolved_response';
+        status: 201;
+    } | {
+        outcome: 'retry_tuple_mismatch';
+        status: 409;
+        error: 'INVALID_INPUT';
+    };
+}
+export declare const CREATE_CUBE_RETRY_CONFORMANCE: readonly CreateCubeRetryConformanceVector[];
+export interface CreateCubeAssociationConformanceVector {
+    name: string;
+    created: CreateCubeRequest;
+    request: CreateCubeRequest;
+    expected: {
+        outcome: 'resolved';
+        authority_state_delta: Record<string, never>;
+    } | {
+        outcome: 'created';
+        authority_state_delta: {
+            cubes: 1;
+            roles: 2;
+            grants: 1;
+            cube_create_bindings: 1;
+            repository_associations: 1;
+        };
+    };
+}
+export declare const CREATE_CUBE_ASSOCIATION_CONFORMANCE: readonly CreateCubeAssociationConformanceVector[];
 export declare const ENROLLMENT_AUTHORITY_CONFORMANCE: readonly [{
     readonly name: "ordinary enrollment creates no authority or cube state";
     readonly response: {

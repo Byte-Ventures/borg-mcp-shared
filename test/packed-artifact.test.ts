@@ -94,6 +94,93 @@ describe('packed artifact', () => {
     expect(coordinator.length).toBeLessThanOrEqual(45_000);
   });
 
+  it('ships the named-template cube-creation contract and presentation copy', async () => {
+    const { destination, tarball } = await pack();
+    const consumer = join(destination, 'creation-contract-consumer');
+    await mkdir(consumer);
+    await writeFile(join(consumer, 'package.json'), JSON.stringify({
+      name: 'borgmcp-shared-creation-contract-consumer',
+      private: true,
+      version: '0.0.0',
+    }));
+    execFileSync('npm', [
+      'install',
+      '--prefix',
+      consumer,
+      '--ignore-scripts',
+      '--no-save',
+      tarball,
+    ], { stdio: 'pipe', env: materializeNpmEnv });
+
+    const report = JSON.parse(execFileSync('node', [
+      '--input-type=module',
+      '--eval',
+      `
+        import { CUBE_TEMPLATES, PROTOCOL_VERSION, decodeCreateCubeRequest } from 'borgmcp-shared/protocol';
+        import {
+          LEGACY_DEFAULT_TEMPLATE_LABEL,
+          NEW_CUBE_TEMPLATE_PRESENTATIONS,
+          TEMPLATES,
+        } from 'borgmcp-shared/templates';
+        const request = decodeCreateCubeRequest({
+          retry_key: '00000000-0000-4000-8000-000000000001',
+          name: 'Repository Cube',
+          working_repo_name: 'repository',
+          repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
+          template: 'software-dev',
+        });
+        process.stdout.write(JSON.stringify({
+          templates: CUBE_TEMPLATES,
+          protocolVersion: PROTOCOL_VERSION,
+          request,
+          legacyLabel: LEGACY_DEFAULT_TEMPLATE_LABEL,
+          presentations: NEW_CUBE_TEMPLATE_PRESENTATIONS,
+          softwareDevelopment: {
+            label: TEMPLATES['software-dev'].label,
+            description: TEMPLATES['software-dev'].short_description,
+          },
+          starter: {
+            label: TEMPLATES.starter.label,
+            description: TEMPLATES.starter.short_description,
+          },
+        }));
+      `,
+    ], { cwd: consumer, encoding: 'utf8' }));
+
+    expect(report).toEqual({
+      templates: ['default', 'software-dev', 'starter'],
+      protocolVersion: '4',
+      request: {
+        retry_key: '00000000-0000-4000-8000-000000000001',
+        name: 'Repository Cube',
+        working_repo_name: 'repository',
+        repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
+        template: 'software-dev',
+      },
+      legacyLabel: 'Default (legacy)',
+      presentations: [
+        {
+          name: 'software-dev',
+          label: 'Software Development',
+          short_description: 'Recommended for code repositories.',
+        },
+        {
+          name: 'starter',
+          label: 'Starter',
+          short_description: 'Minimal roles for general projects.',
+        },
+      ],
+      softwareDevelopment: {
+        label: 'Software Development',
+        description: 'Recommended for code repositories.',
+      },
+      starter: {
+        label: 'Starter',
+        description: 'Minimal roles for general projects.',
+      },
+    });
+  });
+
   it('rejects source maps whose referenced source is absent', async () => {
     const tarball = await repack(async (root) => {
       await rm(join(root, 'src/protocol/contract.ts'));

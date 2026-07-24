@@ -37,6 +37,12 @@ removes `session.expires_at` from attach responses: the exact session shape is
 before it decodes this response; a v3 peer likewise rejects v2. There is no
 field-level fallback.
 
+Protocol v4 is defined by the current coordinated cube-creation source. It adds
+strict origin-or-local repository identity, separate cube and repository display
+names, named built-in templates, and authoritative created-or-resolved readback.
+The package release number is selected only after an unused-version preflight.
+A v3 peer and a v4 peer reject each other before credentials or mutation.
+
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
 successful build alone — they must run the shared conformance suite against the
@@ -64,7 +70,7 @@ use it for routing, launch configuration, or authorization.
 
 ## Advisory Runtime Metadata
 
-Protocol v3 defines one optional complete runtime-metadata report during attach
+Protocol v3 introduced one optional complete runtime-metadata report during attach
 and one authenticated own-seat patch at
 `PATCH /api/cubes/:cubeId/drones/self/metadata`. A complete report contains
 `agent_kind`, `reported_model`, `working_repo_name`, and

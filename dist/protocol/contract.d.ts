@@ -113,15 +113,29 @@ export interface OwnerEnrollmentExchangeResponse {
     server_capabilities: ['create_cube'];
 }
 export type EnrollmentExchangeResponse = ClientEnrollmentExchangeResponse | OwnerEnrollmentExchangeResponse;
-export declare const CUBE_TEMPLATES: readonly ["default"];
+export declare const CUBE_TEMPLATES: readonly ["default", "software-dev", "starter"];
 export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
+export type CreateCubeRepository = {
+    kind: 'origin';
+    value: string;
+} | {
+    kind: 'local';
+    value: string;
+};
 export interface CreateCubeRequest {
     retry_key: string;
     name: string;
+    working_repo_name: string;
+    repository: CreateCubeRepository;
     template: CubeTemplate;
 }
 export interface CreateCubeResponse {
+    result: 'created' | 'resolved';
     cube_id: string;
+    name: string;
+    working_repo_name: string;
+    repository: CreateCubeRepository;
+    template: CubeTemplate;
     human_seat_role_id: string;
     default_worker_role_id: string;
     access: 'manage';

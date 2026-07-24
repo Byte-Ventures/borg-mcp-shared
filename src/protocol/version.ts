@@ -1,4 +1,4 @@
-/** Current Borg coordination protocol generation. Clean-slate v3. */
-export const PROTOCOL_VERSION = '3' as const;
+/** Current Borg coordination protocol generation. Clean-slate v4. */
+export const PROTOCOL_VERSION = '4' as const;
 
 export type ProtocolVersion = typeof PROTOCOL_VERSION;

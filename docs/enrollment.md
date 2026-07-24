@@ -128,43 +128,67 @@ enrollment and attach routes never create or widen grants.
 
 ## Cube Creation
 
-`POST /api/cubes` requires an active parent-client credential with the persisted
-`create_cube` server capability. Ordinary clients, revoked clients, and drone
-sessions cannot use it. Its strict payload is:
+Under protocol v4, `POST /api/cubes` requires an active parent-client credential
+with the persisted `create_cube` server capability. Ordinary clients, revoked
+clients, and drone sessions cannot use it. Its strict payload is:
 
 ```json
 {
   "retry_key": "00000000-0000-4000-8000-000000000201",
-  "name": "repository presentation name",
-  "template": "default"
+  "name": "My Repository Cube",
+  "working_repo_name": "repository-display-name",
+  "repository": {
+    "kind": "origin",
+    "value": "https://github.com/owner/repository"
+  },
+  "template": "software-dev"
 }
 ```
 
 The client persists the pending retry tuple before network I/O and reuses it
-after ambiguous transport failure. `name` is bounded presentation data and
-`template` selects allowlisted, server-owned inert data. The request cannot
-supply cube or role IDs, an owner, access, grant target, capability, arbitrary
-template data, paths, URLs, modules, commands, or repository credentials.
+after ambiguous transport failure. `name` is the bounded user-selected cube
+name. `working_repo_name` is derived repository display metadata and does not
+identify or authorize the repository. `repository` is either an exact canonical
+public origin or a client-generated opaque local UUID. `template` accepts
+`software-dev`, `starter`, or the compatible legacy `default` seed. The request
+cannot supply cube or role IDs, an owner, access, grant target, capability,
+arbitrary template data, local paths, raw origins, modules, commands, or
+repository credentials.
 
-The server binds `(authenticated client, retry_key)` to the exact canonical name
-and template. A successful transaction atomically creates one cube, exactly one
-human-seat role, exactly one default worker role, and exactly one creator
-`manage` grant. It returns:
+The server binds `(authenticated client, retry_key)` to the exact cube name,
+repository identity, and template. A successful transaction atomically creates
+one cube, the selected template directive, roles and flags, message taxonomy,
+and exactly one creator `manage` grant. The legacy `default` input retains its
+empty directive, platform Coordinator, default Builder, and no taxonomy. The
+authoritative response is:
 
 ```json
 {
+  "result": "created",
   "cube_id": "<canonical UUID>",
+  "name": "My Repository Cube",
+  "working_repo_name": "repository-display-name",
+  "repository": {
+    "kind": "origin",
+    "value": "https://github.com/owner/repository"
+  },
+  "template": "software-dev",
   "human_seat_role_id": "<canonical UUID>",
   "default_worker_role_id": "<canonical UUID>",
   "access": "manage"
 }
 ```
 
-An exact retry returns that stable response without mutation. Reusing the same
-retry key with a different name or template returns non-enumerating HTTP `409`
-`INVALID_INPUT` and creates nothing. A fresh retry key may create another cube,
-subject to implementation quotas. `owner_id` and role labels remain metadata;
-cube access derives only from the explicit cube-scoped grant.
+An exact retry returns `result: "resolved"` with the stored authoritative fields
+and no mutation. A fresh retry key for the same creator-scoped repository
+association also resolves that stored cube, name, repository display, and
+template without mutation. Changed `working_repo_name` input does not overwrite
+stored display metadata. Reusing a bound retry key with a different cube name,
+repository identity, or template returns non-enumerating HTTP `409`
+`INVALID_INPUT` and creates nothing. A fresh retry for a different, unassociated
+repository may create another cube, subject to implementation quotas. `owner_id`
+and role labels remain metadata; cube access derives only from the explicit
+cube-scoped grant.
 
 ## Conformance
 
@@ -178,3 +202,9 @@ every retry vector, observes client/capability/cube/role/grant counts, verifies
 secret-free errors, and proves authorized idempotent cube creation. Hostile
 reference adapters demonstrate that each retry, authority, and idempotency
 violation fails conformance.
+
+`CREATE_CUBE_RETRY_CONFORMANCE` independently pins exact resolution, stored
+display readback, and mismatch rejection for cube name, repository kind/value,
+and template. `CREATE_CUBE_ASSOCIATION_CONFORMANCE` distinguishes no-mutation
+resolution of an existing repository association from creation for a different,
+unassociated repository.
