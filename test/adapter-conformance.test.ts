@@ -202,6 +202,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     template: CubeTemplate;
     response: CreateCubeResponse;
   }>();
+  private repositoryAssociations = new Map<string, CreateCubeResponse>();
   private streams = new Set<{ principalId: string; cubeId: string; queue: AsyncQueue }>();
   private replayBarrier: {
     reached: Promise<void>;
@@ -220,6 +221,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cubes.clear();
       this.invitations.clear();
       this.cubeCreateBindings.clear();
+      this.repositoryAssociations.clear();
       this.streams.clear();
       this.replayBarrier?.release();
       this.replayBarrier = null;
@@ -393,6 +395,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         0,
       ),
       cube_create_bindings: this.cubeCreateBindings.size,
+      repository_associations: this.repositoryAssociations.size,
     }),
     inspectCreatedCube: async (
       creator: ConformancePrincipal,
@@ -645,6 +648,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           body: createProtocolEnvelope(envelope.request_id, { ...binding.response, result: 'resolved' }),
         };
       }
+      const associationKey = `${auth.principal.handle.id}/${envelope.payload.repository.kind}/${envelope.payload.repository.value}`;
+      const associated = this.repositoryAssociations.get(associationKey);
+      if (associated && this.fault !== 'duplicate-exact-cube-retry') {
+        return {
+          status: 201,
+          body: createProtocolEnvelope(envelope.request_id, { ...associated, result: 'resolved' }),
+        };
+      }
       const handle = { id: this.uuid() };
       const humanSeatRoleId = this.uuid();
       const defaultWorkerRoleId = this.uuid();
@@ -696,6 +707,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         template: envelope.payload.template,
         response,
       });
+      this.repositoryAssociations.set(associationKey, response);
       return { status: 201, body: createProtocolEnvelope(envelope.request_id, response) };
     },
     attach: async (credential: string, request: unknown): Promise<ConformanceHttpResponse> => {

@@ -47,6 +47,25 @@ export interface CreateCubeRetryConformanceVector {
     };
 }
 export declare const CREATE_CUBE_RETRY_CONFORMANCE: readonly CreateCubeRetryConformanceVector[];
+export interface CreateCubeAssociationConformanceVector {
+    name: string;
+    created: CreateCubeRequest;
+    request: CreateCubeRequest;
+    expected: {
+        outcome: 'resolved';
+        authority_state_delta: Record<string, never>;
+    } | {
+        outcome: 'created';
+        authority_state_delta: {
+            cubes: 1;
+            roles: 2;
+            grants: 1;
+            cube_create_bindings: 1;
+            repository_associations: 1;
+        };
+    };
+}
+export declare const CREATE_CUBE_ASSOCIATION_CONFORMANCE: readonly CreateCubeAssociationConformanceVector[];
 export declare const ENROLLMENT_AUTHORITY_CONFORMANCE: readonly [{
     readonly name: "ordinary enrollment creates no authority or cube state";
     readonly response: {

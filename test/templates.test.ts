@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ANTI_PASSIVE_STANDING_DISCIPLINE,
   LEGACY_DEFAULT_TEMPLATE_LABEL,
+  NEW_CUBE_TEMPLATE_PRESENTATIONS,
   TEMPLATES,
   getTemplate,
   listTemplateNames,
@@ -29,12 +30,25 @@ const COORDINATOR_ACTIVATION_COPY = [
 
 describe('cube templates', () => {
   it('registers the starter and software-dev templates', () => {
-    expect(listTemplateNames()).toEqual(['starter', 'software-dev']);
+    expect(listTemplateNames()).toEqual(['software-dev', 'starter']);
     expect(getTemplate('missing')).toBeNull();
   });
 
   it('owns the exact host-neutral template presentation copy', () => {
     expect(LEGACY_DEFAULT_TEMPLATE_LABEL).toBe('Default (legacy)');
+    expect(NEW_CUBE_TEMPLATE_PRESENTATIONS).toEqual([
+      {
+        name: 'software-dev',
+        label: 'Software Development',
+        short_description: 'Recommended for code repositories.',
+      },
+      {
+        name: 'starter',
+        label: 'Starter',
+        short_description: 'Minimal roles for general projects.',
+      },
+    ]);
+    expect(NEW_CUBE_TEMPLATE_PRESENTATIONS.map(({ name }) => name)).not.toContain('default');
     expect(TEMPLATES['software-dev']).toMatchObject({
       label: 'Software Development',
       short_description: 'Recommended for code repositories.',
@@ -43,6 +57,12 @@ describe('cube templates', () => {
       label: 'Starter',
       short_description: 'Minimal roles for general projects.',
     });
+    expect(NEW_CUBE_TEMPLATE_PRESENTATIONS).toEqual(
+      listTemplateNames().map((name) => {
+        const { label, short_description } = TEMPLATES[name];
+        return { name, label, short_description };
+      }),
+    );
   });
 
   it('keeps a separate platform Queen role out of use-case templates', () => {

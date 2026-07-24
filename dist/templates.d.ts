@@ -26,6 +26,15 @@ export interface Template {
     message_taxonomy?: MessageTaxonomy;
 }
 export declare const LEGACY_DEFAULT_TEMPLATE_LABEL = "Default (legacy)";
+export declare const NEW_CUBE_TEMPLATE_PRESENTATIONS: readonly [{
+    readonly name: "software-dev";
+    readonly label: "Software Development";
+    readonly short_description: "Recommended for code repositories.";
+}, {
+    readonly name: "starter";
+    readonly label: "Starter";
+    readonly short_description: "Minimal roles for general projects.";
+}];
 export declare const ESCALATION_DISCIPLINE = "\n\nEscalation:\n- Stay within the routed outcome and your role's authority.\n- Report a blocker to the coordinating role with the missing input, evidence, and smallest useful options.\n- A proposal, finding, or idle capacity does not authorize new work.\n- The coordinating role escalates scope, priority, irreversible actions, or product decisions to the human Queen.\n- Waiting is valid when work is complete, blocked, or awaiting an authorized transition.";
 export declare const ANTI_PASSIVE_STANDING_DISCIPLINE = "\n\nActivation and waiting:\n- A routed assignment is active only after STARTING or substantive PROGRESS; ACK is receipt only.\n- The coordinating seat verifies activation and follows up on a missed start.\n- Do not manufacture work to avoid being idle. Waiting is correct when no authorized action is available.\n- Spare capacity, an open queue, or a possible improvement does not grant scope.";
 export declare const SERIALIZED_REVIEW_ROUNDS_DISCIPLINE = "\n\nReview rounds:\n- Bind every review to one exact artifact revision.\n- Route only the reviews required by the changed surface, in the declared order.\n- One consolidated verdict per lens and revision.\n- A blocking fix creates a new revision and restarts required gates; older approvals do not carry forward.\n- After two blocked rounds, stop and ask the human before opening an exceptional round.\n- Findings outside the authorized outcome are reported separately and do not expand or gate the current work.";

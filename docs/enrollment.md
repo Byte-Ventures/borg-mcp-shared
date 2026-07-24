@@ -180,12 +180,15 @@ authoritative response is:
 ```
 
 An exact retry returns `result: "resolved"` with the stored authoritative fields
-and no mutation. Changed `working_repo_name` input does not overwrite stored
-display metadata. Reusing the same retry key with a different cube name,
+and no mutation. A fresh retry key for the same creator-scoped repository
+association also resolves that stored cube, name, repository display, and
+template without mutation. Changed `working_repo_name` input does not overwrite
+stored display metadata. Reusing a bound retry key with a different cube name,
 repository identity, or template returns non-enumerating HTTP `409`
-`INVALID_INPUT` and creates nothing. A fresh retry key may create another cube,
-subject to implementation quotas. `owner_id` and role labels remain metadata;
-cube access derives only from the explicit cube-scoped grant.
+`INVALID_INPUT` and creates nothing. A fresh retry for a different, unassociated
+repository may create another cube, subject to implementation quotas. `owner_id`
+and role labels remain metadata; cube access derives only from the explicit
+cube-scoped grant.
 
 ## Conformance
 
@@ -202,4 +205,6 @@ violation fails conformance.
 
 `CREATE_CUBE_RETRY_CONFORMANCE` independently pins exact resolution, stored
 display readback, and mismatch rejection for cube name, repository kind/value,
-and template.
+and template. `CREATE_CUBE_ASSOCIATION_CONFORMANCE` distinguishes no-mutation
+resolution of an existing repository association from creation for a different,
+unassociated repository.

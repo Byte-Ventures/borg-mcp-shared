@@ -65,6 +65,7 @@ export interface ConformanceAuthorityState {
     grants: number;
     server_capabilities: number;
     cube_create_bindings: number;
+    repository_associations: number;
 }
 export interface ConformanceCreatedCubeState {
     cube_exists: boolean;

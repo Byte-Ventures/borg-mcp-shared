@@ -117,7 +117,11 @@ describe('packed artifact', () => {
       '--eval',
       `
         import { CUBE_TEMPLATES, PROTOCOL_VERSION, decodeCreateCubeRequest } from 'borgmcp-shared/protocol';
-        import { LEGACY_DEFAULT_TEMPLATE_LABEL, TEMPLATES } from 'borgmcp-shared/templates';
+        import {
+          LEGACY_DEFAULT_TEMPLATE_LABEL,
+          NEW_CUBE_TEMPLATE_PRESENTATIONS,
+          TEMPLATES,
+        } from 'borgmcp-shared/templates';
         const request = decodeCreateCubeRequest({
           retry_key: '00000000-0000-4000-8000-000000000001',
           name: 'Repository Cube',
@@ -130,6 +134,7 @@ describe('packed artifact', () => {
           protocolVersion: PROTOCOL_VERSION,
           request,
           legacyLabel: LEGACY_DEFAULT_TEMPLATE_LABEL,
+          presentations: NEW_CUBE_TEMPLATE_PRESENTATIONS,
           softwareDevelopment: {
             label: TEMPLATES['software-dev'].label,
             description: TEMPLATES['software-dev'].short_description,
@@ -153,6 +158,18 @@ describe('packed artifact', () => {
         template: 'software-dev',
       },
       legacyLabel: 'Default (legacy)',
+      presentations: [
+        {
+          name: 'software-dev',
+          label: 'Software Development',
+          short_description: 'Recommended for code repositories.',
+        },
+        {
+          name: 'starter',
+          label: 'Starter',
+          short_description: 'Minimal roles for general projects.',
+        },
+      ],
       softwareDevelopment: {
         label: 'Software Development',
         description: 'Recommended for code repositories.',

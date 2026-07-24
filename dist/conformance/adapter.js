@@ -1,5 +1,5 @@
 import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeAttachResponseEnvelope, decodeDroneRuntimeMetadataPatch, decodeEvictDroneResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeReassignDroneResultEnvelope, decodeUpdateDroneRuntimeMetadataResponseEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
-import { CREATE_CUBE_RETRY_CONFORMANCE, ENROLLMENT_RETRY_CONFORMANCE } from './index.js';
+import { CREATE_CUBE_ASSOCIATION_CONFORMANCE, CREATE_CUBE_RETRY_CONFORMANCE, ENROLLMENT_RETRY_CONFORMANCE, } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
     { id: 'protocol.credential-free-preflight', area: 'protocol' },
@@ -304,7 +304,7 @@ export async function runAdapterConformance(environment, options = {}) {
         const createdResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create', cubeRequest));
         expectStatus(createdResponse, 201, 'Owner cube create');
         const created = decodeCreateCubeResponseEnvelope(createdResponse.body).payload;
-        assertStateDelta(beforeCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1 }, 'Owner cube create');
+        assertStateDelta(beforeCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1, repository_associations: 1 }, 'Owner cube create');
         invariant(same(await environment.admin.inspectCreatedCube(ownerPrincipal, created), {
             cube_exists: true,
             creator_has_grant: true,
@@ -346,6 +346,18 @@ export async function runAdapterConformance(environment, options = {}) {
             expectSecretFreeError(await environment.operations.createCube(ownerCredential, createProtocolEnvelope(`cube-mismatch-${index}`, mismatch)), 409, ErrorCode.INVALID_INPUT, `Cube-create ${vector.name}`, [cubeRequest.retry_key]);
             assertStateDelta(beforeCreateMismatch, await environment.admin.observeAuthorityState(), {}, `Cube-create ${vector.name}`);
         }
+        const sameAssociationVector = CREATE_CUBE_ASSOCIATION_CONFORMANCE.find((vector) => vector.expected.outcome === 'resolved');
+        invariant(sameAssociationVector !== undefined, 'Missing same-repository association vector.');
+        const beforeAssociationResolve = await environment.admin.observeAuthorityState();
+        const associationResolveResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-association-resolve', {
+            ...sameAssociationVector.request,
+            repository: cubeRequest.repository,
+        }));
+        expectStatus(associationResolveResponse, 201, 'Fresh retry for associated repository');
+        const associationResolved = decodeCreateCubeResponseEnvelope(associationResolveResponse.body).payload;
+        invariant(associationResolved.result === 'resolved', 'Associated repository did not resolve.');
+        invariant(same({ ...associationResolved, result: 'created' }, created), 'Associated repository did not return stored authoritative fields.');
+        assertStateDelta(beforeAssociationResolve, await environment.admin.observeAuthorityState(), sameAssociationVector.expected.authority_state_delta, 'Fresh retry for associated repository');
         await environment.admin.grantCreateCubeCapability(ordinaryPrincipal);
         const crossClientRequest = {
             ...cubeRequest,
@@ -360,28 +372,21 @@ export async function runAdapterConformance(environment, options = {}) {
         expectStatus(crossClientResponse, 201, 'Cross-client cube create with reused retry key');
         const crossClientCreated = decodeCreateCubeResponseEnvelope(crossClientResponse.body).payload;
         invariant(crossClientCreated.cube_id !== created.cube_id, 'Cross-client retry key reused another client\'s cube.');
-        assertStateDelta(beforeCrossClientCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1 }, 'Cross-client cube create');
+        assertStateDelta(beforeCrossClientCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1, repository_associations: 1 }, 'Cross-client cube create');
         invariant((await environment.admin.inspectCreatedCube(ordinaryPrincipal, crossClientCreated)).creator_has_grant, 'Cross-client cube creation did not grant its authenticated creator.');
         const beforeCrossClientRetry = await environment.admin.observeAuthorityState();
         const crossClientRetry = await environment.operations.createCube(ordinaryCredential, createProtocolEnvelope('cube-cross-client-retry', crossClientRequest));
         expectStatus(crossClientRetry, 201, 'Exact cross-client cube-create retry');
         invariant(same({ ...decodeCreateCubeResponseEnvelope(crossClientRetry.body).payload, result: 'created' }, crossClientCreated), 'Exact cross-client cube-create retry returned different authoritative fields.');
         assertStateDelta(beforeCrossClientRetry, await environment.admin.observeAuthorityState(), {}, 'Exact cross-client cube-create retry');
+        const differentAssociationVector = CREATE_CUBE_ASSOCIATION_CONFORMANCE.find((vector) => vector.expected.outcome === 'created');
+        invariant(differentAssociationVector !== undefined, 'Missing different-repository association vector.');
         const beforeSecondCreate = await environment.admin.observeAuthorityState();
-        const secondCreatedResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create-second', {
-            ...cubeRequest,
-            retry_key: '00000000-0000-4000-8000-000000000214',
-            name: 'Repository Two',
-            working_repo_name: 'repository-two',
-            repository: {
-                kind: 'origin',
-                value: 'https://github.com/Byte-Ventures/repository-two',
-            },
-        }));
+        const secondCreatedResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create-second', differentAssociationVector.request));
         expectStatus(secondCreatedResponse, 201, 'Second cube create');
         const secondCreated = decodeCreateCubeResponseEnvelope(secondCreatedResponse.body).payload;
         invariant(secondCreated.cube_id !== created.cube_id, 'Fresh cube-create retry key reused an existing cube.');
-        assertStateDelta(beforeSecondCreate, await environment.admin.observeAuthorityState(), { cubes: 1, roles: 2, grants: 1, cube_create_bindings: 1 }, 'Second cube create');
+        assertStateDelta(beforeSecondCreate, await environment.admin.observeAuthorityState(), differentAssociationVector.expected.authority_state_delta, 'Second cube create');
         await environment.admin.revokePrincipal(ownerPrincipal);
         const beforeRevokedCreate = await environment.admin.observeAuthorityState();
         expectSecretFreeError(await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-revoked', {

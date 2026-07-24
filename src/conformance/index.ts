@@ -235,6 +235,62 @@ export const CREATE_CUBE_RETRY_CONFORMANCE: readonly CreateCubeRetryConformanceV
   },
 ];
 
+export interface CreateCubeAssociationConformanceVector {
+  name: string;
+  created: CreateCubeRequest;
+  request: CreateCubeRequest;
+  expected:
+    | { outcome: 'resolved'; authority_state_delta: Record<string, never> }
+    | {
+      outcome: 'created';
+      authority_state_delta: {
+        cubes: 1;
+        roles: 2;
+        grants: 1;
+        cube_create_bindings: 1;
+        repository_associations: 1;
+      };
+    };
+}
+
+/** A creator-scoped repository association resolves independently of operation retry keys. */
+export const CREATE_CUBE_ASSOCIATION_CONFORMANCE:
+readonly CreateCubeAssociationConformanceVector[] = [
+  {
+    name: 'fresh retry for the same repository resolves stored authoritative fields',
+    created: CREATE_CUBE_INITIAL,
+    request: {
+      ...CREATE_CUBE_INITIAL,
+      retry_key: '00000000-0000-4000-8000-000000000123',
+      name: 'Ignored New Cube Name',
+      working_repo_name: 'ignored-new-display',
+      template: 'starter',
+    },
+    expected: { outcome: 'resolved', authority_state_delta: {} },
+  },
+  {
+    name: 'fresh retry for a different repository may create',
+    created: CREATE_CUBE_INITIAL,
+    request: {
+      ...CREATE_CUBE_INITIAL,
+      retry_key: '00000000-0000-4000-8000-000000000124',
+      name: 'Repository Two',
+      working_repo_name: 'repository-two',
+      repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-two' },
+    },
+    expected: {
+      outcome: 'created',
+      authority_state_delta: {
+        cubes: 1,
+        roles: 2,
+        grants: 1,
+        cube_create_bindings: 1,
+        repository_associations: 1,
+      },
+    },
+  },
+];
+
 export const ENROLLMENT_AUTHORITY_CONFORMANCE = [
   {
     name: 'ordinary enrollment creates no authority or cube state',

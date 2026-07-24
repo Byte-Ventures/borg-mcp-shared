@@ -3,6 +3,7 @@ import {
   DRONE_ADDRESS_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
+  CREATE_CUBE_ASSOCIATION_CONFORMANCE,
   RUNTIME_METADATA_REPOSITORY_CONFORMANCE,
   ENROLLMENT_AUTHORITY_CONFORMANCE,
   ENROLLMENT_REDACTION_CONFORMANCE,
@@ -56,6 +57,15 @@ describe('public conformance vectors', () => {
         vector.expected.outcome === 'resolved_response',
       );
     }
+  });
+
+  it('pins repository association resolution independently of retry keys', () => {
+    const [sameRepository, differentRepository] = CREATE_CUBE_ASSOCIATION_CONFORMANCE;
+    expect(sameRepository.request.retry_key).not.toBe(sameRepository.created.retry_key);
+    expect(sameRepository.request.repository).toEqual(sameRepository.created.repository);
+    expect(sameRepository.expected).toEqual({ outcome: 'resolved', authority_state_delta: {} });
+    expect(differentRepository.request.repository).not.toEqual(differentRepository.created.repository);
+    expect(differentRepository.expected.outcome).toBe('created');
   });
 
   it('pins ordinary and owner enrollment authority vectors', () => {
