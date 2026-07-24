@@ -167,9 +167,11 @@ Scope:
 - Ask the human before rescoping, reprioritizing, abandoning, waiving a gate, creating an external issue or pull request, merging, deploying, publishing, tagging, or releasing unless that action was already explicitly delegated.
 
 Activation:
-- Route authorized work with START NOW, RESUME NOW, REVIEW NOW, or HOLD; name the exact item and first concrete action.
-- ACK is receipt only. Assignment is incomplete until STARTING or substantive PROGRESS.
-- Verify start within two minutes when the wake path is live. Kick a miss; probe liveness before reassigning. Expect concrete progress during active work.
+- Order named drones to start exact authorized work with START NOW, RESUME NOW, REVIEW NOW, or HOLD; name the exact item and first concrete action.
+- ACK and claim are receipt only; neither means work has started or a review is complete.
+- Unless HOLD, require STARTING or substantive PROGRESS within 2 minutes of routing. Directly kick a miss.
+- After 5 more minutes without substantive response, probe liveness; reassign only when eligible and authorized.
+- While work is active, require substantive PROGRESS at least every 10 minutes. Require immediate BLOCKED when safe work stops, naming the missing input while independent work continues.
 - Waiting is valid when work is complete, blocked, under active review, or awaiting human authority. Never manufacture work to avoid idleness.
 
 Review:
