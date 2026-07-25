@@ -6,6 +6,7 @@ import type {
   EnrollmentExchangeRequest,
   ResolveRepositoryCubeRequest,
 } from '../protocol/contract.js';
+import type { EnrichedStreamEntry } from '../protocol/types.js';
 
 export * from './adapter.js';
 
@@ -64,6 +65,138 @@ export const DRONE_ADDRESS_CONFORMANCE: readonly ConformanceVector<string, strin
     name: 'formats the stable lowercase eight-character id prefix',
     input: '3336CDE1-a76e-4e89-8bc2-77c149bb6a74',
     expected: '`id:3336cde1`',
+  },
+];
+
+const APPEND_LOG_ENTRY: EnrichedStreamEntry = {
+  id: '00000000-0000-4000-8000-000000000201',
+  cube_id: '00000000-0000-4000-8000-000000000202',
+  drone_id: '00000000-0000-4000-8000-000000000203',
+  message: 'REVIEW-READY: example',
+  visibility: 'direct',
+  created_at: '2026-01-01T00:00:00.000Z',
+  drone_label: 'one-of-one-builder',
+  role_name: 'Builder',
+  recipient_drone_ids: ['00000000-0000-4000-8000-000000000204'],
+};
+
+const APPEND_LOG_ROUTING = {
+  class: 'review',
+  recipients: ['one-of-one-reviewer'],
+  fellOpen: false,
+  message: 'Routing applied.',
+} as const;
+
+export interface AppendLogResultConformanceVector {
+  name: string;
+  response: unknown;
+  accepts: boolean;
+}
+
+/** Runtime response vectors keep the append-log decoder aligned with its public type. */
+export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceVector[] = [
+  {
+    name: 'accepts a response without optional routing metadata',
+    response: { entry: APPEND_LOG_ENTRY },
+    accepts: true,
+  },
+  {
+    name: 'accepts exact routing metadata and unreachable recipients',
+    response: {
+      entry: APPEND_LOG_ENTRY,
+      routing: APPEND_LOG_ROUTING,
+      unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer' }],
+    },
+    accepts: true,
+  },
+  {
+    name: 'accepts a null routing echo and an empty unreachable-recipient list',
+    response: { entry: APPEND_LOG_ENTRY, routing: null, unreachableRecipients: [] },
+    accepts: true,
+  },
+  {
+    name: 'rejects unknown top-level response fields',
+    response: { entry: APPEND_LOG_ENTRY, routing: APPEND_LOG_ROUTING, extra: true },
+    accepts: false,
+  },
+  {
+    name: 'rejects a non-object routing echo',
+    response: { entry: APPEND_LOG_ENTRY, routing: 'review' },
+    accepts: false,
+  },
+  {
+    name: 'rejects missing routing fields',
+    response: { entry: APPEND_LOG_ENTRY, routing: { class: 'review' } },
+    accepts: false,
+  },
+  {
+    name: 'rejects unknown routing fields',
+    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, extra: true } },
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid routing class',
+    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, class: 7 } },
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid routing recipient collection',
+    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, recipients: 'reviewer' } },
+    accepts: false,
+  },
+  {
+    name: 'rejects invalid routing recipient members',
+    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, recipients: [7] } },
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid routing fell-open flag',
+    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, fellOpen: 'false' } },
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid routing message',
+    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, message: 7 } },
+    accepts: false,
+  },
+  {
+    name: 'rejects a non-array unreachable-recipient list',
+    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: {} },
+    accepts: false,
+  },
+  {
+    name: 'rejects a non-object unreachable recipient',
+    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: ['missing-reviewer'] },
+    accepts: false,
+  },
+  {
+    name: 'rejects missing unreachable-recipient fields',
+    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: [{ id: 'missing-reviewer' }] },
+    accepts: false,
+  },
+  {
+    name: 'rejects unknown unreachable-recipient fields',
+    response: {
+      entry: APPEND_LOG_ENTRY,
+      unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer', extra: true }],
+    },
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid unreachable-recipient id',
+    response: {
+      entry: APPEND_LOG_ENTRY,
+      unreachableRecipients: [{ id: 7, label: 'Missing Reviewer' }],
+    },
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid unreachable-recipient label',
+    response: {
+      entry: APPEND_LOG_ENTRY,
+      unreachableRecipients: [{ id: 'missing-reviewer', label: null }],
+    },
+    accepts: false,
   },
 ];
 

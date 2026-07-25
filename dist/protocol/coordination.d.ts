@@ -1,5 +1,5 @@
 import { type LogCursor, type ProtocolEnvelope } from './contract.js';
-import type { Decision, EnrichedStreamEntry } from './types.js';
+import type { AppendLogResponse, Decision, EnrichedStreamEntry } from './types.js';
 export interface ReadLogRequest {
     cursor: LogCursor | null;
     limit?: number;
@@ -12,7 +12,7 @@ export interface ClaimRecord {
     claimed_at: string;
     stale: boolean;
 }
-export interface AppendLogResult {
+export interface AppendLogResult extends Omit<AppendLogResponse, 'entry'> {
     entry: EnrichedStreamEntry;
 }
 export interface ReadLogResult {
