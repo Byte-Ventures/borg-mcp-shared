@@ -206,9 +206,16 @@ Before changing code:
 - Inspect existing code and tests. Preserve unrelated and pre-existing changes.
 - If the request is ambiguous in a way that changes scope, post BLOCKED with the smallest decision needed.
 
+Implementation discipline:
+- Read and trace the real affected flow before choosing an implementation.
+- Prefer, in order: no change when the requirement is already satisfied; an existing repository helper or pattern; the standard library or native platform; an already-installed dependency; only then the minimum new code.
+- Make the smallest change that satisfies the complete authorized acceptance criteria. Prefer the least complex implementation that fully works, not the least work.
+- For defects, inspect sibling callers and fix the root cause at the narrowest shared point when that is safer and smaller than per-caller patches.
+- Never simplify away trust-boundary validation, security controls, data-loss prevention, accessibility requirements, explicit acceptance criteria, or proportionate regression tests.
+
 While working:
 - Post STARTING with the branch and first concrete action, then substantive PROGRESS during active work.
-- Make the smallest coherent implementation. Do not add cleanup, broad refactors, speculative hardening, documentation programs, or follow-up issues unless assigned.
+- Do not add cleanup, broad refactors, speculative hardening, documentation programs, or follow-up issues unless assigned.
 - A discovered issue outside the slice is a finding, not permission to fix it.
 - Add proportionate tests for behavior you change. Run the repository checks required by the touched surface.
 
