@@ -12,6 +12,12 @@ export interface BroadcastHwmComparisonInput {
 }
 export declare const BROADCAST_HWM_CONFORMANCE: readonly ConformanceVector<BroadcastHwmComparisonInput, -1 | 0 | 1>[];
 export declare const DRONE_ADDRESS_CONFORMANCE: readonly ConformanceVector<string, string>[];
+export interface AppendLogResultConformanceVector {
+    name: string;
+    response: unknown;
+    accepts: boolean;
+}
+export declare const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceVector[];
 export declare const ROLE_SECTION_ROUND_TRIP_CONFORMANCE: readonly string[];
 export interface EnrollmentRetryConformanceVector {
     name: string;

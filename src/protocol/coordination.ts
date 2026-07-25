@@ -10,7 +10,12 @@ import {
   type ProtocolEnvelope,
 } from './contract.js';
 import { decodeEnrichedStreamEntry } from './sse.js';
-import type { Decision, EnrichedStreamEntry } from './types.js';
+import type {
+  AppendLogResponse,
+  Decision,
+  EnrichedStreamEntry,
+  RoutingEcho,
+} from './types.js';
 
 export interface ReadLogRequest {
   cursor: LogCursor | null;
@@ -26,7 +31,7 @@ export interface ClaimRecord {
   stale: boolean;
 }
 
-export interface AppendLogResult {
+export interface AppendLogResult extends Omit<AppendLogResponse, 'entry'> {
   entry: EnrichedStreamEntry;
 }
 
@@ -214,10 +219,54 @@ function decodeClaimRecord(value: unknown): ClaimRecord {
   };
 }
 
+function decodeRoutingEcho(value: unknown): RoutingEcho {
+  const input = object(value);
+  exact(
+    input,
+    ['class', 'recipients', 'fellOpen', 'message'],
+    ['class', 'recipients', 'fellOpen', 'message'],
+  );
+  if (!Array.isArray(input.recipients) || input.recipients.length > 100) {
+    throw new ProtocolContractError('Invalid routing recipient list.');
+  }
+  if (typeof input.fellOpen !== 'boolean') {
+    throw new ProtocolContractError('Invalid routing fell-open flag.');
+  }
+  return {
+    class: nullableString(input.class, 'routing.class', 64),
+    recipients: input.recipients.map((recipient) =>
+      boundedString(recipient, 'routing.recipients', 120)
+    ),
+    fellOpen: input.fellOpen,
+    message: nullableString(input.message, 'routing.message', 512),
+  };
+}
+
+function decodeUnreachableRecipient(
+  value: unknown,
+): NonNullable<AppendLogResponse['unreachableRecipients']>[number] {
+  const input = object(value);
+  exact(input, ['id', 'label'], ['id', 'label']);
+  return {
+    id: boundedString(input.id, 'unreachableRecipients.id', 120),
+    label: boundedString(input.label, 'unreachableRecipients.label', 120),
+  };
+}
+
 export function decodeAppendLogResult(value: unknown): AppendLogResult {
   const input = object(value);
-  exact(input, ['entry'], ['entry']);
-  return { entry: decodeEnrichedStreamEntry(input.entry) };
+  exact(input, ['entry', 'routing', 'unreachableRecipients'], ['entry']);
+  const output: AppendLogResult = { entry: decodeEnrichedStreamEntry(input.entry) };
+  if (input.routing !== undefined) {
+    output.routing = input.routing === null ? null : decodeRoutingEcho(input.routing);
+  }
+  if (input.unreachableRecipients !== undefined) {
+    if (!Array.isArray(input.unreachableRecipients) || input.unreachableRecipients.length > 100) {
+      throw new ProtocolContractError('Invalid unreachable-recipient list.');
+    }
+    output.unreachableRecipients = input.unreachableRecipients.map(decodeUnreachableRecipient);
+  }
+  return output;
 }
 
 export function decodeAppendLogResultEnvelope(

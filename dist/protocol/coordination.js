@@ -123,10 +123,44 @@ function decodeClaimRecord(value) {
         stale: input.stale,
     };
 }
+function decodeRoutingEcho(value) {
+    const input = object(value);
+    exact(input, ['class', 'recipients', 'fellOpen', 'message'], ['class', 'recipients', 'fellOpen', 'message']);
+    if (!Array.isArray(input.recipients) || input.recipients.length > 100) {
+        throw new ProtocolContractError('Invalid routing recipient list.');
+    }
+    if (typeof input.fellOpen !== 'boolean') {
+        throw new ProtocolContractError('Invalid routing fell-open flag.');
+    }
+    return {
+        class: nullableString(input.class, 'routing.class', 64),
+        recipients: input.recipients.map((recipient) => boundedString(recipient, 'routing.recipients', 120)),
+        fellOpen: input.fellOpen,
+        message: nullableString(input.message, 'routing.message', 512),
+    };
+}
+function decodeUnreachableRecipient(value) {
+    const input = object(value);
+    exact(input, ['id', 'label'], ['id', 'label']);
+    return {
+        id: boundedString(input.id, 'unreachableRecipients.id', 120),
+        label: boundedString(input.label, 'unreachableRecipients.label', 120),
+    };
+}
 export function decodeAppendLogResult(value) {
     const input = object(value);
-    exact(input, ['entry'], ['entry']);
-    return { entry: decodeEnrichedStreamEntry(input.entry) };
+    exact(input, ['entry', 'routing', 'unreachableRecipients'], ['entry']);
+    const output = { entry: decodeEnrichedStreamEntry(input.entry) };
+    if (input.routing !== undefined) {
+        output.routing = input.routing === null ? null : decodeRoutingEcho(input.routing);
+    }
+    if (input.unreachableRecipients !== undefined) {
+        if (!Array.isArray(input.unreachableRecipients) || input.unreachableRecipients.length > 100) {
+            throw new ProtocolContractError('Invalid unreachable-recipient list.');
+        }
+        output.unreachableRecipients = input.unreachableRecipients.map(decodeUnreachableRecipient);
+    }
+    return output;
 }
 export function decodeAppendLogResultEnvelope(value) {
     return decodeProtocolEnvelope(value, decodeAppendLogResult);

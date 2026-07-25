@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DRONE_ADDRESS_CONFORMANCE,
+  APPEND_LOG_RESULT_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
   CREATE_CUBE_ASSOCIATION_CONFORMANCE,
@@ -18,6 +19,7 @@ import {
   decodeCreateCubeRequest,
   decodeResolveRepositoryCubeRequest,
   decodeAssociateRepositoryCubeRequest,
+  decodeAppendLogResult,
   decodeAttachResponse,
   formatDroneAddressToken,
   parseRoleSections,
@@ -27,6 +29,21 @@ import {
 } from '../src/index.js';
 
 describe('public conformance vectors', () => {
+  it('pins accepted and rejected append-log routing metadata', () => {
+    for (const vector of APPEND_LOG_RESULT_CONFORMANCE) {
+      if (vector.accepts) {
+        expect(() => decodeAppendLogResult(vector.response), vector.name).not.toThrow();
+      } else {
+        const response = vector.response as { entry: unknown };
+        expect(
+          () => decodeAppendLogResult({ entry: response.entry }),
+          `${vector.name} permissive control`,
+        ).not.toThrow();
+        expect(() => decodeAppendLogResult(vector.response), vector.name).toThrow();
+      }
+    }
+  });
+
   it('pins drone address rendering', () => {
     for (const vector of DRONE_ADDRESS_CONFORMANCE) {
       expect(formatDroneAddressToken(vector.input), vector.name).toBe(vector.expected);

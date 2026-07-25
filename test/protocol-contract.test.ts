@@ -6,6 +6,7 @@ import {
   REPOSITORY_CUBE_RESOLVE_PATH,
   REPOSITORY_CUBE_ASSOCIATION_PATH,
   HEALTH_PATH,
+  type AppendLogResponse,
   PROTOCOL_INFO_PATH,
   PROTOCOL_HTTP_CONTRACT,
   SHARED_PACKAGE_NAME,
@@ -14,6 +15,8 @@ import {
   createProtocolEnvelope,
   decodeAckLogRequest,
   decodeAppendLogRequest,
+  decodeAppendLogResult,
+  decodeAppendLogResultEnvelope,
   decodeAttachRequest,
   decodeAttachRequestEnvelope,
   decodeAttachResponse,
@@ -798,6 +801,18 @@ describe('repository cube association codecs', () => {
 });
 
 describe('coordination request codecs', () => {
+  const appendLogEntry = {
+    id: '30000000-0000-4000-8000-000000000001',
+    cube_id: '10000000-0000-4000-8000-000000000001',
+    drone_id: '20000000-0000-4000-8000-000000000001',
+    message: 'hello',
+    visibility: 'direct',
+    created_at: '2026-07-14T10:00:00.000Z',
+    drone_label: 'one-of-one-builder',
+    role_name: 'Builder',
+    recipient_drone_ids: ['40000000-0000-4000-8000-000000000001'],
+  } as const;
+
   it('bounds append-log input and rejects ambiguous fields', () => {
     expect(decodeAppendLogRequest({ message: 'hello', to: ['Coordinator'] })).toEqual({
       message: 'hello',
@@ -810,6 +825,79 @@ describe('coordination request codecs', () => {
     expect(() => decodeAppendLogRequest({ message: 'hello', credential: 'secret' })).toThrow(
       ProtocolContractError,
     );
+  });
+
+  it('decodes and validates the optional append-log routing response', () => {
+    const payload = {
+      entry: appendLogEntry,
+      routing: {
+        class: 'review',
+        recipients: ['one-of-one-reviewer'],
+        fellOpen: false,
+        message: 'Routing applied.',
+      },
+      unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer' }],
+    } satisfies AppendLogResponse;
+    expect(decodeAppendLogResult(payload)).toEqual(payload);
+    expect(decodeAppendLogResultEnvelope({
+      protocol_version: '5',
+      request_id: 'append-log-1',
+      payload,
+    })).toEqual({ protocol_version: '5', request_id: 'append-log-1', payload });
+  });
+
+  it('rejects every unknown-field class in the append-log response', () => {
+    const routing = {
+      class: null,
+      recipients: [],
+      fellOpen: false,
+      message: null,
+    };
+    const unknownFieldClasses = [
+      { entry: appendLogEntry, routing, unknownTopLevel: true },
+      { entry: { ...appendLogEntry, unknownEntry: true }, routing },
+      { entry: appendLogEntry, routing: { ...routing, unknownRouting: true } },
+      {
+        entry: appendLogEntry,
+        unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer', unknownRecipient: true }],
+      },
+    ];
+    // Complete object-node partition: result, entry, routing echo, unreachable item.
+    expect(unknownFieldClasses).toHaveLength(4);
+    for (const response of unknownFieldClasses) {
+      expect(() => decodeAppendLogResult(response)).toThrow(ProtocolContractError);
+    }
+  });
+
+  it('bounds every append-log routing collection and string class', () => {
+    const routing = {
+      class: 'review',
+      recipients: ['one-of-one-reviewer'],
+      fellOpen: false,
+      message: 'Routing applied.',
+    };
+    const malformed = [
+      { ...routing, class: 'x'.repeat(65) },
+      { ...routing, recipients: Array.from({ length: 101 }, () => 'reviewer') },
+      { ...routing, recipients: ['x'.repeat(121)] },
+      { ...routing, message: 'x'.repeat(513) },
+    ];
+    for (const invalidRouting of malformed) {
+      expect(() =>
+        decodeAppendLogResult({ entry: appendLogEntry, routing: invalidRouting })
+      ).toThrow(ProtocolContractError);
+    }
+
+    const invalidUnreachableRecipients = [
+      Array.from({ length: 101 }, () => ({ id: 'missing', label: 'Missing' })),
+      [{ id: 'x'.repeat(121), label: 'Missing' }],
+      [{ id: 'missing', label: 'x'.repeat(121) }],
+    ];
+    for (const unreachableRecipients of invalidUnreachableRecipients) {
+      expect(() =>
+        decodeAppendLogResult({ entry: appendLogEntry, unreachableRecipients })
+      ).toThrow(ProtocolContractError);
+    }
   });
 
   it('defaults ack kind and rejects unknown kinds', () => {
