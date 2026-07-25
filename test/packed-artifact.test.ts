@@ -50,7 +50,7 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.6.3',
+      version: '0.6.4',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
   });
@@ -116,7 +116,13 @@ describe('packed artifact', () => {
       '--input-type=module',
       '--eval',
       `
-        import { CUBE_TEMPLATES, PROTOCOL_VERSION, decodeCreateCubeRequest } from 'borgmcp-shared/protocol';
+        import {
+          CUBE_TEMPLATES,
+          PROTOCOL_VERSION,
+          decodeAssociateRepositoryCubeRequest,
+          decodeCreateCubeRequest,
+          decodeResolveRepositoryCubeResponse,
+        } from 'borgmcp-shared/protocol';
         import {
           LEGACY_DEFAULT_TEMPLATE_LABEL,
           NEW_CUBE_TEMPLATE_PRESENTATIONS,
@@ -129,10 +135,17 @@ describe('packed artifact', () => {
           repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
           template: 'software-dev',
         });
+        const association = decodeAssociateRepositoryCubeRequest({
+          cube_id: '00000000-0000-4000-8000-000000000003',
+          working_repo_name: 'repository',
+          repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
+        });
         process.stdout.write(JSON.stringify({
           templates: CUBE_TEMPLATES,
           protocolVersion: PROTOCOL_VERSION,
           request,
+          association,
+          unresolved: decodeResolveRepositoryCubeResponse({ result: 'none' }),
           legacyLabel: LEGACY_DEFAULT_TEMPLATE_LABEL,
           presentations: NEW_CUBE_TEMPLATE_PRESENTATIONS,
           softwareDevelopment: {
@@ -149,7 +162,7 @@ describe('packed artifact', () => {
 
     expect(report).toEqual({
       templates: ['default', 'software-dev', 'starter'],
-      protocolVersion: '4',
+      protocolVersion: '5',
       request: {
         retry_key: '00000000-0000-4000-8000-000000000001',
         name: 'Repository Cube',
@@ -157,6 +170,12 @@ describe('packed artifact', () => {
         repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
         template: 'software-dev',
       },
+      association: {
+        cube_id: '00000000-0000-4000-8000-000000000003',
+        working_repo_name: 'repository',
+        repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
+      },
+      unresolved: { result: 'none' },
       legacyLabel: 'Default (legacy)',
       presentations: [
         {
@@ -213,7 +232,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.6.3' },
+      dependencies: { 'borgmcp-shared': '0.6.4' },
     }));
     execFileSync('npm', [
       'install',

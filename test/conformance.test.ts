@@ -4,6 +4,10 @@ import {
   ATTACH_SESSION_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
   CREATE_CUBE_ASSOCIATION_CONFORMANCE,
+  RESOLVE_REPOSITORY_CUBE_CONFORMANCE,
+  ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE,
+  REPOSITORY_CUBE_PERMISSION_CONFORMANCE,
+  REPOSITORY_CUBE_AUTHORITATIVE_STATE_CONFORMANCE,
   RUNTIME_METADATA_REPOSITORY_CONFORMANCE,
   ENROLLMENT_AUTHORITY_CONFORMANCE,
   ENROLLMENT_REDACTION_CONFORMANCE,
@@ -12,6 +16,8 @@ import {
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeResponse,
   decodeCreateCubeRequest,
+  decodeResolveRepositoryCubeRequest,
+  decodeAssociateRepositoryCubeRequest,
   decodeAttachResponse,
   formatDroneAddressToken,
   parseRoleSections,
@@ -66,6 +72,61 @@ describe('public conformance vectors', () => {
     expect(sameRepository.expected).toEqual({ outcome: 'resolved', authority_state_delta: {} });
     expect(differentRepository.request.repository).not.toEqual(differentRepository.created.repository);
     expect(differentRepository.expected.outcome).toBe('created');
+  });
+
+  it('pins read-only repository resolution and explicit atomic association', () => {
+    const [none, resolved] = RESOLVE_REPOSITORY_CUBE_CONFORMANCE;
+    expect(decodeResolveRepositoryCubeRequest(none.request)).toEqual(none.request);
+    expect(none.expected).toEqual({ outcome: 'none', status: 200, authority_state_delta: {} });
+    expect(decodeResolveRepositoryCubeRequest(resolved.request)).toEqual(resolved.request);
+    expect(resolved.expected).toEqual({ outcome: 'resolved', status: 200, authority_state_delta: {} });
+
+    const [idempotent, repositoryConflict, cubeConflict] = ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE;
+    expect(decodeAssociateRepositoryCubeRequest(idempotent.initial)).toEqual(idempotent.initial);
+    expect(idempotent.retry).toEqual(idempotent.initial);
+    expect(idempotent.expected.outcome).toBe('resolved');
+    expect(repositoryConflict.initial.repository).toEqual(repositoryConflict.retry.repository);
+    expect(repositoryConflict.initial.cube_id).not.toBe(repositoryConflict.retry.cube_id);
+    expect(repositoryConflict.expected.outcome).toBe('repository_conflict');
+    expect('error' in repositoryConflict.expected && repositoryConflict.expected.error)
+      .toBe('REPOSITORY_ALREADY_ASSOCIATED');
+    expect('diagnostic_disclosure' in repositoryConflict.expected &&
+      repositoryConflict.expected.diagnostic_disclosure).toBe('none');
+    expect(cubeConflict.initial.cube_id).toBe(cubeConflict.retry.cube_id);
+    expect(cubeConflict.initial.repository).not.toEqual(cubeConflict.retry.repository);
+    expect(cubeConflict.expected.outcome).toBe('cube_conflict');
+    expect('error' in cubeConflict.expected && cubeConflict.expected.error)
+      .toBe('CUBE_ALREADY_ASSOCIATED');
+    expect('diagnostic_disclosure' in cubeConflict.expected &&
+      cubeConflict.expected.diagnostic_disclosure).toBe('none');
+    expect(REPOSITORY_CUBE_PERMISSION_CONFORMANCE[0].expected).toEqual({
+      status: 403,
+      error: 'ACCESS_DENIED',
+      authority_state_delta: {},
+    });
+    expect(REPOSITORY_CUBE_PERMISSION_CONFORMANCE[1].expected).toEqual({
+      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      associate: {
+        status: 403,
+        error: 'ACCESS_DENIED',
+        diagnostic_disclosure: 'none',
+        authority_state_delta: {},
+      },
+    });
+    expect(REPOSITORY_CUBE_PERMISSION_CONFORMANCE[2].expected).toEqual({
+      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      associate: {
+        status: 200,
+        outcome: 'resolved',
+        authority_state_delta: { repository_associations: 1 },
+      },
+    });
+    expect(REPOSITORY_CUBE_AUTHORITATIVE_STATE_CONFORMANCE[0].expected).toEqual({
+      status: 409,
+      error: 'INVALID_INPUT',
+      diagnostic_disclosure: 'none',
+      authority_state_delta: {},
+    });
   });
 
   it('pins ordinary and owner enrollment authority vectors', () => {

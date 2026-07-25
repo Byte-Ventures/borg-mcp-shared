@@ -1,5 +1,5 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
-import type { CreateCubeRequest, EnrollmentExchangeRequest } from '../protocol/contract.js';
+import type { AssociateRepositoryCubeRequest, CreateCubeRequest, EnrollmentExchangeRequest, ResolveRepositoryCubeRequest } from '../protocol/contract.js';
 export * from './adapter.js';
 export interface ConformanceVector<Input, Output> {
     name: string;
@@ -66,6 +66,111 @@ export interface CreateCubeAssociationConformanceVector {
     };
 }
 export declare const CREATE_CUBE_ASSOCIATION_CONFORMANCE: readonly CreateCubeAssociationConformanceVector[];
+export interface ResolveRepositoryCubeConformanceVector {
+    name: string;
+    request: ResolveRepositoryCubeRequest;
+    associated: boolean;
+    expected: {
+        outcome: 'none';
+        status: 200;
+        authority_state_delta: Record<string, never>;
+    } | {
+        outcome: 'resolved';
+        status: 200;
+        authority_state_delta: Record<string, never>;
+    };
+}
+export declare const RESOLVE_REPOSITORY_CUBE_CONFORMANCE: readonly ResolveRepositoryCubeConformanceVector[];
+export interface AssociateRepositoryCubeConformanceVector {
+    name: string;
+    initial: AssociateRepositoryCubeRequest;
+    retry: AssociateRepositoryCubeRequest;
+    expected: {
+        outcome: 'resolved';
+        status: 200;
+        initial_authority_state_delta: {
+            repository_associations: 1;
+        };
+        retry_authority_state_delta: Record<string, never>;
+    } | {
+        outcome: 'repository_conflict' | 'cube_conflict';
+        status: 409;
+        error: 'REPOSITORY_ALREADY_ASSOCIATED' | 'CUBE_ALREADY_ASSOCIATED';
+        diagnostic_disclosure: 'none';
+        retry_authority_state_delta: Record<string, never>;
+    };
+}
+export declare const ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE: readonly AssociateRepositoryCubeConformanceVector[];
+export declare const REPOSITORY_CUBE_PERMISSION_CONFORMANCE: readonly [{
+    readonly name: "association denies an inaccessible explicit cube without mutation";
+    readonly request: {
+        readonly working_repo_name: string;
+        readonly repository: import("../protocol/contract.js").CreateCubeRepository;
+        readonly cube_id: "00000000-0000-4000-8000-000000000131";
+    };
+    readonly expected: {
+        readonly status: 403;
+        readonly error: "ACCESS_DENIED";
+        readonly authority_state_delta: {};
+    };
+}, {
+    readonly name: "same-client binding to an inaccessible cube is non-enumerating";
+    readonly request: {
+        readonly working_repo_name: string;
+        readonly repository: import("../protocol/contract.js").CreateCubeRepository;
+        readonly cube_id: "00000000-0000-4000-8000-000000000131";
+    };
+    readonly precondition: "repository_bound_to_inaccessible_cube";
+    readonly expected: {
+        readonly resolve: {
+            readonly status: 200;
+            readonly outcome: "none";
+            readonly authority_state_delta: {};
+        };
+        readonly associate: {
+            readonly status: 403;
+            readonly error: "ACCESS_DENIED";
+            readonly diagnostic_disclosure: "none";
+            readonly authority_state_delta: {};
+        };
+    };
+}, {
+    readonly name: "another client binding is neither resolved nor treated as a conflict";
+    readonly request: {
+        readonly working_repo_name: string;
+        readonly repository: import("../protocol/contract.js").CreateCubeRepository;
+        readonly cube_id: "00000000-0000-4000-8000-000000000131";
+    };
+    readonly precondition: "repository_bound_by_another_client";
+    readonly expected: {
+        readonly resolve: {
+            readonly status: 200;
+            readonly outcome: "none";
+            readonly authority_state_delta: {};
+        };
+        readonly associate: {
+            readonly status: 200;
+            readonly outcome: "resolved";
+            readonly authority_state_delta: {
+                readonly repository_associations: 1;
+            };
+        };
+    };
+}];
+export declare const REPOSITORY_CUBE_AUTHORITATIVE_STATE_CONFORMANCE: readonly [{
+    readonly name: "legacy cube with invalid authoritative roles is rejected without mutation";
+    readonly request: {
+        readonly working_repo_name: string;
+        readonly repository: import("../protocol/contract.js").CreateCubeRepository;
+        readonly cube_id: "00000000-0000-4000-8000-000000000131";
+    };
+    readonly expected: {
+        readonly status: 409;
+        readonly error: "INVALID_INPUT";
+        readonly diagnostic_disclosure: "none";
+        readonly authority_state_delta: {};
+    };
+}];
 export declare const ENROLLMENT_AUTHORITY_CONFORMANCE: readonly [{
     readonly name: "ordinary enrollment creates no authority or cube state";
     readonly response: {

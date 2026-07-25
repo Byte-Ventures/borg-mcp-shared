@@ -2,11 +2,13 @@ import { ErrorCode } from './errors.js';
 import { type ProtocolVersion } from './version.js';
 import type { DroneRuntimeMetadata, DroneRuntimeMetadataPatch } from './types.js';
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
-export declare const SHARED_PACKAGE_VERSION: "0.6.3";
+export declare const SHARED_PACKAGE_VERSION: "0.6.4";
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
 export declare const CUBES_PATH: "/api/cubes";
+export declare const REPOSITORY_CUBE_RESOLVE_PATH: "/api/repository-cubes/resolve";
+export declare const REPOSITORY_CUBE_ASSOCIATION_PATH: "/api/repository-cubes/association";
 export declare const ATTACH_PATH: "/api/client/attach";
 export declare const SELF_RUNTIME_METADATA_PATH: "/api/cubes/:cubeId/drones/self/metadata";
 export declare const PROTOCOL_HTTP_CONTRACT: {
@@ -34,6 +36,20 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly path: "/api/cubes";
         readonly authenticated: true;
         readonly success_status: 201;
+    };
+    readonly repository_cube_resolve: {
+        readonly method: "POST";
+        readonly path: "/api/repository-cubes/resolve";
+        readonly authenticated: true;
+        readonly success_status: 200;
+        readonly mutation: false;
+    };
+    readonly repository_cube_association: {
+        readonly method: "PUT";
+        readonly path: "/api/repository-cubes/association";
+        readonly authenticated: true;
+        readonly success_status: 200;
+        readonly mutation: true;
     };
     readonly attach: {
         readonly method: "POST";
@@ -140,6 +156,28 @@ export interface CreateCubeResponse {
     default_worker_role_id: string;
     access: 'manage';
 }
+export interface ResolveRepositoryCubeRequest {
+    working_repo_name: string;
+    repository: CreateCubeRepository;
+}
+export interface AssociateRepositoryCubeRequest extends ResolveRepositoryCubeRequest {
+    cube_id: string;
+}
+export interface ResolvedRepositoryCube {
+    result: 'resolved';
+    cube_id: string;
+    name: string;
+    working_repo_name: string;
+    repository: CreateCubeRepository;
+    template: CubeTemplate;
+    human_seat_role_id: string;
+    default_worker_role_id: string;
+    access: 'manage';
+}
+export type ResolveRepositoryCubeResponse = {
+    result: 'none';
+} | ResolvedRepositoryCube;
+export type AssociateRepositoryCubeResponse = ResolvedRepositoryCube;
 export interface AckLogRequest {
     entry_id: string;
     kind: 'ack' | 'claim';
@@ -172,6 +210,14 @@ export declare function decodeCreateCubeRequest(value: unknown): CreateCubeReque
 export declare function decodeCreateCubeRequestEnvelope(value: unknown): ProtocolEnvelope<CreateCubeRequest>;
 export declare function decodeCreateCubeResponse(value: unknown): CreateCubeResponse;
 export declare function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse>;
+export declare function decodeResolveRepositoryCubeRequest(value: unknown): ResolveRepositoryCubeRequest;
+export declare function decodeResolveRepositoryCubeRequestEnvelope(value: unknown): ProtocolEnvelope<ResolveRepositoryCubeRequest>;
+export declare function decodeAssociateRepositoryCubeRequest(value: unknown): AssociateRepositoryCubeRequest;
+export declare function decodeAssociateRepositoryCubeRequestEnvelope(value: unknown): ProtocolEnvelope<AssociateRepositoryCubeRequest>;
+export declare function decodeResolveRepositoryCubeResponse(value: unknown): ResolveRepositoryCubeResponse;
+export declare function decodeResolveRepositoryCubeResponseEnvelope(value: unknown): ProtocolEnvelope<ResolveRepositoryCubeResponse>;
+export declare function decodeAssociateRepositoryCubeResponse(value: unknown): AssociateRepositoryCubeResponse;
+export declare function decodeAssociateRepositoryCubeResponseEnvelope(value: unknown): ProtocolEnvelope<AssociateRepositoryCubeResponse>;
 export declare function decodeAppendLogRequest(value: unknown): import('./types.js').AppendLogRequest;
 export declare function decodeAckLogRequest(value: unknown): AckLogRequest;
 export declare function decodeRecordDecisionRequest(value: unknown): import('./types.js').RecordDecisionRequest;

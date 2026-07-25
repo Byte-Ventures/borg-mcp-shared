@@ -1,4 +1,4 @@
-# Retry-Safe Enrollment and Cube Creation Contract
+# Retry-Safe Enrollment and Repository Cube Contract
 
 This document defines the data-only enrollment and cube-creation boundaries
 shared by clients and servers. It does not define offline operator commands,
@@ -19,9 +19,10 @@ incident is bound to tag object `045268aa8873da330819860012ecaddb4bc2883c`, prot
 `fd69b08586481a60c88099dede8e4e066f73f2f2`; attempt-1 workflow run
 `30054936226` failed in tests before build, packaging, authentication, or registry
 mutation and must never be rerun or moved. `borgmcp-shared@0.6.1` and
-`borgmcp-shared@0.6.2` are published and immutable. This source now identifies
-the reviewed, unpublished `0.6.3` protocol-v4 cube-creation contract release.
-The version bump grants no tag or publication authority: creating `v0.6.3` and
+`borgmcp-shared@0.6.2` and `borgmcp-shared@0.6.3` are published and immutable.
+This source now identifies the reviewed, unpublished `0.6.4`
+repository-association hotfix candidate. The version bump grants no tag or
+publication authority: creating `v0.6.4` and
 publishing the reviewed artifact remain separate, independently gated steps.
 There is no compatibility path that returns a bearer from the server.
 
@@ -128,7 +129,8 @@ enrollment and attach routes never create or widen grants.
 
 ## Cube Creation
 
-Under protocol v4, `POST /api/cubes` requires an active parent-client credential
+Introduced under protocol v4 and retained in v5, `POST /api/cubes` requires an
+active parent-client credential
 with the persisted `create_cube` server capability. Ordinary clients, revoked
 clients, and drone sessions cannot use it. Its strict payload is:
 
@@ -190,6 +192,40 @@ repository may create another cube, subject to implementation quotas. `owner_id`
 and role labels remain metadata; cube access derives only from the explicit
 cube-scoped grant.
 
+## Existing Repository Cube Resolution and Association
+
+Repository lookup and adoption are separate authenticated operations. Before
+name discovery or any prompt, a client sends the canonical `repository` identity
+and bounded `working_repo_name` to the read-only
+`POST /api/repository-cubes/resolve` operation. It returns exactly
+`{ "result": "none" }` when no association exists for that authenticated client,
+or the stored authoritative cube name, template, repository display, human-seat
+role ID, default-worker role ID, and `manage` access with `result: "resolved"`.
+The resolver never mutates state or infers an association from a cube name.
+Associations are scoped to the authenticated client. Cross-client bindings never
+produce a conflict or existence signal. If a same-client association points to a
+cube for which the caller no longer has `manage` access, read-only resolution
+returns `none` rather than exposing the binding.
+
+After separate user confirmation, `PUT /api/repository-cubes/association`
+accepts an explicit canonical cube UUID plus the same repository identity and
+display fields. The server requires authenticated `manage` authority for that
+cube and atomically persists the association before returning the same
+authoritative resolved shape. Repeating the same cube/repository binding is
+idempotent. A repository already bound to another cube returns HTTP `409`
+`REPOSITORY_ALREADY_ASSOCIATED`; a cube already bound to another repository
+returns HTTP `409` `CUBE_ALREADY_ASSOCIATED`. A legacy cube whose authoritative
+human-seat or default-worker roles are invalid returns HTTP `409` `INVALID_INPUT`.
+All three outcomes perform zero mutation and use static, non-enumerating
+diagnostics: neither `message` nor `details` may name or echo a conflicting cube
+ID or repository identity, regardless of the caller's access. An inaccessible
+target cube, or a same-client repository binding whose cube is no longer
+accessible, returns HTTP `403` `ACCESS_DENIED` without distinguishing the hidden
+state. Names are discovery and display values only. Implementations must not
+silently infer or backfill an
+association, report success after a client-local write alone, or overload cube
+creation as the read-only preflight.
+
 ## Conformance
 
 `ENROLLMENT_RETRY_CONFORMANCE` covers exact retry stability plus retry-key,
@@ -207,4 +243,10 @@ violation fails conformance.
 display readback, and mismatch rejection for cube name, repository kind/value,
 and template. `CREATE_CUBE_ASSOCIATION_CONFORMANCE` distinguishes no-mutation
 resolution of an existing repository association from creation for a different,
-unassociated repository.
+unassociated repository. `RESOLVE_REPOSITORY_CUBE_CONFORMANCE` pins explicit
+none and authoritative no-mutation readback. `ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE`,
+`REPOSITORY_CUBE_PERMISSION_CONFORMANCE`, and
+`REPOSITORY_CUBE_AUTHORITATIVE_STATE_CONFORMANCE` pin explicit-ID idempotency,
+both conflict directions, non-enumerating diagnostics, manage authorization,
+authoritative role validation, and zero mutation on rejection. The
+adapter runner executes the complete association boundary against each host.

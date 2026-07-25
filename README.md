@@ -59,7 +59,7 @@ functions and contracts include API documentation in their TypeScript sources.
 
 ## Handshake
 
-The first-slice HTTP contract has four shared paths:
+The repository-first HTTP contract has six shared paths:
 
 - `GET /healthz` is the only unauthenticated liveness probe. Success is `204`
   with no body or identifying metadata.
@@ -78,6 +78,15 @@ The first-slice HTTP contract has four shared paths:
   strict, idempotent request selects a server-owned template; one atomic success
   creates a cube, two initial roles, and the creator's cube-scoped `manage`
   grant. Exact retries return the same non-secret identities without mutation.
+- `POST /api/repository-cubes/resolve` is an authenticated, read-only lookup by
+  canonical repository identity. It returns explicit none or the stored
+  authoritative cube, template, role IDs, and repository display without
+  inferring identity from a cube name.
+- `PUT /api/repository-cubes/association` atomically binds an explicitly
+  confirmed cube ID and canonical repository identity for a caller with cube
+  `manage` authority. The same binding is idempotent; repository and cube
+  conflicts return distinct non-enumerating error codes, and a conflict,
+  validation failure, or permission failure performs no mutation.
 
 `decodeProtocolTagPreflight` fails closed on any tag other than the exact
 expected version, on any extra field, or on a non-object body — before any
@@ -114,7 +123,8 @@ readonly data rather than Vitest-specific helpers, so they work with any test
 runner and in any JavaScript runtime. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
-idempotency, acks, claims, decisions, cube-scoped drone reassignment, role-class
+idempotency, explicit repository resolution/adoption and conflict atomicity,
+acks, claims, decisions, cube-scoped drone reassignment, role-class
 and single-seat invariants, eviction exclusion, and terminal bearer signaling.
 The same runner covers complete attach reports, own-seat metadata self-healing,
 canonical repository identity, invalid-patch atomicity, cross-cube isolation,
@@ -165,14 +175,14 @@ never published: annotated tag object `90a1cf686a0ce32a7aef836b0b82a930191b9030`
 peels to protected-main commit `fd69b08586481a60c88099dede8e4e066f73f2f2`;
 attempt-1 workflow run `30054936226` failed in tests before build, packaging,
 authentication, or registry mutation and must never be rerun or moved.
-`borgmcp-shared@0.6.1` and `borgmcp-shared@0.6.2` are published and immutable.
-This source now identifies the reviewed, unpublished `0.6.3` protocol-v4
-cube-creation contract release. This
+`borgmcp-shared@0.6.1`, `borgmcp-shared@0.6.2`, and
+`borgmcp-shared@0.6.3` are published and immutable. This source now identifies the
+reviewed, unpublished `0.6.4` repository-association hotfix candidate. This
 reviewed version bump grants no tag or publish authority; creating annotated
-`v0.6.3` and publishing
+`v0.6.4` and publishing
 its exact reviewed artifact remain separate, independently gated steps.
 Consumers update shared, server, and client together: peers carrying protocol v2,
-v3, and v4 reject incompatible tags during credential-free preflight. No
+v3, v4, and v5 reject incompatible tags during credential-free preflight. No
 registry token belongs in this repository, package metadata, lockfiles, or a
 committed `.npmrc`;
 publishing uses protected external credentials and provenance. Successful
