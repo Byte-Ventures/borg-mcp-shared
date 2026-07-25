@@ -160,6 +160,50 @@ describe('cube templates', () => {
     expect(coordinator.detailed_description).toContain('Never manufacture work');
   });
 
+  it('gives Builders an ordered minimum-sufficient-change discipline', () => {
+    const builder = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Builder')!;
+    const text = builder.detailed_description;
+    const ladder = [
+      'no change when the requirement is already satisfied',
+      'an existing repository helper or pattern',
+      'the standard library or native platform',
+      'an already-installed dependency',
+      'only then the minimum new code',
+    ];
+
+    expect(text).toContain('Read and trace the real affected flow before choosing an implementation.');
+    expect(text).toContain(
+      'Make the smallest change that satisfies the complete authorized acceptance criteria.',
+    );
+    expect(text).toContain('fully works, not the least work');
+    expect(text).toContain(
+      'fix the root cause at the narrowest shared point when that is safer and smaller than per-caller patches',
+    );
+    const positions = ladder.map((phrase) => text.indexOf(phrase));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((left, right) => left - right));
+  });
+
+  it('keeps Builder safety and testing boundaries stronger than minimum-change pressure', () => {
+    const builder = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Builder')!;
+    const text = builder.detailed_description;
+    for (const boundary of [
+      'trust-boundary validation',
+      'security controls',
+      'data-loss prevention',
+      'accessibility requirements',
+      'explicit acceptance criteria',
+      'proportionate regression tests',
+      'Add proportionate tests for behavior you change',
+      'If the request is ambiguous in a way that changes scope, post BLOCKED',
+      'Do not add cleanup, broad refactors, speculative hardening',
+      'Do not review, merge, deploy, publish, tag, release, or mutate live systems',
+    ]) {
+      expect(text).toContain(boundary);
+    }
+    expect(text).not.toMatch(/persistent mode|intensity level|persona|deliberately reduced version|GitHub/i);
+  });
+
   it('keeps review routing serialized through the coordinating seat', () => {
     for (const template of Object.values(TEMPLATES)) {
       const review = template.message_taxonomy?.find((entry) => entry.class === 'review-request');
