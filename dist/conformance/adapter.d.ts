@@ -82,6 +82,14 @@ export interface ConformanceCreatedCubeState {
     human_seat_role_matches: boolean;
     default_worker_role_matches: boolean;
 }
+export interface ConformanceRepositoryCubeFixture {
+    cube_id: string;
+    name: string;
+    template: CubeTemplate;
+    human_seat_role_id: string;
+    default_worker_role_id: string;
+    access: 'manage';
+}
 export interface ConformanceEnrollmentPrincipalState {
     response_client_matches: boolean;
     active_credential_bindings: number;
@@ -99,6 +107,7 @@ export interface ConformanceAdmin {
     createPrincipal(name: string): Promise<ConformancePrincipal>;
     createCube(name: string): Promise<ConformanceCube>;
     grantCube(principal: ConformancePrincipal, cube: ConformanceCube, access?: ConformanceCubeAccess): Promise<void>;
+    revokeCubeGrant(principal: ConformancePrincipal, cube: ConformanceCube): Promise<void>;
     createRole(cube: ConformanceCube, input: {
         readonly roleClass: 'queen' | 'worker';
         readonly isHumanSeat: boolean;
@@ -119,6 +128,10 @@ export interface ConformanceAdmin {
     issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
     observeAuthorityState(): Promise<ConformanceAuthorityState>;
     inspectCreatedCube(creator: ConformancePrincipal, response: CreateCubeResponse): Promise<ConformanceCreatedCubeState>;
+    prepareRepositoryCube(cube: ConformanceCube, input: {
+        name: string;
+        template: CubeTemplate;
+    }): Promise<ConformanceRepositoryCubeFixture>;
     inspectEnrollmentPrincipal(principal: ConformancePrincipal, responseClientId: string): Promise<ConformanceEnrollmentPrincipalState>;
     revokePrincipal(principal: ConformancePrincipal): Promise<void>;
     expireCursor(cube: ConformanceCube, cursor: LogCursor): Promise<void>;
@@ -129,6 +142,8 @@ export interface ConformanceOperations {
     protocol(credential: string | null): Promise<ConformanceHttpResponse>;
     enroll(request: unknown): Promise<ConformanceHttpResponse>;
     createCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
+    resolveRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
+    associateRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
     attach(credential: string, request: unknown): Promise<ConformanceHttpResponse>;
     selfMetadataUpdate(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     append(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
@@ -158,6 +173,9 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
 }, {
     readonly id: "enrollment.retry-authority";
     readonly area: "enrollment";
+}, {
+    readonly id: "repository.explicit-association";
+    readonly area: "repository";
 }, {
     readonly id: "security.adapter-boundary-injection";
     readonly area: "security";

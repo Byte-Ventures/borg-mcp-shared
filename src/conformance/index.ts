@@ -1,8 +1,10 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
 import type {
   AttachResponse,
+  AssociateRepositoryCubeRequest,
   CreateCubeRequest,
   EnrollmentExchangeRequest,
+  ResolveRepositoryCubeRequest,
 } from '../protocol/contract.js';
 
 export * from './adapter.js';
@@ -290,6 +292,150 @@ readonly CreateCubeAssociationConformanceVector[] = [
     },
   },
 ];
+
+export interface ResolveRepositoryCubeConformanceVector {
+  name: string;
+  request: ResolveRepositoryCubeRequest;
+  associated: boolean;
+  expected:
+    | { outcome: 'none'; status: 200; authority_state_delta: Record<string, never> }
+    | { outcome: 'resolved'; status: 200; authority_state_delta: Record<string, never> };
+}
+
+const REPOSITORY_CUBE_ONE = '00000000-0000-4000-8000-000000000131';
+const REPOSITORY_ONE: ResolveRepositoryCubeRequest = {
+  working_repo_name: 'repository-one',
+  repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-one' },
+};
+const REPOSITORY_TWO: ResolveRepositoryCubeRequest = {
+  working_repo_name: 'repository-two',
+  repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-two' },
+};
+
+/** Resolution is read-only and returns only explicit none or authoritative stored fields. */
+export const RESOLVE_REPOSITORY_CUBE_CONFORMANCE:
+readonly ResolveRepositoryCubeConformanceVector[] = [
+  {
+    name: 'unassociated repository resolves explicit none without mutation',
+    request: REPOSITORY_ONE,
+    associated: false,
+    expected: { outcome: 'none', status: 200, authority_state_delta: {} },
+  },
+  {
+    name: 'associated repository resolves authoritative stored fields without mutation',
+    request: { ...REPOSITORY_ONE, working_repo_name: 'ignored-new-display' },
+    associated: true,
+    expected: { outcome: 'resolved', status: 200, authority_state_delta: {} },
+  },
+];
+
+export interface AssociateRepositoryCubeConformanceVector {
+  name: string;
+  initial: AssociateRepositoryCubeRequest;
+  retry: AssociateRepositoryCubeRequest;
+  expected:
+    | {
+      outcome: 'resolved';
+      status: 200;
+      initial_authority_state_delta: { repository_associations: 1 };
+      retry_authority_state_delta: Record<string, never>;
+    }
+    | {
+      outcome: 'repository_conflict' | 'cube_conflict';
+      status: 409;
+      error: 'REPOSITORY_ALREADY_ASSOCIATED' | 'CUBE_ALREADY_ASSOCIATED';
+      diagnostic_disclosure: 'none';
+      retry_authority_state_delta: Record<string, never>;
+    };
+}
+
+/** Explicit cube IDs bind atomically; names never select or identify a cube. */
+export const ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE:
+readonly AssociateRepositoryCubeConformanceVector[] = [
+  {
+    name: 'same explicit cube and repository binding is idempotent',
+    initial: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    retry: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    expected: {
+      outcome: 'resolved',
+      status: 200,
+      initial_authority_state_delta: { repository_associations: 1 },
+      retry_authority_state_delta: {},
+    },
+  },
+  {
+    name: 'repository already bound to another cube conflicts without mutation',
+    initial: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    retry: { cube_id: '00000000-0000-4000-8000-000000000132', ...REPOSITORY_ONE },
+    expected: {
+      outcome: 'repository_conflict',
+      status: 409,
+      error: 'REPOSITORY_ALREADY_ASSOCIATED',
+      diagnostic_disclosure: 'none',
+      retry_authority_state_delta: {},
+    },
+  },
+  {
+    name: 'cube already bound to another repository conflicts without mutation',
+    initial: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    retry: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_TWO },
+    expected: {
+      outcome: 'cube_conflict',
+      status: 409,
+      error: 'CUBE_ALREADY_ASSOCIATED',
+      diagnostic_disclosure: 'none',
+      retry_authority_state_delta: {},
+    },
+  },
+];
+
+export const REPOSITORY_CUBE_PERMISSION_CONFORMANCE = [
+  {
+    name: 'association denies an inaccessible explicit cube without mutation',
+    request: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    expected: { status: 403, error: 'ACCESS_DENIED', authority_state_delta: {} },
+  },
+  {
+    name: 'same-client binding to an inaccessible cube is non-enumerating',
+    request: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    precondition: 'repository_bound_to_inaccessible_cube',
+    expected: {
+      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      associate: {
+        status: 403,
+        error: 'ACCESS_DENIED',
+        diagnostic_disclosure: 'none',
+        authority_state_delta: {},
+      },
+    },
+  },
+  {
+    name: 'another client binding is neither resolved nor treated as a conflict',
+    request: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    precondition: 'repository_bound_by_another_client',
+    expected: {
+      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      associate: {
+        status: 200,
+        outcome: 'resolved',
+        authority_state_delta: { repository_associations: 1 },
+      },
+    },
+  },
+] as const;
+
+export const REPOSITORY_CUBE_AUTHORITATIVE_STATE_CONFORMANCE = [
+  {
+    name: 'legacy cube with invalid authoritative roles is rejected without mutation',
+    request: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
+    expected: {
+      status: 409,
+      error: 'INVALID_INPUT',
+      diagnostic_disclosure: 'none',
+      authority_state_delta: {},
+    },
+  },
+] as const;
 
 export const ENROLLMENT_AUTHORITY_CONFORMANCE = [
   {

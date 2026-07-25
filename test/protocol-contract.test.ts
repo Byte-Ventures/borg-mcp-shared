@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ENROLLMENT_EXCHANGE_PATH,
   CUBES_PATH,
+  REPOSITORY_CUBE_RESOLVE_PATH,
+  REPOSITORY_CUBE_ASSOCIATION_PATH,
   HEALTH_PATH,
   PROTOCOL_INFO_PATH,
   PROTOCOL_HTTP_CONTRACT,
@@ -24,6 +26,14 @@ import {
   decodeCreateCubeRequestEnvelope,
   decodeCreateCubeResponse,
   decodeCreateCubeResponseEnvelope,
+  decodeResolveRepositoryCubeRequest,
+  decodeResolveRepositoryCubeRequestEnvelope,
+  decodeResolveRepositoryCubeResponse,
+  decodeResolveRepositoryCubeResponseEnvelope,
+  decodeAssociateRepositoryCubeRequest,
+  decodeAssociateRepositoryCubeRequestEnvelope,
+  decodeAssociateRepositoryCubeResponse,
+  decodeAssociateRepositoryCubeResponseEnvelope,
   decodeProtocolEnvelope,
   decodeProtocolErrorEnvelope,
   createProtocolTagPreflight,
@@ -46,7 +56,7 @@ import {
 } from '../src/index.js';
 import * as sharedApi from '../src/index.js';
 
-const tagPreflight = { protocol_version: '4' } as const;
+const tagPreflight = { protocol_version: '5' } as const;
 
 describe('package and handshake contract', () => {
   it('keeps the exported identity aligned with package.json', async () => {
@@ -55,7 +65,7 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.6.3');
+    expect(SHARED_PACKAGE_VERSION).toBe('0.6.4');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
@@ -68,11 +78,25 @@ describe('package and handshake contract', () => {
     expect(PROTOCOL_INFO_PATH).toBe('/api/protocol');
     expect(ENROLLMENT_EXCHANGE_PATH).toBe('/api/enrollment/exchange');
     expect(CUBES_PATH).toBe('/api/cubes');
+    expect(REPOSITORY_CUBE_RESOLVE_PATH).toBe('/api/repository-cubes/resolve');
+    expect(REPOSITORY_CUBE_ASSOCIATION_PATH).toBe('/api/repository-cubes/association');
     expect(PROTOCOL_HTTP_CONTRACT).toMatchObject({
       health: { success_status: 204, bodyless: true, authenticated: false },
       protocol: { method: 'GET', success_status: 200, authenticated: false },
       enrollment: { success_status: 201, authenticated: 'invitation' },
       cubes: { success_status: 201, authenticated: true },
+      repository_cube_resolve: {
+        method: 'POST',
+        success_status: 200,
+        authenticated: true,
+        mutation: false,
+      },
+      repository_cube_association: {
+        method: 'PUT',
+        success_status: 200,
+        authenticated: true,
+        mutation: true,
+      },
       attach: {
         method: 'POST',
         path: '/api/client/attach',
@@ -107,7 +131,7 @@ describe('package and handshake contract', () => {
 
   it('emits and decodes a tag-only preflight carrying nothing but the exact tag', () => {
     const emitted = createProtocolTagPreflight();
-    expect(emitted).toEqual({ protocol_version: '4' });
+    expect(emitted).toEqual({ protocol_version: '5' });
     expect(Object.keys(emitted)).toEqual(['protocol_version']);
     expect(decodeProtocolTagPreflight(tagPreflight)).toEqual(tagPreflight);
   });
@@ -246,7 +270,7 @@ describe('package and handshake contract', () => {
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
     expect(createProtocolEnvelope('req-12345678', { ok: true })).toEqual({
-      protocol_version: '4',
+      protocol_version: '5',
       request_id: 'req-12345678',
       payload: { ok: true },
     });
@@ -264,7 +288,7 @@ describe('package and handshake contract', () => {
   it('decodes canonical errors without accepting secret-bearing fields', () => {
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         request_id: 'req-12345678',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -272,7 +296,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         error: {
           code: 'AUTH_INVALID',
           message: 'Authentication failed.',
@@ -289,7 +313,7 @@ describe('package and handshake contract', () => {
     );
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         error: { code: 'AUTH_INVALID', message: `Credential ${secret} failed.` },
       }).error.message,
     ).toBe('Credential <REDACTED> failed.');
@@ -314,7 +338,7 @@ describe('package and handshake contract', () => {
       `retry_key\\u0009:<REDACTED> cube_id=${publicId}`,
     );
     expect(decodeProtocolErrorEnvelope({
-      protocol_version: '4',
+      protocol_version: '5',
       error: {
         code: 'AUTH_INVALID',
         message: `retry-key\n: ${retryKey}`,
@@ -334,7 +358,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         request_id: 'valid-id\r\nInjected',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -344,7 +368,7 @@ describe('package and handshake contract', () => {
   it('rejects retired capability-negotiation error fields', () => {
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         error: {
           code: 'AUTH_INVALID',
           message: 'Unsupported.',
@@ -354,7 +378,7 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         error: {
           code: 'UNSUPPORTED_PROTOCOL_VERSION',
           message: 'Unsupported.',
@@ -371,28 +395,28 @@ describe('package and handshake contract', () => {
     expect(PROTOCOL_HTTP_CONTRACT.drone_evicted_status).toBe(410);
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         request_id: 'req-12345678',
         error: { code: 'AUTH_EXPIRED', message: 'Session expired.' },
       }),
     ).toMatchObject({ error: { code: 'AUTH_EXPIRED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REVOKED', message: 'Session revoked.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REVOKED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REJECTED', message: 'Seat already bound.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REJECTED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '4',
+        protocol_version: '5',
         request_id: 'req-12345678',
         error: { code: 'DRONE_EVICTED', message: 'This seat was evicted.' },
       }),
@@ -692,6 +716,87 @@ describe('cube creation codecs', () => {
   });
 });
 
+describe('repository cube association codecs', () => {
+  const repository = {
+    kind: 'origin' as const,
+    value: 'https://github.com/Byte-Ventures/borg-mcp',
+  };
+  const resolutionRequest = {
+    working_repo_name: 'borg-mcp',
+    repository,
+  };
+  const associationRequest = {
+    cube_id: '00000000-0000-4000-8000-000000000021',
+    ...resolutionRequest,
+  };
+  const resolved = {
+    result: 'resolved' as const,
+    cube_id: associationRequest.cube_id,
+    name: 'Borg MCP',
+    working_repo_name: 'borg-mcp',
+    repository,
+    template: 'software-dev' as const,
+    human_seat_role_id: '00000000-0000-4000-8000-000000000022',
+    default_worker_role_id: '00000000-0000-4000-8000-000000000023',
+    access: 'manage' as const,
+  };
+
+  it('decodes strict read-only resolution and explicit association requests', () => {
+    expect(decodeResolveRepositoryCubeRequest(resolutionRequest)).toEqual(resolutionRequest);
+    expect(decodeResolveRepositoryCubeRequestEnvelope(
+      createProtocolEnvelope('repo-resolve-1', resolutionRequest),
+    ).payload).toEqual(resolutionRequest);
+    expect(decodeAssociateRepositoryCubeRequest(associationRequest)).toEqual(associationRequest);
+    expect(decodeAssociateRepositoryCubeRequestEnvelope(
+      createProtocolEnvelope('repo-associate-1', associationRequest),
+    ).payload).toEqual(associationRequest);
+  });
+
+  it('decodes explicit none and one authoritative resolved response shape', () => {
+    expect(decodeResolveRepositoryCubeResponse({ result: 'none' })).toEqual({ result: 'none' });
+    expect(decodeResolveRepositoryCubeResponse(resolved)).toEqual(resolved);
+    expect(decodeResolveRepositoryCubeResponseEnvelope(
+      createProtocolEnvelope('repo-resolve-1', resolved),
+    ).payload).toEqual(resolved);
+    expect(decodeAssociateRepositoryCubeResponse(resolved)).toEqual(resolved);
+    expect(decodeAssociateRepositoryCubeResponseEnvelope(
+      createProtocolEnvelope('repo-associate-1', resolved),
+    ).payload).toEqual(resolved);
+  });
+
+  it('rejects inference fields, non-canonical identities, and non-authoritative readback', () => {
+    expect(() => decodeResolveRepositoryCubeRequest({ ...resolutionRequest, name: 'Borg MCP' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeResolveRepositoryCubeRequest({
+      ...resolutionRequest,
+      repository: { kind: 'origin', value: 'git@github.com:Byte-Ventures/borg-mcp.git' },
+    })).toThrow(ProtocolContractError);
+    expect(() => decodeAssociateRepositoryCubeRequest({ ...resolutionRequest, name: 'Borg MCP' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAssociateRepositoryCubeRequest({ ...associationRequest, cube_id: 'borg-mcp' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeResolveRepositoryCubeResponse({ result: 'none', cube_id: resolved.cube_id }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeResolveRepositoryCubeResponse({ ...resolved, result: 'associated' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAssociateRepositoryCubeResponse({ ...resolved, access: 'read' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAssociateRepositoryCubeResponse({ ...resolved, credential: 'A'.repeat(43) }))
+      .toThrow(ProtocolContractError);
+  });
+
+  it.each([
+    'REPOSITORY_ALREADY_ASSOCIATED',
+    'CUBE_ALREADY_ASSOCIATED',
+  ] as const)('decodes the stable %s conflict class', (code) => {
+    expect(decodeProtocolErrorEnvelope({
+      protocol_version: '5',
+      request_id: 'repo-conflict-1',
+      error: { code, message: 'Association conflicts with existing state.' },
+    }).error.code).toBe(code);
+  });
+});
+
 describe('coordination request codecs', () => {
   it('bounds append-log input and rejects ambiguous fields', () => {
     expect(decodeAppendLogRequest({ message: 'hello', to: ['Coordinator'] })).toEqual({
@@ -951,12 +1056,12 @@ describe('clean-slate attach wire types', () => {
 
   it('decodes attach response envelope with correct protocol version', () => {
     const envelope = {
-      protocol_version: '4',
+      protocol_version: '5',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
     const decoded = decodeAttachResponseEnvelope(envelope);
-    expect(decoded.protocol_version).toBe('4');
+    expect(decoded.protocol_version).toBe('5');
     expect(decoded.payload.result).toBe('created');
   });
 
@@ -971,7 +1076,7 @@ describe('clean-slate attach wire types', () => {
 
   it('rejects attach response envelope with unknown protocol version', () => {
     const envelope = {
-      protocol_version: '5',
+      protocol_version: '6',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
@@ -991,7 +1096,7 @@ describe('clean-slate attach wire types', () => {
 
   it('creates and decodes a valid attach request envelope round-trip', () => {
     const envelope = createAttachRequestEnvelope('test-req-001', validAttachRequest);
-    expect(envelope.protocol_version).toBe('4');
+    expect(envelope.protocol_version).toBe('5');
     expect(envelope.request_id).toBe('test-req-001');
     expect(envelope.payload.cube_id).toBe(validAttachRequest.cube_id);
 
@@ -1002,7 +1107,7 @@ describe('clean-slate attach wire types', () => {
 
   it('decodes attach request envelope from raw JSON', () => {
     const raw = {
-      protocol_version: '4',
+      protocol_version: '5',
       request_id: 'test-req-002',
       payload: validAttachRequest,
     };

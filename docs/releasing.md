@@ -133,11 +133,12 @@ that tag. `borgmcp-shared@0.6.0` was never published. Its annotated tag object
 `fd69b08586481a60c88099dede8e4e066f73f2f2`; attempt-1 workflow run
 `30054936226` failed in tests before build, packaging, authentication, or registry
 mutation. Never rerun or move that tag. `borgmcp-shared@0.6.1` and
-`borgmcp-shared@0.6.2` are published and immutable. This source identifies the
-reviewed, unpublished `0.6.3` protocol-v4 cube-creation contract release. Its
+`borgmcp-shared@0.6.2` and `borgmcp-shared@0.6.3` are published and immutable.
+This source identifies the reviewed, unpublished `0.6.4`
+repository-association hotfix candidate. Its
 release requires reviewed source and explicit publication authorization through
 one protected publish run whose terminal boundary is successful `npm publish`.
 The workflow performs no post-publication registry readback. Consumers
 must update the reviewed shared artifact before adopting the matching server and
-client releases; incompatible protocol v2, v3, and v4 peers fail closed at
+client releases; incompatible protocol v2, v3, v4, and v5 peers fail closed at
 credential-free preflight.

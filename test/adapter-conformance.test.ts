@@ -10,11 +10,13 @@ import {
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
   decodeAttachRequestEnvelope,
+  decodeAssociateRepositoryCubeRequestEnvelope,
   decodeCreateCubeRequestEnvelope,
   decodeDroneRuntimeMetadataPatch,
   decodeEvictDroneRequestEnvelope,
   decodeProtocolEnvelope,
   decodeReadLogRequest,
+  decodeResolveRepositoryCubeRequestEnvelope,
   decodeReassignDroneRequestEnvelope,
   decodeRecordDecisionRequest,
   encodeSseEvent,
@@ -26,6 +28,7 @@ import {
   type ConformanceDrone,
   type ConformanceHttpResponse,
   type ConformancePrincipal,
+  type ConformanceRepositoryCubeFixture,
   type ConformanceRole,
   type ConformanceStreamResponse,
   type CreateCubeRepository,
@@ -34,6 +37,7 @@ import {
   type Decision,
   type EnrichedStreamEntry,
   type LogCursor,
+  type ResolvedRepositoryCube,
   type ReadLogClaim,
   type DroneRuntimeMetadata,
 } from '../src/index.js';
@@ -203,7 +207,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     template: CubeTemplate;
     response: CreateCubeResponse;
   }>();
-  private repositoryAssociations = new Map<string, CreateCubeResponse>();
+  private repositoryAssociations = new Map<string, CreateCubeResponse | ResolvedRepositoryCube>();
   private streams = new Set<{ principalId: string; cubeId: string; queue: AsyncQueue }>();
   private replayBarrier: {
     reached: Promise<void>;
@@ -258,6 +262,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       access: ConformanceCubeAccess = 'manage',
     ): Promise<void> => {
       this.principal(principal.id).grants.set(cube.id, access);
+    },
+    revokeCubeGrant: async (
+      principal: ConformancePrincipal,
+      cube: ConformanceCube,
+    ): Promise<void> => {
+      this.principal(principal.id).grants.delete(cube.id);
     },
     createRole: async (
       cube: ConformanceCube,
@@ -432,6 +442,39 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           cube?.roles.get(response.default_worker_role_id)?.templateKind === 'default_worker',
       };
     },
+    prepareRepositoryCube: async (
+      cubeHandle: ConformanceCube,
+      input: {
+        name: string;
+        template: CubeTemplate;
+      },
+    ): Promise<ConformanceRepositoryCubeFixture> => {
+      const cube = this.cube(cubeHandle.id);
+      cube.name = input.name;
+      cube.template = input.template;
+      const humanSeatRoleId = this.uuid();
+      const defaultWorkerRoleId = this.uuid();
+      cube.roles.set(humanSeatRoleId, {
+        handle: { id: humanSeatRoleId },
+        roleClass: 'queen',
+        isHumanSeat: true,
+        templateKind: 'human_seat',
+      });
+      cube.roles.set(defaultWorkerRoleId, {
+        handle: { id: defaultWorkerRoleId },
+        roleClass: 'worker',
+        isHumanSeat: false,
+        templateKind: 'default_worker',
+      });
+      return {
+        cube_id: cubeHandle.id,
+        name: input.name,
+        template: input.template,
+        human_seat_role_id: humanSeatRoleId,
+        default_worker_role_id: defaultWorkerRoleId,
+        access: 'manage',
+      };
+    },
     inspectEnrollmentPrincipal: async (
       principal: ConformancePrincipal,
       responseClientId: string,
@@ -502,7 +545,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '4',
+                protocol_version: '5',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -522,7 +565,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '4',
+                protocol_version: '5',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -621,7 +664,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '4',
+              protocol_version: '5',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -717,6 +760,84 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.repositoryAssociations.set(associationKey, response);
       return { status: 201, body: createProtocolEnvelope(envelope.request_id, response) };
     },
+    resolveRepositoryCube: async (
+      credential: string | null,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const auth = this.authenticate(credential);
+      if (auth.error) return auth.error;
+      if (auth.droneSession) return this.error(403, ErrorCode.ACCESS_DENIED);
+      const envelope = decodeResolveRepositoryCubeRequestEnvelope(request);
+      const key = `${auth.principal.handle.id}/${envelope.payload.repository.kind}/${envelope.payload.repository.value}`;
+      const associated = this.repositoryAssociations.get(key);
+      const visible = associated && auth.principal.grants.get(associated.cube_id) === 'manage';
+      return {
+        status: 200,
+        body: createProtocolEnvelope(
+          envelope.request_id,
+          visible ? { ...associated, result: 'resolved' as const } : { result: 'none' as const },
+        ),
+      };
+    },
+    associateRepositoryCube: async (
+      credential: string | null,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const auth = this.authenticate(credential);
+      if (auth.error) return auth.error;
+      if (auth.droneSession) return this.error(403, ErrorCode.ACCESS_DENIED);
+      const envelope = decodeAssociateRepositoryCubeRequestEnvelope(request);
+      const cube = this.cubes.get(envelope.payload.cube_id);
+      if (!cube || auth.principal.grants.get(cube.handle.id) !== 'manage') {
+        return this.error(403, ErrorCode.ACCESS_DENIED, envelope.request_id);
+      }
+      const key = `${auth.principal.handle.id}/${envelope.payload.repository.kind}/${envelope.payload.repository.value}`;
+      const repositoryBinding = this.repositoryAssociations.get(key);
+      if (repositoryBinding && repositoryBinding.cube_id !== cube.handle.id) {
+        if (auth.principal.grants.get(repositoryBinding.cube_id) !== 'manage') {
+          return this.error(403, ErrorCode.ACCESS_DENIED, envelope.request_id);
+        }
+        return this.error(409, ErrorCode.REPOSITORY_ALREADY_ASSOCIATED, envelope.request_id);
+      }
+      const cubeBinding = [...this.repositoryAssociations.entries()].find(
+        ([associationKey, association]) =>
+          associationKey.startsWith(`${auth.principal.handle.id}/`) && association.cube_id === cube.handle.id,
+      );
+      if (cubeBinding && cubeBinding[0] !== key) {
+        return this.error(409, ErrorCode.CUBE_ALREADY_ASSOCIATED, envelope.request_id);
+      }
+      if (repositoryBinding) {
+        return {
+          status: 200,
+          body: createProtocolEnvelope(envelope.request_id, { ...repositoryBinding, result: 'resolved' }),
+        };
+      }
+      if (!cube.name || !cube.template) {
+        return this.error(409, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
+      const humanSeatRoleId = [...cube.roles.values()].find(
+        (role) => role.templateKind === 'human_seat',
+      )?.handle.id;
+      const defaultWorkerRoleId = [...cube.roles.values()].find(
+        (role) => role.templateKind === 'default_worker',
+      )?.handle.id;
+      if (!humanSeatRoleId || !defaultWorkerRoleId) {
+        return this.error(409, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
+      const response: ResolvedRepositoryCube = {
+        result: 'resolved',
+        cube_id: cube.handle.id,
+        name: cube.name,
+        working_repo_name: envelope.payload.working_repo_name,
+        repository: envelope.payload.repository,
+        template: cube.template,
+        human_seat_role_id: humanSeatRoleId,
+        default_worker_role_id: defaultWorkerRoleId,
+        access: 'manage',
+      };
+      this.repositoryAssociations.set(key, response);
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, response) };
+    },
     attach: async (credential: string, request: unknown): Promise<ConformanceHttpResponse> => {
       const auth = this.authenticate(credential);
       if (auth.error) return auth.error;
@@ -802,7 +923,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '4', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '5', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1313,7 +1434,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '4',
+        protocol_version: '5',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message: 'Conformance request failed.' },
       },

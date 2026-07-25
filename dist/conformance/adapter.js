@@ -1,9 +1,10 @@
-import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeAttachResponseEnvelope, decodeDroneRuntimeMetadataPatch, decodeEvictDroneResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeReassignDroneResultEnvelope, decodeUpdateDroneRuntimeMetadataResponseEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
+import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeAssociateRepositoryCubeResponseEnvelope, decodeCreateCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeAttachResponseEnvelope, decodeDroneRuntimeMetadataPatch, decodeEvictDroneResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeResolveRepositoryCubeResponseEnvelope, decodeReassignDroneResultEnvelope, decodeUpdateDroneRuntimeMetadataResponseEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
 import { CREATE_CUBE_ASSOCIATION_CONFORMANCE, CREATE_CUBE_RETRY_CONFORMANCE, ENROLLMENT_RETRY_CONFORMANCE, } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
     { id: 'protocol.credential-free-preflight', area: 'protocol' },
     { id: 'enrollment.retry-authority', area: 'enrollment' },
+    { id: 'repository.explicit-association', area: 'repository' },
     { id: 'security.adapter-boundary-injection', area: 'security' },
     { id: 'security.oversize-request', area: 'security' },
     { id: 'security.cross-cube-isolation', area: 'security' },
@@ -441,6 +442,123 @@ export async function runAdapterConformance(environment, options = {}) {
             exact_retry_status: 201,
             mismatched_retry: ErrorCode.AUTH_INVALID,
             response_secret_free: true,
+        };
+    });
+    await record('repository.explicit-association', async () => {
+        const repository = {
+            kind: 'origin',
+            value: 'https://github.com/Byte-Ventures/legacy-repository',
+        };
+        const prepared = await environment.admin.prepareRepositoryCube(cubeA, {
+            name: 'Legacy Repository Cube',
+            template: 'software-dev',
+        });
+        const resolveRequest = {
+            working_repo_name: 'legacy-repository',
+            repository,
+        };
+        const beforeNone = await environment.admin.observeAuthorityState();
+        const noneResponse = await environment.operations.resolveRepositoryCube(credentialA, createProtocolEnvelope('repository-resolve-none', resolveRequest));
+        expectStatus(noneResponse, 200, 'Unassociated repository resolution');
+        invariant(same(decodeResolveRepositoryCubeResponseEnvelope(noneResponse.body).payload, { result: 'none' }), 'Unassociated repository did not return explicit none.');
+        assertStateDelta(beforeNone, await environment.admin.observeAuthorityState(), {}, 'Repository resolution');
+        const associationRequest = { cube_id: cubeA.id, ...resolveRequest };
+        const beforeDenied = await environment.admin.observeAuthorityState();
+        expectSecretFreeError(await environment.operations.associateRepositoryCube(credentialB, createProtocolEnvelope('repository-associate-denied', associationRequest)), 403, ErrorCode.ACCESS_DENIED, 'Inaccessible repository cube association', [associationRequest.cube_id, repository.value]);
+        assertStateDelta(beforeDenied, await environment.admin.observeAuthorityState(), {}, 'Denied repository association');
+        const beforeAssociation = await environment.admin.observeAuthorityState();
+        const associatedResponse = await environment.operations.associateRepositoryCube(credentialA, createProtocolEnvelope('repository-associate', associationRequest));
+        expectStatus(associatedResponse, 200, 'Explicit repository cube association');
+        const associated = decodeAssociateRepositoryCubeResponseEnvelope(associatedResponse.body).payload;
+        const authoritative = {
+            result: 'resolved',
+            cube_id: prepared.cube_id,
+            name: prepared.name,
+            working_repo_name: resolveRequest.working_repo_name,
+            repository,
+            template: prepared.template,
+            human_seat_role_id: prepared.human_seat_role_id,
+            default_worker_role_id: prepared.default_worker_role_id,
+            access: prepared.access,
+        };
+        invariant(same(associated, authoritative), 'Repository association did not return authoritative stored fields.');
+        assertStateDelta(beforeAssociation, await environment.admin.observeAuthorityState(), { repository_associations: 1 }, 'Explicit repository association');
+        const beforeResolve = await environment.admin.observeAuthorityState();
+        const resolvedResponse = await environment.operations.resolveRepositoryCube(credentialA, createProtocolEnvelope('repository-resolve', {
+            ...resolveRequest,
+            working_repo_name: 'ignored-new-display',
+        }));
+        expectStatus(resolvedResponse, 200, 'Associated repository resolution');
+        invariant(same(decodeResolveRepositoryCubeResponseEnvelope(resolvedResponse.body).payload, authoritative), 'Associated repository did not return stored authoritative display.');
+        assertStateDelta(beforeResolve, await environment.admin.observeAuthorityState(), {}, 'Associated repository resolution');
+        const beforeRetry = await environment.admin.observeAuthorityState();
+        const retryResponse = await environment.operations.associateRepositoryCube(credentialA, createProtocolEnvelope('repository-associate-retry', associationRequest));
+        expectStatus(retryResponse, 200, 'Exact repository association retry');
+        invariant(same(decodeAssociateRepositoryCubeResponseEnvelope(retryResponse.body).payload, authoritative), 'Exact repository association retry changed authoritative fields.');
+        assertStateDelta(beforeRetry, await environment.admin.observeAuthorityState(), {}, 'Repository association retry');
+        const cubeC = await environment.admin.createCube('cube-c');
+        await environment.admin.grantCube(principalA, cubeC);
+        await environment.admin.prepareRepositoryCube(cubeC, {
+            name: 'Other Legacy Cube',
+            template: 'starter',
+        });
+        const beforeRepositoryConflict = await environment.admin.observeAuthorityState();
+        expectSecretFreeError(await environment.operations.associateRepositoryCube(credentialA, createProtocolEnvelope('repository-associate-repository-conflict', {
+            ...associationRequest,
+            cube_id: cubeC.id,
+        })), 409, ErrorCode.REPOSITORY_ALREADY_ASSOCIATED, 'Repository-to-other-cube conflict', [cubeA.id, cubeC.id, repository.value]);
+        assertStateDelta(beforeRepositoryConflict, await environment.admin.observeAuthorityState(), {}, 'Repository-to-other-cube conflict');
+        const beforeCubeConflict = await environment.admin.observeAuthorityState();
+        expectSecretFreeError(await environment.operations.associateRepositoryCube(credentialA, createProtocolEnvelope('repository-associate-cube-conflict', {
+            cube_id: cubeA.id,
+            working_repo_name: 'other-repository',
+            repository: {
+                kind: 'origin',
+                value: 'https://github.com/Byte-Ventures/other-repository',
+            },
+        })), 409, ErrorCode.CUBE_ALREADY_ASSOCIATED, 'Cube-to-other-repository conflict', [cubeA.id, repository.value, 'https://github.com/Byte-Ventures/other-repository']);
+        assertStateDelta(beforeCubeConflict, await environment.admin.observeAuthorityState(), {}, 'Cube-to-other-repository conflict');
+        const preparedB = await environment.admin.prepareRepositoryCube(cubeB, {
+            name: 'Other Client Legacy Cube',
+            template: 'starter',
+        });
+        const beforeCrossClientResolve = await environment.admin.observeAuthorityState();
+        const crossClientResolve = await environment.operations.resolveRepositoryCube(credentialB, createProtocolEnvelope('repository-resolve-cross-client', resolveRequest));
+        expectStatus(crossClientResolve, 200, 'Cross-client repository resolution');
+        invariant(same(decodeResolveRepositoryCubeResponseEnvelope(crossClientResolve.body).payload, { result: 'none' }), 'Another client repository binding was exposed by resolution.');
+        assertStateDelta(beforeCrossClientResolve, await environment.admin.observeAuthorityState(), {}, 'Cross-client repository resolution');
+        const beforeCrossClientAssociation = await environment.admin.observeAuthorityState();
+        const crossClientAssociation = await environment.operations.associateRepositoryCube(credentialB, createProtocolEnvelope('repository-associate-cross-client', {
+            ...associationRequest,
+            cube_id: cubeB.id,
+        }));
+        expectStatus(crossClientAssociation, 200, 'Cross-client repository association');
+        const crossClientAssociated = decodeAssociateRepositoryCubeResponseEnvelope(crossClientAssociation.body).payload;
+        invariant(crossClientAssociated.cube_id === preparedB.cube_id &&
+            crossClientAssociated.repository.value === repository.value, 'Another client binding changed cross-client association identity.');
+        assertStateDelta(beforeCrossClientAssociation, await environment.admin.observeAuthorityState(), { repository_associations: 1 }, 'Cross-client repository association');
+        await environment.admin.revokeCubeGrant(principalA, cubeA);
+        const beforeHiddenResolve = await environment.admin.observeAuthorityState();
+        const hiddenResolve = await environment.operations.resolveRepositoryCube(credentialA, createProtocolEnvelope('repository-resolve-inaccessible-binding', resolveRequest));
+        expectStatus(hiddenResolve, 200, 'Inaccessible repository binding resolution');
+        invariant(same(decodeResolveRepositoryCubeResponseEnvelope(hiddenResolve.body).payload, { result: 'none' }), 'Inaccessible repository binding was exposed by read-only resolution.');
+        assertStateDelta(beforeHiddenResolve, await environment.admin.observeAuthorityState(), {}, 'Inaccessible repository binding resolution');
+        const beforeHiddenAssociation = await environment.admin.observeAuthorityState();
+        expectSecretFreeError(await environment.operations.associateRepositoryCube(credentialA, createProtocolEnvelope('repository-associate-inaccessible-binding', {
+            ...associationRequest,
+            cube_id: cubeC.id,
+        })), 403, ErrorCode.ACCESS_DENIED, 'Inaccessible existing repository binding', [cubeA.id, cubeC.id, repository.value]);
+        assertStateDelta(beforeHiddenAssociation, await environment.admin.observeAuthorityState(), {}, 'Inaccessible existing repository binding');
+        await environment.admin.grantCube(principalA, cubeA);
+        return {
+            none: true,
+            resolved: true,
+            idempotent: true,
+            repository_conflict: ErrorCode.REPOSITORY_ALREADY_ASSOCIATED,
+            cube_conflict: ErrorCode.CUBE_ALREADY_ASSOCIATED,
+            inaccessible: ErrorCode.ACCESS_DENIED,
+            inaccessible_binding_hidden: true,
+            cross_client_binding_hidden: true,
         };
     });
     await record('security.adapter-boundary-injection', async () => {

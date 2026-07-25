@@ -2,11 +2,13 @@ import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION } from './version.js';
 import { canonicalizeRepositoryIdentity, RuntimeMetadataValidationError, validateRuntimeMetadata, validateRuntimeMetadataPatch, validateRuntimeMetadataReportState, } from '../runtime-metadata.js';
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared';
-export const SHARED_PACKAGE_VERSION = '0.6.3';
+export const SHARED_PACKAGE_VERSION = '0.6.4';
 export const HEALTH_PATH = '/healthz';
 export const PROTOCOL_INFO_PATH = '/api/protocol';
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange';
 export const CUBES_PATH = '/api/cubes';
+export const REPOSITORY_CUBE_RESOLVE_PATH = '/api/repository-cubes/resolve';
+export const REPOSITORY_CUBE_ASSOCIATION_PATH = '/api/repository-cubes/association';
 export const ATTACH_PATH = '/api/client/attach';
 export const SELF_RUNTIME_METADATA_PATH = '/api/cubes/:cubeId/drones/self/metadata';
 export const PROTOCOL_HTTP_CONTRACT = {
@@ -14,6 +16,20 @@ export const PROTOCOL_HTTP_CONTRACT = {
     protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: false, success_status: 200 },
     enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
     cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
+    repository_cube_resolve: {
+        method: 'POST',
+        path: REPOSITORY_CUBE_RESOLVE_PATH,
+        authenticated: true,
+        success_status: 200,
+        mutation: false,
+    },
+    repository_cube_association: {
+        method: 'PUT',
+        path: REPOSITORY_CUBE_ASSOCIATION_PATH,
+        authenticated: true,
+        success_status: 200,
+        mutation: true,
+    },
     attach: { method: 'POST', path: ATTACH_PATH, authenticated: true, success_status: 200 },
     drone_reassign: {
         method: 'PATCH',
@@ -263,10 +279,7 @@ export function decodeCreateCubeRequest(value) {
     if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
         fail('Cube name contains unsupported characters.', ['name']);
     }
-    const workingRepoName = boundedString(input.working_repo_name, 1, 120, ['working_repo_name']);
-    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(workingRepoName)) {
-        fail('Cube name contains unsupported characters.', ['working_repo_name']);
-    }
+    const workingRepoName = decodeWorkingRepositoryName(input.working_repo_name, ['working_repo_name']);
     if (!CUBE_TEMPLATES.includes(input.template)) {
         fail('Unsupported cube template.', ['template']);
     }
@@ -311,10 +324,7 @@ export function decodeCreateCubeResponse(value) {
     if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
         fail('Cube name contains unsupported characters.', ['name']);
     }
-    const workingRepoName = boundedString(input.working_repo_name, 1, 120, ['working_repo_name']);
-    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(workingRepoName)) {
-        fail('Cube name contains unsupported characters.', ['working_repo_name']);
-    }
+    const workingRepoName = decodeWorkingRepositoryName(input.working_repo_name, ['working_repo_name']);
     if (!CUBE_TEMPLATES.includes(input.template)) {
         fail('Unsupported cube template.', ['template']);
     }
@@ -358,6 +368,99 @@ function decodeCreateCubeRepository(value, path) {
 }
 export function decodeCreateCubeResponseEnvelope(value) {
     return decodeProtocolEnvelope(value, decodeCreateCubeResponse);
+}
+export function decodeResolveRepositoryCubeRequest(value) {
+    const input = record(value);
+    exactKeys(input, ['working_repo_name', 'repository'], ['working_repo_name', 'repository']);
+    return {
+        working_repo_name: decodeWorkingRepositoryName(input.working_repo_name, ['working_repo_name']),
+        repository: decodeCreateCubeRepository(input.repository, ['repository']),
+    };
+}
+export function decodeResolveRepositoryCubeRequestEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeResolveRepositoryCubeRequest);
+}
+export function decodeAssociateRepositoryCubeRequest(value) {
+    const input = record(value);
+    exactKeys(input, ['cube_id', 'working_repo_name', 'repository'], ['cube_id', 'working_repo_name', 'repository']);
+    return {
+        cube_id: decodeUuid(input.cube_id, ['cube_id']),
+        working_repo_name: decodeWorkingRepositoryName(input.working_repo_name, ['working_repo_name']),
+        repository: decodeCreateCubeRepository(input.repository, ['repository']),
+    };
+}
+export function decodeAssociateRepositoryCubeRequestEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeAssociateRepositoryCubeRequest);
+}
+function decodeResolvedRepositoryCube(value) {
+    const input = record(value);
+    exactKeys(input, [
+        'result',
+        'cube_id',
+        'name',
+        'working_repo_name',
+        'repository',
+        'template',
+        'human_seat_role_id',
+        'default_worker_role_id',
+        'access',
+    ], [
+        'result',
+        'cube_id',
+        'name',
+        'working_repo_name',
+        'repository',
+        'template',
+        'human_seat_role_id',
+        'default_worker_role_id',
+        'access',
+    ]);
+    if (input.result !== 'resolved')
+        fail('Invalid repository cube result.', ['result']);
+    const name = boundedString(input.name, 1, 120, ['name']);
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
+        fail('Cube name contains unsupported characters.', ['name']);
+    }
+    if (!CUBE_TEMPLATES.includes(input.template)) {
+        fail('Unsupported cube template.', ['template']);
+    }
+    if (input.access !== 'manage')
+        fail('Repository cube access must be manage.', ['access']);
+    return {
+        result: 'resolved',
+        cube_id: decodeUuid(input.cube_id, ['cube_id']),
+        name,
+        working_repo_name: decodeWorkingRepositoryName(input.working_repo_name, ['working_repo_name']),
+        repository: decodeCreateCubeRepository(input.repository, ['repository']),
+        template: input.template,
+        human_seat_role_id: decodeUuid(input.human_seat_role_id, ['human_seat_role_id']),
+        default_worker_role_id: decodeUuid(input.default_worker_role_id, ['default_worker_role_id']),
+        access: 'manage',
+    };
+}
+export function decodeResolveRepositoryCubeResponse(value) {
+    const input = record(value);
+    if (input.result === 'none') {
+        exactKeys(input, ['result'], ['result']);
+        return { result: 'none' };
+    }
+    return decodeResolvedRepositoryCube(input);
+}
+export function decodeResolveRepositoryCubeResponseEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeResolveRepositoryCubeResponse);
+}
+export function decodeAssociateRepositoryCubeResponse(value) {
+    return decodeResolvedRepositoryCube(value);
+}
+export function decodeAssociateRepositoryCubeResponseEnvelope(value) {
+    return decodeProtocolEnvelope(value, decodeAssociateRepositoryCubeResponse);
+}
+function decodeWorkingRepositoryName(value, path) {
+    const name = boundedString(value, 1, 120, path);
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) {
+        fail('Repository name contains unsupported characters.', path);
+    }
+    return name;
 }
 export function decodeAppendLogRequest(value) {
     const input = record(value);
