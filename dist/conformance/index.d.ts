@@ -52,6 +52,12 @@ export interface CreateCubeRetryConformanceVector {
         error: 'INVALID_INPUT';
     };
 }
+export interface CubeTemplateAcceptanceConformanceVector {
+    name: string;
+    template: unknown;
+    accepts: boolean;
+}
+export declare const CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE: readonly CubeTemplateAcceptanceConformanceVector[];
 export declare const CREATE_CUBE_RETRY_CONFORMANCE: readonly CreateCubeRetryConformanceVector[];
 export interface CreateCubeAssociationConformanceVector {
     name: string;

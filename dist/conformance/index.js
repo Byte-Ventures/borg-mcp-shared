@@ -250,6 +250,14 @@ const CREATE_CUBE_INITIAL = {
     repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-one' },
     template: 'default',
 };
+export const CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE = [
+    { name: 'accepts the legacy default template', template: 'default', accepts: true },
+    { name: 'accepts the software-development template', template: 'software-dev', accepts: true },
+    { name: 'accepts the starter template', template: 'starter', accepts: true },
+    { name: 'accepts the local-model template', template: 'local-model', accepts: true },
+    { name: 'rejects an unknown template name', template: 'custom', accepts: false },
+    { name: 'rejects a non-string template', template: null, accepts: false },
+];
 export const CREATE_CUBE_RETRY_CONFORMANCE = [
     {
         name: 'exact retry resolves the authoritative response',

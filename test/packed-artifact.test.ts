@@ -50,7 +50,7 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.6.4',
+      version: '0.7.0',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
   });
@@ -128,6 +128,9 @@ describe('packed artifact', () => {
           NEW_CUBE_TEMPLATE_PRESENTATIONS,
           TEMPLATES,
         } from 'borgmcp-shared/templates';
+        import {
+          CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
+        } from 'borgmcp-shared/conformance';
         const request = decodeCreateCubeRequest({
           retry_key: '00000000-0000-4000-8000-000000000001',
           name: 'Repository Cube',
@@ -142,6 +145,7 @@ describe('packed artifact', () => {
         });
         process.stdout.write(JSON.stringify({
           templates: CUBE_TEMPLATES,
+          templateAcceptance: CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
           protocolVersion: PROTOCOL_VERSION,
           request,
           association,
@@ -183,7 +187,15 @@ describe('packed artifact', () => {
 
     expect(report).toEqual({
       templates: ['default', 'software-dev', 'starter', 'local-model'],
-      protocolVersion: '5',
+      templateAcceptance: [
+        { name: 'accepts the legacy default template', template: 'default', accepts: true },
+        { name: 'accepts the software-development template', template: 'software-dev', accepts: true },
+        { name: 'accepts the starter template', template: 'starter', accepts: true },
+        { name: 'accepts the local-model template', template: 'local-model', accepts: true },
+        { name: 'rejects an unknown template name', template: 'custom', accepts: false },
+        { name: 'rejects a non-string template', template: null, accepts: false },
+      ],
+      protocolVersion: '6',
       request: {
         retry_key: '00000000-0000-4000-8000-000000000001',
         name: 'Repository Cube',
@@ -263,7 +275,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.6.4' },
+      dependencies: { 'borgmcp-shared': '0.7.0' },
     }));
     execFileSync('npm', [
       'install',

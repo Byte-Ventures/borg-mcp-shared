@@ -324,6 +324,23 @@ const CREATE_CUBE_INITIAL: CreateCubeRequest = {
   template: 'default',
 };
 
+export interface CubeTemplateAcceptanceConformanceVector {
+  name: string;
+  template: unknown;
+  accepts: boolean;
+}
+
+/** Protocol v6's complete closed acceptance set for cube-creation templates. */
+export const CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE:
+readonly CubeTemplateAcceptanceConformanceVector[] = [
+  { name: 'accepts the legacy default template', template: 'default', accepts: true },
+  { name: 'accepts the software-development template', template: 'software-dev', accepts: true },
+  { name: 'accepts the starter template', template: 'starter', accepts: true },
+  { name: 'accepts the local-model template', template: 'local-model', accepts: true },
+  { name: 'rejects an unknown template name', template: 'custom', accepts: false },
+  { name: 'rejects a non-string template', template: null, accepts: false },
+];
+
 /** Stateful vectors: name, repository identity, and template bind the retry key. */
 export const CREATE_CUBE_RETRY_CONFORMANCE: readonly CreateCubeRetryConformanceVector[] = [
   {
