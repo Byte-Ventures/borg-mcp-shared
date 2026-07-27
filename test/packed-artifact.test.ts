@@ -160,10 +160,23 @@ describe('packed artifact', () => {
             label: TEMPLATES['local-model'].label,
             description: TEMPLATES['local-model'].short_description,
             roles: TEMPLATES['local-model'].roles.map(({ name }) => name),
+            roleText: Object.fromEntries(
+              TEMPLATES['local-model'].roles.map(({ name, detailed_description }) => [
+                name,
+                detailed_description,
+              ]),
+            ),
           },
         }));
       `,
     ], { cwd: consumer, encoding: 'utf8' }));
+
+    expect(report.localModel.roleText.Director).toContain('Never implement');
+    expect(report.localModel.roleText.Shaper).toContain('Run every packet check yourself');
+    expect(report.localModel.roleText.Executor).toContain(
+      'An active packet ends only with SPEC-GAP or PACKET-DONE',
+    );
+    delete report.localModel.roleText;
 
     expect(report).toEqual({
       templates: ['default', 'software-dev', 'starter', 'local-model'],
