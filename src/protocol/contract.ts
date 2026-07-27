@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.6.4' as const;
+export const SHARED_PACKAGE_VERSION = '0.7.0' as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
@@ -327,7 +327,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'Unsupported protocol version.',
+      'This client requires protocol v6. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );

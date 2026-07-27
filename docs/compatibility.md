@@ -42,15 +42,21 @@ origin-or-local repository identity, separate cube and repository display names,
 named built-in templates, and authoritative created-or-resolved readback. A v3
 peer and a v4 peer reject each other before credentials or mutation.
 
-The reviewed, unpublished `borgmcp-shared@0.6.4` hotfix candidate carries
-protocol v5. It adds authenticated, read-only
+Published `borgmcp-shared@0.6.4` carries protocol v5. It adds authenticated, read-only
 `POST /api/repository-cubes/resolve` and separately confirmed, atomic
 `PUT /api/repository-cubes/association` operations. The resolver returns an
 explicit none or authoritative associated cube/template/role fields; association
 requires an explicit cube ID and canonical repository identity. A v4 peer and a
 v5 peer reject each other during credential-free preflight before credentials or
-operation dispatch. The candidate is not a release until its separate
-exact-commit tag and protected publication gates complete.
+operation dispatch.
+
+The `borgmcp-shared@0.7.0` release candidate carries protocol v6. It adds
+`local-model` to the closed cube-template acceptance set and bundles that named
+Director/Shaper/Executor template. A v5 peer and a v6 peer reject each other
+during credential-free preflight, before an older peer can reject the new
+template later while decoding a cube-creation request. The candidate is not a
+release until its separate exact-commit tag and protected publication gates
+complete.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a

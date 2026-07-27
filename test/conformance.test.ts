@@ -3,6 +3,7 @@ import {
   DRONE_ADDRESS_CONFORMANCE,
   APPEND_LOG_RESULT_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
+  CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
   CREATE_CUBE_ASSOCIATION_CONFORMANCE,
   RESOLVE_REPOSITORY_CUBE_CONFORMANCE,
@@ -79,6 +80,23 @@ describe('public conformance vectors', () => {
       expect(JSON.stringify(retryTuple(retry)) === JSON.stringify(retryTuple(initial)), vector.name).toBe(
         vector.expected.outcome === 'resolved_response',
       );
+    }
+  });
+
+  it('pins the complete protocol-v6 cube-template acceptance set', () => {
+    for (const vector of CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE) {
+      const request = {
+        retry_key: '00000000-0000-4000-8000-000000000120',
+        name: 'Template Contract',
+        working_repo_name: 'template-contract',
+        repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000120' },
+        template: vector.template,
+      };
+      if (vector.accepts) {
+        expect(decodeCreateCubeRequest(request).template, vector.name).toBe(vector.template);
+      } else {
+        expect(() => decodeCreateCubeRequest(request), vector.name).toThrow();
+      }
     }
   });
 

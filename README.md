@@ -176,13 +176,18 @@ peels to protected-main commit `fd69b08586481a60c88099dede8e4e066f73f2f2`;
 attempt-1 workflow run `30054936226` failed in tests before build, packaging,
 authentication, or registry mutation and must never be rerun or moved.
 `borgmcp-shared@0.6.1`, `borgmcp-shared@0.6.2`, and
-`borgmcp-shared@0.6.3` are published and immutable. This source now identifies the
-reviewed, unpublished `0.6.4` repository-association hotfix candidate. This
-reviewed version bump grants no tag or publish authority; creating annotated
-`v0.6.4` and publishing
-its exact reviewed artifact remain separate, independently gated steps.
+`borgmcp-shared@0.6.3` are published and immutable. `borgmcp-shared@0.6.4` is
+published and immutable: annotated tag object
+`f79b0683686d3c359023a17f6e8a92efd888104a` peels to protected-main commit
+`fa8a2dc072d4ffe2a16d5f02576fead822a2f72e`; successful attempt-1 workflow run
+`30169732628` published registry integrity
+`sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
+Never rerun or move that tag. This source now identifies the unpublished `0.7.0`
+protocol-v6 local-model-template release candidate. This version bump grants no
+tag or publish authority; creating annotated `v0.7.0` and publishing its exact
+reviewed artifact remain separate, independently gated steps.
 Consumers update shared, server, and client together: peers carrying protocol v2,
-v3, v4, and v5 reject incompatible tags during credential-free preflight. No
+v3, v4, v5, and v6 reject incompatible tags during credential-free preflight. No
 registry token belongs in this repository, package metadata, lockfiles, or a
 committed `.npmrc`;
 publishing uses protected external credentials and provenance. Successful
