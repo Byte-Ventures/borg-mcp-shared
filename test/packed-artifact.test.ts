@@ -171,11 +171,14 @@ describe('packed artifact', () => {
       `,
     ], { cwd: consumer, encoding: 'utf8' }));
 
-    expect(report.localModel.roleText.Director).toContain('Never implement');
+    expect(report.localModel.roleText.Director).toContain(
+      'ends with APPROVED, or with BLOCKED',
+    );
     expect(report.localModel.roleText.Shaper).toContain('Run every packet check yourself');
     expect(report.localModel.roleText.Executor).toContain(
       'An active packet ends only with SPEC-GAP or PACKET-DONE',
     );
+    expect(report.localModel.roleText.Executor).toContain('A REJECT is not a packet');
     delete report.localModel.roleText;
 
     expect(report).toEqual({

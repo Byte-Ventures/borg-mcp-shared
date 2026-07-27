@@ -183,11 +183,20 @@ describe('cube templates', () => {
     const executor = template.roles.find((role) => role.name === 'Executor')!.detailed_description;
 
     expect(director).toContain('Never implement');
+    expect(director).toContain(
+      'ends with APPROVED, or with BLOCKED naming the missing decision or the reason it cannot proceed',
+    );
     expect(shaper).toContain('A Shaper assignment ends only with BLOCKED or REVIEW-READY');
     expect(executor).toContain('An active packet ends only with SPEC-GAP or PACKET-DONE');
     expect(executor).toContain('PACKET-ECHO is not completion');
-    expect(executor.indexOf('resume the packet in the same turn')).toBeLessThan(
-      executor.indexOf('Waiting is valid only when no packet is active'),
+    expect(executor).toContain(
+      'A REJECT is not a packet. Take no action on it; wait for a new EXECUTE PACKET.',
+    );
+    expect(executor).toContain(
+      'If asked anything you cannot answer with SPEC-GAP or PACKET-DONE, post SPEC-GAP naming what was asked.',
+    );
+    expect(executor.indexOf('Waiting is valid only when no packet is active')).toBeLessThan(
+      executor.indexOf('resume the packet in the same turn'),
     );
   });
 
