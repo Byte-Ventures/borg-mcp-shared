@@ -137,7 +137,7 @@ export type EnrollmentExchangeResponse =
   | ClientEnrollmentExchangeResponse
   | OwnerEnrollmentExchangeResponse;
 
-export const CUBE_TEMPLATES = ['default', 'software-dev', 'starter'] as const;
+export const CUBE_TEMPLATES = ['default', 'software-dev', 'starter', 'local-model'] as const;
 export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
 
 export type CreateCubeRepository =

@@ -67,7 +67,7 @@ export const PROTOCOL_LIMIT_CEILINGS = {
     max_replay_page_size: 1000,
 };
 export const SERVER_CAPABILITIES = ['create_cube'];
-export const CUBE_TEMPLATES = ['default', 'software-dev', 'starter'];
+export const CUBE_TEMPLATES = ['default', 'software-dev', 'starter', 'local-model'];
 export class ProtocolContractError extends Error {
     code;
     path;
