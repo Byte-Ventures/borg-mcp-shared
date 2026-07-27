@@ -629,7 +629,7 @@ describe('cube creation codecs', () => {
     access: 'manage' as const,
   };
 
-  it.each(['default', 'software-dev', 'starter'] as const)(
+  it.each(['default', 'software-dev', 'starter', 'local-model'] as const)(
     'decodes the closed %s request and stable authoritative response',
     (template) => {
       const request = {

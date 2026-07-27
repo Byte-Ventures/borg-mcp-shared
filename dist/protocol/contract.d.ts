@@ -129,7 +129,7 @@ export interface OwnerEnrollmentExchangeResponse {
     server_capabilities: ['create_cube'];
 }
 export type EnrollmentExchangeResponse = ClientEnrollmentExchangeResponse | OwnerEnrollmentExchangeResponse;
-export declare const CUBE_TEMPLATES: readonly ["default", "software-dev", "starter"];
+export declare const CUBE_TEMPLATES: readonly ["default", "software-dev", "starter", "local-model"];
 export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
 export type CreateCubeRepository = {
     kind: 'origin';

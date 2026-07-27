@@ -34,6 +34,10 @@ export declare const NEW_CUBE_TEMPLATE_PRESENTATIONS: readonly [{
     readonly name: "starter";
     readonly label: "Starter";
     readonly short_description: "Minimal roles for general projects.";
+}, {
+    readonly name: "local-model";
+    readonly label: "Local Model";
+    readonly short_description: "Maximizes local-model execution through complete, machine-checkable work packets.";
 }];
 export declare const ESCALATION_DISCIPLINE = "\n\nEscalation:\n- Stay within the routed outcome and your role's authority.\n- Report a blocker to the coordinating role with the missing input, evidence, and smallest useful options.\n- A proposal, finding, or idle capacity does not authorize new work.\n- The coordinating role escalates scope, priority, irreversible actions, or product decisions to the human Queen.\n- Waiting is valid when work is complete, blocked, or awaiting an authorized transition.";
 export declare const ANTI_PASSIVE_STANDING_DISCIPLINE = "\n\nActivation and waiting:\n- A routed assignment is active only after STARTING or substantive PROGRESS; ACK is receipt only.\n- The coordinating seat verifies activation and follows up on a missed start.\n- Do not manufacture work to avoid being idle. Waiting is correct when no authorized action is available.\n- Spare capacity, an open queue, or a possible improvement does not grant scope.";

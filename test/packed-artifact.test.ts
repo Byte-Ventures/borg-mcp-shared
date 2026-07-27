@@ -156,12 +156,33 @@ describe('packed artifact', () => {
             label: TEMPLATES.starter.label,
             description: TEMPLATES.starter.short_description,
           },
+          localModel: {
+            label: TEMPLATES['local-model'].label,
+            description: TEMPLATES['local-model'].short_description,
+            roles: TEMPLATES['local-model'].roles.map(({ name }) => name),
+            roleText: Object.fromEntries(
+              TEMPLATES['local-model'].roles.map(({ name, detailed_description }) => [
+                name,
+                detailed_description,
+              ]),
+            ),
+          },
         }));
       `,
     ], { cwd: consumer, encoding: 'utf8' }));
 
+    expect(report.localModel.roleText.Director).toContain(
+      'ends with APPROVED, or with BLOCKED',
+    );
+    expect(report.localModel.roleText.Shaper).toContain('Run every packet check yourself');
+    expect(report.localModel.roleText.Executor).toContain(
+      'An active packet ends only with SPEC-GAP or PACKET-DONE',
+    );
+    expect(report.localModel.roleText.Executor).toContain('A REJECT is not a packet');
+    delete report.localModel.roleText;
+
     expect(report).toEqual({
-      templates: ['default', 'software-dev', 'starter'],
+      templates: ['default', 'software-dev', 'starter', 'local-model'],
       protocolVersion: '5',
       request: {
         retry_key: '00000000-0000-4000-8000-000000000001',
@@ -188,6 +209,11 @@ describe('packed artifact', () => {
           label: 'Starter',
           short_description: 'Minimal roles for general projects.',
         },
+        {
+          name: 'local-model',
+          label: 'Local Model',
+          short_description: 'Maximizes local-model execution through complete, machine-checkable work packets.',
+        },
       ],
       softwareDevelopment: {
         label: 'Software Development',
@@ -196,6 +222,11 @@ describe('packed artifact', () => {
       starter: {
         label: 'Starter',
         description: 'Minimal roles for general projects.',
+      },
+      localModel: {
+        label: 'Local Model',
+        description: 'Maximizes local-model execution through complete, machine-checkable work packets.',
+        roles: ['Director', 'Shaper', 'Executor'],
       },
     });
   });

@@ -152,7 +152,8 @@ after ambiguous transport failure. `name` is the bounded user-selected cube
 name. `working_repo_name` is derived repository display metadata and does not
 identify or authorize the repository. `repository` is either an exact canonical
 public origin or a client-generated opaque local UUID. `template` accepts
-`software-dev`, `starter`, or the compatible legacy `default` seed. The request
+`software-dev`, `starter`, `local-model`, or the compatible legacy `default`
+seed. The request
 cannot supply cube or role IDs, an owner, access, grant target, capability,
 arbitrary template data, local paths, raw origins, modules, commands, or
 repository credentials.

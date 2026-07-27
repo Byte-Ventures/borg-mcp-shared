@@ -29,8 +29,8 @@ const COORDINATOR_ACTIVATION_COPY = [
 ];
 
 describe('cube templates', () => {
-  it('registers the starter and software-dev templates', () => {
-    expect(listTemplateNames()).toEqual(['software-dev', 'starter']);
+  it('registers the built-in templates', () => {
+    expect(listTemplateNames()).toEqual(['software-dev', 'starter', 'local-model']);
     expect(getTemplate('missing')).toBeNull();
   });
 
@@ -47,6 +47,11 @@ describe('cube templates', () => {
         label: 'Starter',
         short_description: 'Minimal roles for general projects.',
       },
+      {
+        name: 'local-model',
+        label: 'Local Model',
+        short_description: 'Maximizes local-model execution through complete, machine-checkable work packets.',
+      },
     ]);
     expect(NEW_CUBE_TEMPLATE_PRESENTATIONS.map(({ name }) => name)).not.toContain('default');
     expect(TEMPLATES['software-dev']).toMatchObject({
@@ -56,6 +61,10 @@ describe('cube templates', () => {
     expect(TEMPLATES.starter).toMatchObject({
       label: 'Starter',
       short_description: 'Minimal roles for general projects.',
+    });
+    expect(TEMPLATES['local-model']).toMatchObject({
+      label: 'Local Model',
+      short_description: 'Maximizes local-model execution through complete, machine-checkable work packets.',
     });
     expect(NEW_CUBE_TEMPLATE_PRESENTATIONS).toEqual(
       listTemplateNames().map((name) => {
@@ -92,6 +101,105 @@ describe('cube templates', () => {
     ]);
   });
 
+  it('ships the adopted local-model roles and no rejected tier names', () => {
+    const template = TEMPLATES['local-model'];
+    expect(template.roles.map((role) => role.name)).toEqual([
+      'Director',
+      'Shaper',
+      'Executor',
+    ]);
+    expect(template.roles.find((role) => role.name === 'Director')).toMatchObject({
+      is_mandatory: true,
+      is_human_seat: true,
+      can_broadcast: true,
+    });
+    expect(template.roles.find((role) => role.name === 'Executor')).toMatchObject({
+      is_default: true,
+    });
+    expect(JSON.stringify(template)).not.toMatch(/\b(?:Jarl|Karl|Thrall)\b/);
+  });
+
+  it('makes every local-model role purpose self-contained', () => {
+    const roles = Object.fromEntries(
+      TEMPLATES['local-model'].roles.map((role) => [role.name, role.short_description]),
+    );
+    expect(roles).toEqual({
+      Director: 'Owns intent, authorization, and careful-reading verification; never implements changes.',
+      Shaper: 'Converts intent into complete machine-checkable packets, runs acceptance checks, and implements only unconvertible work.',
+      Executor: 'Executes one complete packet exactly, refuses missing literals, and returns only a diff plus verbatim check output.',
+    });
+  });
+
+  it('makes the five-field conversion contract and anti-gaming guards literal', () => {
+    const template = TEMPLATES['local-model'];
+    const shaper = template.roles.find((role) => role.name === 'Shaper')!.detailed_description;
+    const executor = template.roles.find((role) => role.name === 'Executor')!.detailed_description;
+
+    for (const field of ['Surface', 'Shape', 'Check', 'Forbidden to infer', 'Echo schema']) {
+      expect(shaper).toContain(`${field}:`);
+      expect(executor).toContain(field);
+    }
+    for (const guard of [
+      'withhold at least one holdout test',
+      'Test files must stay outside Surface',
+      'Deleting or weakening an assertion is automatic rejection',
+      'Never regenerate a golden file',
+    ]) {
+      expect(`${shaper}\n${executor}`).toContain(guard);
+    }
+    expect(shaper).toContain('Run every packet check yourself');
+    expect(shaper).toContain('Do not accept copied output as proof');
+  });
+
+  it('keeps Executor communication to echo, refusal, and evidence completion', () => {
+    const taxonomy = TEMPLATES['local-model'].message_taxonomy!;
+    expect(taxonomy.filter((entry) => entry.class.startsWith('executor-'))).toEqual([
+      {
+        class: 'executor-echo',
+        prefixes: ['PACKET-ECHO'],
+        routing: 'directed',
+        default_to: ['shaper'],
+      },
+      {
+        class: 'executor-refusal',
+        prefixes: ['SPEC-GAP'],
+        routing: 'directed',
+        default_to: ['shaper'],
+      },
+      {
+        class: 'executor-completion',
+        prefixes: ['PACKET-DONE'],
+        routing: 'directed',
+        default_to: ['shaper'],
+        lifecycle: 'completion',
+      },
+    ]);
+  });
+
+  it('does not let local-model roles end a turn while assigned work remains', () => {
+    const template = TEMPLATES['local-model'];
+    const director = template.roles.find((role) => role.name === 'Director')!.detailed_description;
+    const shaper = template.roles.find((role) => role.name === 'Shaper')!.detailed_description;
+    const executor = template.roles.find((role) => role.name === 'Executor')!.detailed_description;
+
+    expect(director).toContain('Never implement');
+    expect(director).toContain(
+      'ends with APPROVED, or with BLOCKED naming the missing decision or the reason it cannot proceed',
+    );
+    expect(shaper).toContain('A Shaper assignment ends only with BLOCKED or REVIEW-READY');
+    expect(executor).toContain('An active packet ends only with SPEC-GAP or PACKET-DONE');
+    expect(executor).toContain('PACKET-ECHO is not completion');
+    expect(executor).toContain(
+      'A REJECT is not a packet. Take no action on it; wait for a new EXECUTE PACKET.',
+    );
+    expect(executor).toContain(
+      'If asked anything you cannot answer with SPEC-GAP or PACKET-DONE, post SPEC-GAP naming what was asked.',
+    );
+    expect(executor.indexOf('Waiting is valid only when no packet is active')).toBeLessThan(
+      executor.indexOf('resume the packet in the same turn'),
+    );
+  });
+
   it('makes scope and authority explicit in every role', () => {
     for (const [templateName, template] of Object.entries(TEMPLATES)) {
       for (const role of template.roles) {
@@ -111,7 +219,7 @@ describe('cube templates', () => {
     expect(ANTI_PASSIVE_STANDING_DISCIPLINE).toContain('Waiting is correct');
     for (const template of Object.values(TEMPLATES)) {
       expect(template.cube_directive).toMatch(/Waiting is valid/i);
-      const coordinatingRole = template.roles.find((role) => role.name === 'Coordinator');
+      const coordinatingRole = template.roles.find((role) => role.is_human_seat);
       expect(coordinatingRole?.detailed_description).toMatch(/Waiting is valid/i);
     }
   });
@@ -205,21 +313,25 @@ describe('cube templates', () => {
   });
 
   it('keeps review routing serialized through the coordinating seat', () => {
-    for (const template of Object.values(TEMPLATES)) {
+    for (const [templateName, template] of Object.entries(TEMPLATES)) {
       const review = template.message_taxonomy?.find((entry) => entry.class === 'review-request');
       expect(review).toMatchObject({
         routing: 'directed',
-        default_to: ['coordinator', 'queen'],
+        default_to: templateName === 'local-model'
+          ? ['director', 'queen']
+          : ['coordinator', 'queen'],
       });
     }
   });
 
   it('keeps only decisions and halts cube-wide', () => {
-    for (const template of Object.values(TEMPLATES)) {
+    for (const [templateName, template] of Object.entries(TEMPLATES)) {
       for (const entry of template.message_taxonomy ?? []) {
         if (entry.class === 'cube-wide') {
           expect(entry.routing).toBe('broadcast');
-          expect(entry.prefixes).toEqual(['DECISION', 'HALT']);
+          expect(entry.prefixes).toEqual(
+            templateName === 'local-model' ? ['DECISION'] : ['DECISION', 'HALT'],
+          );
         } else {
           expect(entry.routing, `${template.name}/${entry.class}`).toBe('directed');
           expect(entry.default_to?.length, `${template.name}/${entry.class}`).toBeGreaterThan(0);
