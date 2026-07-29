@@ -15,7 +15,7 @@ function assertCurrentReleaseTarget(readme: string, version: string): void {
 
 function assertHistoricalReleaseRecord(releases: string): void {
   expect(releases).not.toMatch(
-    /(?:\b(?:current|currently|now)\b[^\n]*(?:publish|unpublish|install)|(?:publish|unpublish|install)[^\n]*\b(?:current|currently|now)\b)/i,
+    /(?:\b(?:current|currently|now)\b(?:(?!\n\s*\n)[\s\S])*?\b(?:(?:un)?publish(?:ed|ing)?|install(?:ed|ing)?)\b|\b(?:(?:un)?publish(?:ed|ing)?|install(?:ed|ing)?)\b(?:(?!\n\s*\n)[\s\S])*?\b(?:current|currently|now)\b)/i,
   );
 }
 
@@ -125,9 +125,16 @@ describe('npm publish workflow', () => {
       distribution.replace(`@${pkg.version}\``, '@0.0.0`'),
       pkg.version,
     )).toThrow();
-    expect(() => assertHistoricalReleaseRecord(
-      `${releases}\nThis source now identifies the unpublished \`0.7.0\` release candidate.\n`,
-    )).toThrow();
+    for (const presentStateClaim of [
+      'This source now identifies the unpublished `0.7.0` release candidate.',
+      'This source now identifies the\nunpublished `0.7.0` release candidate.',
+      'This package is currently\npublished.',
+      'Install the\ncurrent package.',
+    ]) {
+      expect(() => assertHistoricalReleaseRecord(
+        `${releases}\n\n${presentStateClaim}\n`,
+      )).toThrow();
+    }
 
     // Enrollment positively states the source now carries the version.
     expect(enrollment).toMatch(/this source now identifies/i);
