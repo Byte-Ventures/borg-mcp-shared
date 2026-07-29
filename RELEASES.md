@@ -1,0 +1,26 @@
+# Release History
+
+`borgmcp-shared@0.4.0` is the published clean-slate v2 baseline and is
+immutable, but its artifact predates the local/self-hosted package cleanup. The
+immutable `v0.4.1` verification artifact exposed a platform-dependent SBOM audit
+and must never be published, moved, reused, rerun, or substituted.
+`borgmcp-shared@0.4.2` is published and immutable. `borgmcp-shared@0.4.3` is the
+immutable protocol v2 session-lifecycle release. `borgmcp-shared@0.5.0` is the published protocol v3 attach-session contract
+release: attach responses carry the exact non-expiring `session: { id }` shape.
+`borgmcp-shared@0.5.1` is published and immutable under the accepted attempt-1
+registry-propagation incident: annotated tag object `045268aa8873da330819860012ecaddb4bc2883c` peels to
+`1981d7373e77f6edb4567872c1544bdbe2b1ef20`; workflow run `29984423571` published exact integrity
+`sha512-XUJq+FjY/cbarU9V1dIWnhNYcqyURTiGb6KyIzg99gy5hk/fEs5ee/8X/qvp7pw1Rshqt2J6I3TVbwJdlde2tA==` and must never be rerun. Independent npm verification
+confirmed its registry signature and SLSA provenance. `borgmcp-shared@0.6.0` was
+never published: annotated tag object `90a1cf686a0ce32a7aef836b0b82a930191b9030`
+peels to protected-main commit `fd69b08586481a60c88099dede8e4e066f73f2f2`;
+attempt-1 workflow run `30054936226` failed in tests before build, packaging,
+authentication, or registry mutation and must never be rerun or moved.
+`borgmcp-shared@0.6.1`, `borgmcp-shared@0.6.2`, and
+`borgmcp-shared@0.6.3` are published and immutable. `borgmcp-shared@0.6.4` is
+published and immutable: annotated tag object
+`f79b0683686d3c359023a17f6e8a92efd888104a` peels to protected-main commit
+`fa8a2dc072d4ffe2a16d5f02576fead822a2f72e`; successful attempt-1 workflow run
+`30169732628` published registry integrity
+`sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
+Never rerun or move that tag.
