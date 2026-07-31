@@ -2,11 +2,12 @@ import { ErrorCode } from './errors.js';
 import { type ProtocolVersion } from './version.js';
 import type { DroneRuntimeMetadata, DroneRuntimeMetadataPatch } from './types.js';
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
-export declare const SHARED_PACKAGE_VERSION: "0.7.0";
+export declare const SHARED_PACKAGE_VERSION: "0.7.1";
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
 export declare const CUBES_PATH: "/api/cubes";
+export declare const CUBE_PATH: "/api/cubes/:cubeId";
 export declare const REPOSITORY_CUBE_RESOLVE_PATH: "/api/repository-cubes/resolve";
 export declare const REPOSITORY_CUBE_ASSOCIATION_PATH: "/api/repository-cubes/association";
 export declare const ATTACH_PATH: "/api/client/attach";
@@ -36,6 +37,13 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly path: "/api/cubes";
         readonly authenticated: true;
         readonly success_status: 201;
+    };
+    readonly cube_delete: {
+        readonly method: "DELETE";
+        readonly path: "/api/cubes/:cubeId";
+        readonly authenticated: true;
+        readonly success_status: 200;
+        readonly mutation: true;
     };
     readonly repository_cube_resolve: {
         readonly method: "POST";
@@ -81,6 +89,7 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
     readonly session_revoked_status: 401;
     readonly session_rejected_status: 401;
     readonly cursor_expired_status: 410;
+    readonly cube_deleted_status: 410;
     readonly drone_evicted_status: 410;
     readonly content_too_large_status: 413;
     readonly unsupported_protocol_status: 426;
@@ -156,6 +165,11 @@ export interface CreateCubeResponse {
     default_worker_role_id: string;
     access: 'manage';
 }
+export type DeleteCubeRequest = Record<string, never>;
+export interface DeleteCubeResponse {
+    cube_id: string;
+    deleted: true;
+}
 export interface ResolveRepositoryCubeRequest {
     working_repo_name: string;
     repository: CreateCubeRepository;
@@ -210,6 +224,10 @@ export declare function decodeCreateCubeRequest(value: unknown): CreateCubeReque
 export declare function decodeCreateCubeRequestEnvelope(value: unknown): ProtocolEnvelope<CreateCubeRequest>;
 export declare function decodeCreateCubeResponse(value: unknown): CreateCubeResponse;
 export declare function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse>;
+export declare function decodeDeleteCubeRequest(value: unknown): DeleteCubeRequest;
+export declare function decodeDeleteCubeRequestEnvelope(value: unknown): ProtocolEnvelope<DeleteCubeRequest>;
+export declare function decodeDeleteCubeResponse(value: unknown): DeleteCubeResponse;
+export declare function decodeDeleteCubeResponseEnvelope(value: unknown): ProtocolEnvelope<DeleteCubeResponse>;
 export declare function decodeResolveRepositoryCubeRequest(value: unknown): ResolveRepositoryCubeRequest;
 export declare function decodeResolveRepositoryCubeRequestEnvelope(value: unknown): ProtocolEnvelope<ResolveRepositoryCubeRequest>;
 export declare function decodeAssociateRepositoryCubeRequest(value: unknown): AssociateRepositoryCubeRequest;

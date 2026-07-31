@@ -24,3 +24,6 @@ published and immutable: annotated tag object
 `30169732628` published registry integrity
 `sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
 Never rerun or move that tag.
+`borgmcp-shared@0.7.0` is published and immutable: annotated tag object
+`5ddaf5821c49ac0893fdffbac6115b48d0795281` peels to protected-main commit
+`30af2629052014feba3f3ebf4d9eb29e977e38a7`. Never rerun or move that tag.

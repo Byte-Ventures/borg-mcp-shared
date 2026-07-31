@@ -2,11 +2,13 @@ import type { EnrichedStreamEntry } from './types.js';
 import {
   ProtocolContractError,
   decodeCanonicalTimestamp,
+  decodeProtocolErrorEnvelope,
   decodeLogCursor,
   decodeOpaqueIdentifier,
   decodeUuid,
   utf8ByteLength,
   type LogCursor,
+  type ProtocolErrorEnvelope,
 } from './contract.js';
 
 export const SSE_LIMITS = {
@@ -31,6 +33,7 @@ export type StreamEvent =
       actor_drone_id: string;
       occurred_at: string;
     }
+  | StreamErrorEvent
   | { type: 'heartbeat'; at: string; broadcast_hwm: LogCursor | null }
   | {
       type: 'bookmark';
@@ -40,6 +43,12 @@ export type StreamEvent =
       cursor_status?: 'valid' | 'expired' | 'unknown';
     }
   | { type: 'unknown'; event: string; raw_data: string };
+
+/** A terminal stream failure; the server sends this frame once and then closes. */
+export interface StreamErrorEvent {
+  type: 'error';
+  error: ProtocolErrorEnvelope;
+}
 
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -124,7 +133,7 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
 
 export function encodeSseEvent(event: Exclude<StreamEvent, { type: 'unknown' }>): string {
   const lines = [`event: ${event.type}`];
-  let data: Record<string, unknown>;
+  let data: unknown;
   if (event.type === 'log') {
     const cursor = decodeLogCursor(event.cursor);
     const entry = decodeEnrichedStreamEntry(event.entry);
@@ -142,6 +151,8 @@ export function encodeSseEvent(event: Exclude<StreamEvent, { type: 'unknown' }>)
       actor_drone_id: decodeUuid(event.actor_drone_id, ['actor_drone_id']),
       occurred_at: decodeCanonicalTimestamp(event.occurred_at, ['occurred_at']),
     };
+  } else if (event.type === 'error') {
+    data = decodeProtocolErrorEnvelope(event.error);
   } else if (event.type === 'heartbeat') {
     data = {
       at: decodeCanonicalTimestamp(event.at, ['at']),
@@ -217,7 +228,7 @@ function decodeFrame(frame: string): StreamEvent {
   if (rawDataBytes > SSE_LIMITS.data_bytes) {
     throw new ProtocolContractError('SSE data exceeds the byte limit.');
   }
-  if (!['log', 'ack', 'claim', 'heartbeat', 'bookmark'].includes(eventName)) {
+  if (!['log', 'ack', 'claim', 'error', 'heartbeat', 'bookmark'].includes(eventName)) {
     if (rawDataBytes > SSE_LIMITS.unknown_data_bytes) {
       throw new ProtocolContractError('Unknown SSE event data exceeds the byte limit.');
     }
@@ -245,6 +256,10 @@ function decodeFrame(frame: string): StreamEvent {
 
   if (id !== undefined) {
     throw new ProtocolContractError(`${eventName} SSE events must not carry a resume id.`);
+  }
+
+  if (eventName === 'error') {
+    return { type: 'error', error: decodeProtocolErrorEnvelope(parsed) };
   }
 
   if (eventName === 'ack' || eventName === 'claim') {

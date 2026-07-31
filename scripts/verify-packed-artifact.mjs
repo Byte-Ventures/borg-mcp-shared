@@ -9,7 +9,7 @@ const MAX_PACKED_BYTES = 512 * 1024;
 const MAX_UNPACKED_BYTES = 1024 * 1024;
 const MAX_FILES = 128;
 const MAX_FILE_BYTES = 256 * 1024;
-const REQUIRED_FILES = ['LICENSE', 'NOTICE', 'README.md', 'SECURITY.md', 'package.json'];
+const REQUIRED_FILES = ['LICENSE', 'NOTICE', 'README.md', 'RELEASES.md', 'SECURITY.md', 'package.json'];
 const EXPECTED_EXPORTS = {
   '.': { types: './dist/index.d.ts', import: './dist/index.js' },
   './templates': { types: './dist/templates.d.ts', import: './dist/templates.js' },
@@ -27,6 +27,7 @@ const ALLOWED_ROOTS = new Set([
   'LICENSE',
   'NOTICE',
   'README.md',
+  'RELEASES.md',
   'SECURITY.md',
   'dist',
   'docs',
@@ -152,7 +153,7 @@ export async function verifyPackedArtifact(tarballPath) {
     }
 
     const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-    if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.7.0') {
+    if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.7.1') {
       throw new Error(`Unexpected package identity: ${manifest.name}@${manifest.version}`);
     }
     if (manifest.repository?.url !== 'git+https://github.com/Byte-Ventures/borg-mcp-shared.git') {
@@ -167,6 +168,16 @@ export async function verifyPackedArtifact(tarballPath) {
         if (!relativeFiles.has(target.slice(2))) {
           throw new Error(`Public export target is not shipped: ${target}`);
         }
+      }
+    }
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const relativeReadmeLinks = [...readme.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/g)]
+      .map((match) => match[1])
+      .filter((target) => !target.startsWith('#') && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(target));
+    for (const target of relativeReadmeLinks) {
+      const path = target.split('#', 1)[0];
+      if (!path || isPortableAbsolute(path) || path.includes('\\') || !relativeFiles.has(path)) {
+        throw new Error(`README relative link target is not shipped: ${target}`);
       }
     }
     if (!manifest.publishConfig ||
@@ -239,6 +250,7 @@ export async function verifyPackedArtifact(tarballPath) {
       packedBytes: packed.byteLength,
       unpackedBytes,
       sourceMapCount,
+      readmeRelativeLinkCount: relativeReadmeLinks.length,
       integrity: `sha512-${createHash('sha512').update(packed).digest('base64')}`,
     };
   } finally {

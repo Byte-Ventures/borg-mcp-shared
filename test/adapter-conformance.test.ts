@@ -12,6 +12,7 @@ import {
   decodeAttachRequestEnvelope,
   decodeAssociateRepositoryCubeRequestEnvelope,
   decodeCreateCubeRequestEnvelope,
+  decodeDeleteCubeRequestEnvelope,
   decodeDroneRuntimeMetadataPatch,
   decodeEvictDroneRequestEnvelope,
   decodeProtocolEnvelope,
@@ -20,6 +21,7 @@ import {
   decodeReassignDroneRequestEnvelope,
   decodeRecordDecisionRequest,
   encodeSseEvent,
+  PROTOCOL_VERSION,
   runAdapterConformance,
   utf8ByteLength,
   type ConformanceCube,
@@ -94,7 +96,13 @@ type Fault =
   | 'metadata-cross-seat-write'
   | 'metadata-partial-invalid-write'
   | 'metadata-derived-role-mutation'
-  | 'metadata-raw-echo';
+  | 'metadata-raw-echo'
+  | 'allow-non-manage-cube-delete'
+  | 'incomplete-cube-delete-cascade'
+  | 'drop-cube-delete-terminal-event'
+  | 'forget-cube-delete-after-restart'
+  | 'forget-some-cube-delete-credentials-after-restart'
+  | 'reveal-deleted-cube-on-delete';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -209,6 +217,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   }>();
   private repositoryAssociations = new Map<string, CreateCubeResponse | ResolvedRepositoryCube>();
   private streams = new Set<{ principalId: string; cubeId: string; queue: AsyncQueue }>();
+  private deletedCubes = new Map<string, {
+    principalIds: Set<string>;
+    credentials: Set<string>;
+  }>();
   private replayBarrier: {
     reached: Promise<void>;
     markReached: () => void;
@@ -227,10 +239,27 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.invitations.clear();
       this.cubeCreateBindings.clear();
       this.repositoryAssociations.clear();
+      this.deletedCubes.clear();
       this.streams.clear();
       this.replayBarrier?.release();
       this.replayBarrier = null;
       this.sequence = 1;
+    },
+    restartAuthority: async (): Promise<void> => {
+      for (const stream of this.streams) stream.queue.close();
+      this.streams.clear();
+      if (this.fault === 'forget-cube-delete-after-restart') this.deletedCubes.clear();
+      if (this.fault === 'forget-some-cube-delete-credentials-after-restart') {
+        for (const tombstone of this.deletedCubes.values()) {
+          for (const credential of tombstone.credentials) {
+            // Preserve the manager and drone entries covered by the old gate while
+            // selectively losing creator/read/write terminal state.
+            if (!credential.startsWith('M') && !credential.startsWith('seat_')) {
+              tombstone.credentials.delete(credential);
+            }
+          }
+        }
+      }
     },
     createPrincipal: async (name: string): Promise<ConformancePrincipal> => {
       const handle = { id: this.uuid() };
@@ -442,6 +471,30 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           cube?.roles.get(response.default_worker_role_id)?.templateKind === 'default_worker',
       };
     },
+    inspectDeletedCube: async (cubeHandle: ConformanceCube) => {
+      const cube = this.cubes.get(cubeHandle.id);
+      return {
+        cube_exists: cube !== undefined,
+        role_count: cube?.roles.size ?? 0,
+        drone_count: cube?.drones.size ?? 0,
+        log_count: cube?.entries.length ?? 0,
+        claim_count: cube?.claims.length ?? 0,
+        decision_count: cube?.decisions.length ?? 0,
+        grant_count: [...this.principals.values()].filter(
+          (principal) => principal.grants.has(cubeHandle.id),
+        ).length,
+        cube_create_binding_count: [...this.cubeCreateBindings.values()].filter(
+          (binding) => binding.response.cube_id === cubeHandle.id,
+        ).length,
+        repository_association_count: [...this.repositoryAssociations.values()].filter(
+          (association) => association.cube_id === cubeHandle.id,
+        ).length,
+        active_stream_count: [...this.streams].filter(
+          (stream) => stream.cubeId === cubeHandle.id,
+        ).length,
+        terminal_credential_count: this.deletedCubes.get(cubeHandle.id)?.credentials.size ?? 0,
+      };
+    },
     prepareRepositoryCube: async (
       cubeHandle: ConformanceCube,
       input: {
@@ -545,7 +598,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '6',
+                protocol_version: '7',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -565,7 +618,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '6',
+                protocol_version: '7',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -664,7 +717,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '6',
+              protocol_version: '7',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -759,6 +812,69 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       });
       this.repositoryAssociations.set(associationKey, response);
       return { status: 201, body: createProtocolEnvelope(envelope.request_id, response) };
+    },
+    deleteCube: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      if (this.fault === 'reveal-deleted-cube-on-delete' && this.deletedCubes.has(cubeHandle.id)) {
+        return this.error(410, ErrorCode.CUBE_DELETED);
+      }
+      const terminal = this.deletedCubeResponse(credential, cubeHandle.id);
+      if (terminal) return terminal;
+      const access = this.fault === 'allow-non-manage-cube-delete'
+        ? this.authorize(credential, cubeHandle.id)
+        : this.authorizeManager(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeDeleteCubeRequestEnvelope(request);
+      const cube = this.cube(cubeHandle.id);
+      const principalIds = new Set(
+        [...this.principals.values()]
+          .filter((principal) => principal.grants.has(cubeHandle.id))
+          .map((principal) => principal.handle.id),
+      );
+      const credentials = new Set<string>();
+      for (const principalId of principalIds) {
+        const principal = this.principal(principalId);
+        if (principal.credential) credentials.add(principal.credential);
+        if (principal.droneCredential) credentials.add(principal.droneCredential);
+      }
+      for (const drone of cube.drones.values()) {
+        if (drone.credential) credentials.add(drone.credential);
+      }
+      this.deletedCubes.set(cubeHandle.id, { principalIds, credentials });
+
+      const terminalFrame = encodeSseEvent({
+        type: 'error',
+        error: {
+          protocol_version: PROTOCOL_VERSION,
+          error: { code: ErrorCode.CUBE_DELETED, message: 'This cube was deleted.' },
+        },
+      });
+      for (const stream of [...this.streams]) {
+        if (stream.cubeId !== cubeHandle.id) continue;
+        if (this.fault !== 'drop-cube-delete-terminal-event') stream.queue.push(terminalFrame);
+        stream.queue.close();
+        this.streams.delete(stream);
+      }
+      for (const principal of this.principals.values()) principal.grants.delete(cubeHandle.id);
+      if (this.fault !== 'incomplete-cube-delete-cascade') {
+        for (const [key, binding] of this.cubeCreateBindings) {
+          if (binding.response.cube_id === cubeHandle.id) this.cubeCreateBindings.delete(key);
+        }
+        for (const [key, association] of this.repositoryAssociations) {
+          if (association.cube_id === cubeHandle.id) this.repositoryAssociations.delete(key);
+        }
+      }
+      this.cubes.delete(cubeHandle.id);
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, {
+          cube_id: cubeHandle.id,
+          deleted: true,
+        }),
+      };
     },
     resolveRepositoryCube: async (
       credential: string | null,
@@ -923,7 +1039,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '6', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '7', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1318,6 +1434,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private authorize(credential: string, cubeId: string):
     | { principal: PrincipalState; drone?: DroneState; droneSession: boolean; error?: undefined }
     | { principal?: undefined; drone?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
+    const terminal = this.deletedCubeResponse(credential, cubeId);
+    if (terminal) return { error: terminal };
     const auth = this.authenticate(credential);
     if (auth.error) return auth;
     if (this.fault !== 'cross-cube-leak' && !auth.principal.grants.has(cubeId)) {
@@ -1329,6 +1447,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private authorizeManager(credential: string, cubeId: string):
     | { principal: PrincipalState; droneSession: false; error?: undefined }
     | { principal?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
+    const terminal = this.deletedCubeResponse(credential, cubeId);
+    if (terminal) return { error: terminal };
     const auth = this.authenticate(credential);
     if (auth.error) return auth;
     if (auth.drone !== undefined && auth.drone.cubeId !== cubeId &&
@@ -1357,6 +1477,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private afterCursor(entries: EnrichedStreamEntry[], cursor: LogCursor | null): EnrichedStreamEntry[] {
     if (!cursor) return [...entries];
     return entries.filter((entry) => compareLogCursor(this.cursor(entry), cursor) > 0);
+  }
+
+  private deletedCubeResponse(credential: string, cubeId: string): ConformanceHttpResponse | null {
+    const tombstone = this.deletedCubes.get(cubeId);
+    if (!tombstone) return null;
+    return tombstone.credentials.has(credential)
+      ? this.error(410, ErrorCode.CUBE_DELETED)
+      : null;
   }
 
   private cursor(entry: EnrichedStreamEntry): LogCursor {
@@ -1434,7 +1562,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '6',
+        protocol_version: '7',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message: 'Conformance request failed.' },
       },
@@ -1456,6 +1584,30 @@ describe('executable adapter conformance', () => {
     );
     expect(report.results.every((result) => result.ok)).toBe(true);
     expect(JSON.stringify(report)).not.toContain('SECRET-METADATA-KEY-MARKER');
+  });
+
+  it('rejects selective creator/read/write tombstone loss after restart', async () => {
+    const report = await runAdapterConformance(
+      new MemoryConformanceEnvironment('forget-some-cube-delete-credentials-after-restart'),
+      fastTimeouts,
+    );
+    const deletion = report.results.find((result) => result.id === 'cubes.delete-terminal-cascade');
+    expect(deletion).toMatchObject({ ok: false });
+    expect(deletion?.error).toContain(
+      'creator post-restart deleted-cube request returned HTTP 404; expected 410',
+    );
+  });
+
+  it('rejects DELETE-only tombstone disclosure to a never-authorized caller', async () => {
+    const report = await runAdapterConformance(
+      new MemoryConformanceEnvironment('reveal-deleted-cube-on-delete'),
+      fastTimeouts,
+    );
+    const deletion = report.results.find((result) => result.id === 'cubes.delete-terminal-cascade');
+    expect(deletion).toMatchObject({ ok: false });
+    expect(deletion?.error).toContain(
+      'Never-authorized post-delete DELETE returned HTTP 410; expected 404',
+    );
   });
 
   it.each([
@@ -1507,6 +1659,10 @@ describe('executable adapter conformance', () => {
     ['partially wrote an invalid metadata patch', 'metadata-partial-invalid-write', 'security.metadata-invalid-atomic'],
     ['derived a role mutation from metadata', 'metadata-derived-role-mutation', 'security.metadata-own-seat'],
     ['echoed raw hostile metadata', 'metadata-raw-echo', 'security.metadata-secret-non-echo'],
+    ['allowed non-manage cube deletion', 'allow-non-manage-cube-delete', 'cubes.delete-terminal-cascade'],
+    ['left cube-owned state after deletion', 'incomplete-cube-delete-cascade', 'cubes.delete-terminal-cascade'],
+    ['closed deleted-cube streams without a terminal error', 'drop-cube-delete-terminal-event', 'cubes.delete-terminal-cascade'],
+    ['forgot deleted-cube terminal state after restart', 'forget-cube-delete-after-restart', 'cubes.delete-terminal-cascade'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

@@ -3,6 +3,7 @@ import type {
   AttachResponse,
   AssociateRepositoryCubeRequest,
   CreateCubeRequest,
+  DeleteCubeRequest,
   EnrollmentExchangeRequest,
   ResolveRepositoryCubeRequest,
 } from '../protocol/contract.js';
@@ -439,6 +440,58 @@ readonly CreateCubeAssociationConformanceVector[] = [
         cube_create_bindings: 1,
         repository_associations: 1,
       },
+    },
+  },
+];
+
+export interface DeleteCubeConformanceVector {
+  name: string;
+  request: DeleteCubeRequest;
+  expected: {
+    status: 200 | 403 | 404 | 410;
+    error?: 'ACCESS_DENIED' | 'NOT_FOUND' | 'CUBE_DELETED';
+    response?: { deleted: true };
+    terminal_sse?: { event: 'error'; error: 'CUBE_DELETED'; closes_after_event: true };
+    durable_after_restart?: true;
+    mutation: 'cascade' | 'none';
+  };
+}
+
+/** Cube deletion is manage-gated, cascading, terminal, and durable across authority restart. */
+export const DELETE_CUBE_CONFORMANCE: readonly DeleteCubeConformanceVector[] = [
+  {
+    name: 'non-member managing parent deletes the cube atomically',
+    request: {},
+    expected: { status: 200, response: { deleted: true }, mutation: 'cascade' },
+  },
+  {
+    name: 'known read and write grants and drone sessions cannot delete',
+    request: {},
+    expected: { status: 403, error: 'ACCESS_DENIED', mutation: 'none' },
+  },
+  {
+    name: 'never-authorized and unknown callers cannot enumerate the cube',
+    request: {},
+    expected: { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+  },
+  {
+    name: 'connected clients receive one terminal error frame before close',
+    request: {},
+    expected: {
+      status: 410,
+      error: 'CUBE_DELETED',
+      terminal_sse: { event: 'error', error: 'CUBE_DELETED', closes_after_event: true },
+      mutation: 'none',
+    },
+  },
+  {
+    name: 'former authorized credentials retain the typed terminal state after restart',
+    request: {},
+    expected: {
+      status: 410,
+      error: 'CUBE_DELETED',
+      durable_after_restart: true,
+      mutation: 'none',
     },
   },
 ];

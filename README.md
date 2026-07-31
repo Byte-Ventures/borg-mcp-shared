@@ -159,12 +159,12 @@ the coordinated rollout order for introducing protocol changes.
 
 ## Distribution
 
-This source identifies `borgmcp-shared@0.7.0`; install the published release from npm.
+This source identifies `borgmcp-shared@0.7.1`; install the published release from npm.
 
 See [RELEASES.md](RELEASES.md) for immutable release history.
 
 Consumers update shared, server, and client together: peers carrying protocol v2,
-v3, v4, v5, and v6 reject incompatible tags during credential-free preflight. No
+v3, v4, v5, v6, and v7 reject incompatible tags during credential-free preflight. No
 registry token belongs in this repository, package metadata, lockfiles, or a
 committed `.npmrc`;
 publishing uses protected external credentials and provenance. Successful

@@ -1,4 +1,4 @@
-import { ProtocolContractError, decodeCanonicalTimestamp, decodeLogCursor, decodeOpaqueIdentifier, decodeUuid, utf8ByteLength, } from './contract.js';
+import { ProtocolContractError, decodeCanonicalTimestamp, decodeProtocolErrorEnvelope, decodeLogCursor, decodeOpaqueIdentifier, decodeUuid, utf8ByteLength, } from './contract.js';
 export const SSE_LIMITS = {
     total_bytes: 1024 * 1024,
     frame_bytes: 65_536,
@@ -95,6 +95,9 @@ export function encodeSseEvent(event) {
             occurred_at: decodeCanonicalTimestamp(event.occurred_at, ['occurred_at']),
         };
     }
+    else if (event.type === 'error') {
+        data = decodeProtocolErrorEnvelope(event.error);
+    }
     else if (event.type === 'heartbeat') {
         data = {
             at: decodeCanonicalTimestamp(event.at, ['at']),
@@ -171,7 +174,7 @@ function decodeFrame(frame) {
     if (rawDataBytes > SSE_LIMITS.data_bytes) {
         throw new ProtocolContractError('SSE data exceeds the byte limit.');
     }
-    if (!['log', 'ack', 'claim', 'heartbeat', 'bookmark'].includes(eventName)) {
+    if (!['log', 'ack', 'claim', 'error', 'heartbeat', 'bookmark'].includes(eventName)) {
         if (rawDataBytes > SSE_LIMITS.unknown_data_bytes) {
             throw new ProtocolContractError('Unknown SSE event data exceeds the byte limit.');
         }
@@ -200,6 +203,9 @@ function decodeFrame(frame) {
     }
     if (id !== undefined) {
         throw new ProtocolContractError(`${eventName} SSE events must not carry a resume id.`);
+    }
+    if (eventName === 'error') {
+        return { type: 'error', error: decodeProtocolErrorEnvelope(parsed) };
     }
     if (eventName === 'ack' || eventName === 'claim') {
         exactKeys(data, ['log_entry_id', 'actor_drone_id', 'occurred_at'], [

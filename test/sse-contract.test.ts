@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ErrorCode,
   ProtocolContractError,
   compareLogCursor,
   decodeSseFrames,
@@ -83,6 +84,29 @@ describe('SSE wire codec', () => {
       expect(encoded).not.toMatch(/^id:/m);
       expect(decodeSseFrames(encoded)).toEqual([event]);
     }
+  });
+
+  it('round-trips a strict terminal protocol error without a resume id', () => {
+    const event = {
+      type: 'error' as const,
+      error: {
+        protocol_version: '7' as const,
+        error: { code: ErrorCode.CUBE_DELETED, message: 'This cube was deleted.' },
+      },
+    };
+    const encoded = encodeSseEvent(event);
+    expect(encoded).toMatch(/^event: error$/m);
+    expect(encoded).not.toMatch(/^id:/m);
+    expect(decodeSseFrames(encoded)).toEqual([event]);
+  });
+
+  it('rejects malformed or wrong-version terminal protocol errors', () => {
+    expect(() => decodeSseFrames(
+      'event: error\ndata: {"protocol_version":"7","error":{"code":"CUBE_DELETED","message":"deleted","credential":"secret"}}\n\n',
+    )).toThrow(ProtocolContractError);
+    expect(() => decodeSseFrames(
+      'event: error\ndata: {"protocol_version":"6","error":{"code":"CUBE_DELETED","message":"deleted"}}\n\n',
+    )).toThrowError(expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }));
   });
 
   it('parses CRLF framing, comments, and multi-line data', () => {
