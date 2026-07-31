@@ -2657,7 +2657,10 @@ export async function runAdapterConformance(
     );
     await environment.admin.restartAuthority();
     for (const [kind, credential] of [
+      ['creator', creator.credential],
       ['manager', manager.credential],
+      ['reader', reader.credential],
+      ['writer', writer.credential],
       ['drone', droneCredential],
     ] as const) {
       expectError(
@@ -2671,6 +2674,16 @@ export async function runAdapterConformance(
         `${kind} post-restart deleted-cube request`,
       );
     }
+    expectError(
+      await environment.operations.read(
+        outsider.credential,
+        cube,
+        createProtocolEnvelope('delete-outsider-hidden-after-restart', { cursor: null, limit: 1 }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Never-authorized post-restart request',
+    );
     return {
       deletion_status: 200,
       cascade_complete: true,

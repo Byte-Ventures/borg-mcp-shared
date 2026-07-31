@@ -100,7 +100,8 @@ type Fault =
   | 'allow-non-manage-cube-delete'
   | 'incomplete-cube-delete-cascade'
   | 'drop-cube-delete-terminal-event'
-  | 'forget-cube-delete-after-restart';
+  | 'forget-cube-delete-after-restart'
+  | 'forget-some-cube-delete-credentials-after-restart';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -247,6 +248,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       for (const stream of this.streams) stream.queue.close();
       this.streams.clear();
       if (this.fault === 'forget-cube-delete-after-restart') this.deletedCubes.clear();
+      if (this.fault === 'forget-some-cube-delete-credentials-after-restart') {
+        for (const tombstone of this.deletedCubes.values()) {
+          for (const credential of tombstone.credentials) {
+            // Preserve the manager and drone entries covered by the old gate while
+            // selectively losing creator/read/write terminal state.
+            if (!credential.startsWith('M') && !credential.startsWith('seat_')) {
+              tombstone.credentials.delete(credential);
+            }
+          }
+        }
+      }
     },
     createPrincipal: async (name: string): Promise<ConformancePrincipal> => {
       const handle = { id: this.uuid() };
@@ -1568,6 +1580,18 @@ describe('executable adapter conformance', () => {
     );
     expect(report.results.every((result) => result.ok)).toBe(true);
     expect(JSON.stringify(report)).not.toContain('SECRET-METADATA-KEY-MARKER');
+  });
+
+  it('rejects selective creator/read/write tombstone loss after restart', async () => {
+    const report = await runAdapterConformance(
+      new MemoryConformanceEnvironment('forget-some-cube-delete-credentials-after-restart'),
+      fastTimeouts,
+    );
+    const deletion = report.results.find((result) => result.id === 'cubes.delete-terminal-cascade');
+    expect(deletion).toMatchObject({ ok: false });
+    expect(deletion?.error).toContain(
+      'creator post-restart deleted-cube request returned HTTP 404; expected 410',
+    );
   });
 
   it.each([
