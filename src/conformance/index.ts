@@ -465,7 +465,7 @@ export const DELETE_CUBE_CONFORMANCE: readonly DeleteCubeConformanceVector[] = [
     expected: { status: 200, response: { deleted: true }, mutation: 'cascade' },
   },
   {
-    name: 'known read and write grants cannot delete',
+    name: 'known read and write grants and drone sessions cannot delete',
     request: {},
     expected: { status: 403, error: 'ACCESS_DENIED', mutation: 'none' },
   },

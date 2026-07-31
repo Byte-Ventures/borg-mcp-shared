@@ -2522,6 +2522,7 @@ export async function runAdapterConformance(
     for (const [kind, credential] of [
       ['read', reader.credential],
       ['write', writer.credential],
+      ['drone-session', droneCredential],
     ] as const) {
       expectError(
         await environment.operations.deleteCube(
@@ -2634,6 +2635,16 @@ export async function runAdapterConformance(
         `${kind} post-delete request`,
       );
     }
+    expectError(
+      await environment.operations.deleteCube(
+        manager.credential,
+        cube,
+        createProtocolEnvelope('delete-repeat-terminal', {}),
+      ),
+      PROTOCOL_HTTP_CONTRACT.cube_deleted_status,
+      ErrorCode.CUBE_DELETED,
+      'Repeated deleted-cube request',
+    );
     expectError(
       await environment.operations.read(
         outsider.credential,

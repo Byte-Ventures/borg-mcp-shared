@@ -1294,6 +1294,7 @@ export async function runAdapterConformance(environment, options = {}) {
         for (const [kind, credential] of [
             ['read', reader.credential],
             ['write', writer.credential],
+            ['drone-session', droneCredential],
         ]) {
             expectError(await environment.operations.deleteCube(credential, cube, createProtocolEnvelope(`delete-${kind}-denied`, {})), 403, ErrorCode.ACCESS_DENIED, `${kind} cube deletion`);
             invariant(same(await environment.admin.inspectCubeManagementState(cube), beforeDenied), `${kind} cube deletion denial mutated the cube.`);
@@ -1362,6 +1363,7 @@ export async function runAdapterConformance(environment, options = {}) {
         ]) {
             expectError(await environment.operations.read(credential, cube, createProtocolEnvelope(`delete-${kind}-terminal`, { cursor: null, limit: 1 })), PROTOCOL_HTTP_CONTRACT.cube_deleted_status, ErrorCode.CUBE_DELETED, `${kind} post-delete request`);
         }
+        expectError(await environment.operations.deleteCube(manager.credential, cube, createProtocolEnvelope('delete-repeat-terminal', {})), PROTOCOL_HTTP_CONTRACT.cube_deleted_status, ErrorCode.CUBE_DELETED, 'Repeated deleted-cube request');
         expectError(await environment.operations.read(outsider.credential, cube, createProtocolEnvelope('delete-outsider-hidden', { cursor: null, limit: 1 })), 404, ErrorCode.NOT_FOUND, 'Never-authorized post-delete request');
         await environment.admin.restartAuthority();
         for (const [kind, credential] of [

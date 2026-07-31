@@ -126,8 +126,8 @@ describe('npm publish workflow', () => {
       pkg.version,
     )).toThrow();
     for (const presentStateClaim of [
-      'This source now identifies the unpublished `0.7.0` release candidate.',
-      'This source now identifies the\nunpublished `0.7.0` release candidate.',
+      'This source now identifies the unpublished `0.7.1` release candidate.',
+      'This source now identifies the\nunpublished `0.7.1` release candidate.',
       'This package is currently\npublished.',
       'Install the\ncurrent package.',
     ]) {

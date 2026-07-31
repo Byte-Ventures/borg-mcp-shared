@@ -47,12 +47,37 @@ describe('packed artifact', () => {
       'node',
       ['scripts/verify-packed-artifact.mjs', tarball],
       { encoding: 'utf8' },
-    )) as { name: string; version: string; sourceMapCount: number };
+    )) as { name: string; version: string; sourceMapCount: number; readmeRelativeLinkCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.7.0',
+      version: '0.7.1',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
+    expect(report.readmeRelativeLinkCount).toBeGreaterThan(0);
+  });
+
+  it('requires the release ledger linked by the packed README', async () => {
+    const tarball = await repack(async (root) => {
+      await rm(join(root, 'RELEASES.md'));
+    });
+    const result = spawnSync('node', ['scripts/verify-packed-artifact.mjs', tarball], {
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('missing RELEASES.md');
+  });
+
+  it('rejects any relative README link whose target is absent from the tarball', async () => {
+    const tarball = await repack(async (root) => {
+      const readmePath = join(root, 'README.md');
+      const readme = await readFile(readmePath, 'utf8');
+      await writeFile(readmePath, `${readme}\n[Missing](docs/missing.md)\n`);
+    });
+    const result = spawnSync('node', ['scripts/verify-packed-artifact.mjs', tarball], {
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('README relative link target is not shipped: docs/missing.md');
   });
 
   it('ships the canonical Coordinator activation sequence', async () => {
@@ -118,9 +143,12 @@ describe('packed artifact', () => {
       `
         import {
           CUBE_TEMPLATES,
+          ErrorCode,
           PROTOCOL_VERSION,
           decodeAssociateRepositoryCubeRequest,
           decodeCreateCubeRequest,
+          decodeDeleteCubeRequest,
+          decodeDeleteCubeResponse,
           decodeResolveRepositoryCubeResponse,
         } from 'borgmcp-shared/protocol';
         import {
@@ -130,6 +158,7 @@ describe('packed artifact', () => {
         } from 'borgmcp-shared/templates';
         import {
           CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
+          DELETE_CUBE_CONFORMANCE,
         } from 'borgmcp-shared/conformance';
         const request = decodeCreateCubeRequest({
           retry_key: '00000000-0000-4000-8000-000000000001',
@@ -147,6 +176,13 @@ describe('packed artifact', () => {
           templates: CUBE_TEMPLATES,
           templateAcceptance: CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
           protocolVersion: PROTOCOL_VERSION,
+          deleteRequest: decodeDeleteCubeRequest({}),
+          deleteResponse: decodeDeleteCubeResponse({
+            cube_id: '00000000-0000-4000-8000-000000000003',
+            deleted: true,
+          }),
+          cubeDeletedCode: ErrorCode.CUBE_DELETED,
+          deletionVectorCount: DELETE_CUBE_CONFORMANCE.length,
           request,
           association,
           unresolved: decodeResolveRepositoryCubeResponse({ result: 'none' }),
@@ -195,7 +231,14 @@ describe('packed artifact', () => {
         { name: 'rejects an unknown template name', template: 'custom', accepts: false },
         { name: 'rejects a non-string template', template: null, accepts: false },
       ],
-      protocolVersion: '6',
+      protocolVersion: '7',
+      deleteRequest: {},
+      deleteResponse: {
+        cube_id: '00000000-0000-4000-8000-000000000003',
+        deleted: true,
+      },
+      cubeDeletedCode: 'CUBE_DELETED',
+      deletionVectorCount: 5,
       request: {
         retry_key: '00000000-0000-4000-8000-000000000001',
         name: 'Repository Cube',
@@ -275,7 +318,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.7.0' },
+      dependencies: { 'borgmcp-shared': '0.7.1' },
     }));
     execFileSync('npm', [
       'install',

@@ -50,13 +50,19 @@ requires an explicit cube ID and canonical repository identity. A v4 peer and a
 v5 peer reject each other during credential-free preflight before credentials or
 operation dispatch.
 
-The `borgmcp-shared@0.7.0` release candidate carries protocol v6. It adds
+Published `borgmcp-shared@0.7.0` carries protocol v6. It adds
 `local-model` to the closed cube-template acceptance set and bundles that named
 Director/Shaper/Executor template. A v5 peer and a v6 peer reject each other
 during credential-free preflight, before an older peer can reject the new
-template later while decoding a cube-creation request. The candidate is not a
-release until its separate exact-commit tag and protected publication gates
-complete.
+template later while decoding a cube-creation request.
+
+The `borgmcp-shared@0.7.1` release candidate carries protocol v7. It adds
+manage-gated `DELETE /api/cubes/:cubeId` with an exact terminal response,
+atomic cascade semantics, and `CUBE_DELETED`. Every connected deleted-cube
+stream receives one strict protocol error envelope as `event: error` before
+close. Former authorized parent and drone credentials receive
+`410 CUBE_DELETED` for that cube, including after authority restart; callers
+that were never authorized still receive non-enumerating `404 NOT_FOUND`.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a

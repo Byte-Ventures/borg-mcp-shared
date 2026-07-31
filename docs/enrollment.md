@@ -25,9 +25,10 @@ mutation and must never be rerun or moved. `borgmcp-shared@0.6.1`,
 `fa8a2dc072d4ffe2a16d5f02576fead822a2f72e`; successful attempt-1 workflow run
 `30169732628` published registry integrity
 `sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
-Never rerun or move that tag. This source now identifies the unpublished
-`0.7.0` protocol-v6 local-model-template release candidate. The version bump
-grants no tag or publication authority: creating `v0.7.0` and publishing the
+Never rerun or move that tag. `borgmcp-shared@0.7.0` is published and immutable.
+This source now identifies the unpublished `0.7.1` protocol-v7 cube-deletion
+release candidate. The version bump grants no tag or publication authority:
+creating `v0.7.1` and publishing the
 reviewed artifact remain separate, independently gated steps.
 There is no compatibility path that returns a bearer from the server.
 
