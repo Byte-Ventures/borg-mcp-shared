@@ -1,5 +1,5 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
-import type { AssociateRepositoryCubeRequest, CreateCubeRequest, EnrollmentExchangeRequest, ResolveRepositoryCubeRequest } from '../protocol/contract.js';
+import type { AssociateRepositoryCubeRequest, CreateCubeRequest, DeleteCubeRequest, EnrollmentExchangeRequest, ResolveRepositoryCubeRequest } from '../protocol/contract.js';
 export * from './adapter.js';
 export interface ConformanceVector<Input, Output> {
     name: string;
@@ -78,6 +78,25 @@ export interface CreateCubeAssociationConformanceVector {
     };
 }
 export declare const CREATE_CUBE_ASSOCIATION_CONFORMANCE: readonly CreateCubeAssociationConformanceVector[];
+export interface DeleteCubeConformanceVector {
+    name: string;
+    request: DeleteCubeRequest;
+    expected: {
+        status: 200 | 403 | 404 | 410;
+        error?: 'ACCESS_DENIED' | 'NOT_FOUND' | 'CUBE_DELETED';
+        response?: {
+            deleted: true;
+        };
+        terminal_sse?: {
+            event: 'error';
+            error: 'CUBE_DELETED';
+            closes_after_event: true;
+        };
+        durable_after_restart?: true;
+        mutation: 'cascade' | 'none';
+    };
+}
+export declare const DELETE_CUBE_CONFORMANCE: readonly DeleteCubeConformanceVector[];
 export interface ResolveRepositoryCubeConformanceVector {
     name: string;
     request: ResolveRepositoryCubeRequest;

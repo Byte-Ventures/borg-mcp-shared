@@ -337,6 +337,43 @@ export const CREATE_CUBE_ASSOCIATION_CONFORMANCE = [
         },
     },
 ];
+export const DELETE_CUBE_CONFORMANCE = [
+    {
+        name: 'non-member managing parent deletes the cube atomically',
+        request: {},
+        expected: { status: 200, response: { deleted: true }, mutation: 'cascade' },
+    },
+    {
+        name: 'known read and write grants cannot delete',
+        request: {},
+        expected: { status: 403, error: 'ACCESS_DENIED', mutation: 'none' },
+    },
+    {
+        name: 'never-authorized and unknown callers cannot enumerate the cube',
+        request: {},
+        expected: { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+    },
+    {
+        name: 'connected clients receive one terminal error frame before close',
+        request: {},
+        expected: {
+            status: 410,
+            error: 'CUBE_DELETED',
+            terminal_sse: { event: 'error', error: 'CUBE_DELETED', closes_after_event: true },
+            mutation: 'none',
+        },
+    },
+    {
+        name: 'former authorized credentials retain the typed terminal state after restart',
+        request: {},
+        expected: {
+            status: 410,
+            error: 'CUBE_DELETED',
+            durable_after_restart: true,
+            mutation: 'none',
+        },
+    },
+];
 const REPOSITORY_CUBE_ONE = '00000000-0000-4000-8000-000000000131';
 const REPOSITORY_ONE = {
     working_repo_name: 'repository-one',

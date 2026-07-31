@@ -4,6 +4,7 @@ import {
   createProtocolEnvelope,
   decodeAssociateRepositoryCubeResponseEnvelope,
   decodeCreateCubeResponseEnvelope,
+  decodeDeleteCubeResponseEnvelope,
   decodeAppendLogResultEnvelope,
   decodeDecisionResultEnvelope,
   decodeDecisionsResultEnvelope,
@@ -130,6 +131,20 @@ export interface ConformanceCreatedCubeState {
   default_worker_role_matches: boolean;
 }
 
+export interface ConformanceDeletedCubeState {
+  readonly cube_exists: boolean;
+  readonly role_count: number;
+  readonly drone_count: number;
+  readonly log_count: number;
+  readonly claim_count: number;
+  readonly decision_count: number;
+  readonly grant_count: number;
+  readonly cube_create_binding_count: number;
+  readonly repository_association_count: number;
+  readonly active_stream_count: number;
+  readonly terminal_credential_count: number;
+}
+
 export interface ConformanceRepositoryCubeFixture {
   cube_id: string;
   name: string;
@@ -168,6 +183,8 @@ export interface ConformanceStreamResponse extends ConformanceHttpResponse {
  */
 export interface ConformanceAdmin {
   reset(): Promise<void>;
+  /** Restarts the authority while preserving durable state. */
+  restartAuthority(): Promise<void>;
   createPrincipal(name: string): Promise<ConformancePrincipal>;
   createCube(name: string): Promise<ConformanceCube>;
   /** Grants the requested cube authority; omitted access defaults to manage. */
@@ -205,6 +222,7 @@ export interface ConformanceAdmin {
     creator: ConformancePrincipal,
     response: CreateCubeResponse,
   ): Promise<ConformanceCreatedCubeState>;
+  inspectDeletedCube(cube: ConformanceCube): Promise<ConformanceDeletedCubeState>;
   prepareRepositoryCube(
     cube: ConformanceCube,
     input: {
@@ -227,6 +245,11 @@ export interface ConformanceOperations {
   protocol(credential: string | null): Promise<ConformanceHttpResponse>;
   enroll(request: unknown): Promise<ConformanceHttpResponse>;
   createCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
+  deleteCube(
+    credential: string,
+    cube: ConformanceCube,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
   resolveRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
   associateRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
   attach(credential: string, request: unknown): Promise<ConformanceHttpResponse>;
@@ -337,6 +360,7 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'security.metadata-noninterference', area: 'security' },
   { id: 'security.metadata-secret-non-echo', area: 'security' },
   { id: 'security.active-stream-revocation', area: 'security' },
+  { id: 'cubes.delete-terminal-cascade', area: 'cubes' },
 ] as const;
 
 export type AdapterConformanceFixtureId =
@@ -2429,6 +2453,222 @@ export async function runAdapterConformance(
     );
     expectError(rejected, 401, ErrorCode.SESSION_REVOKED, 'Post-revocation request');
     return { stream_terminated: true, subsequent_status: 401, subsequent_code: ErrorCode.SESSION_REVOKED };
+  });
+
+  await record('cubes.delete-terminal-cascade', async () => {
+    const enrollParent = async (
+      name: string,
+      marker: string,
+      retrySuffix: string,
+    ): Promise<{ principal: ConformancePrincipal; credential: string }> => {
+      const principal = await environment.admin.createPrincipal(name);
+      const invitation = await environment.admin.issueSingleUseInvitation(principal, 'client');
+      const credential = `${marker.repeat(41)}AQ`;
+      expectStatus(await environment.operations.enroll(createProtocolEnvelope(
+        `delete-${name}-enroll`,
+        {
+          invitation,
+          retry_key: `00000000-0000-4000-8000-${retrySuffix.padStart(12, '0')}`,
+          client_credential: credential,
+          client_name: name,
+        },
+      )), 201, `${name} enrollment`);
+      return { principal, credential };
+    };
+    const creator = await enrollParent('delete-creator', 'C', '701');
+    const manager = await enrollParent('delete-manager', 'M', '702');
+    const reader = await enrollParent('delete-reader', 'R', '703');
+    const writer = await enrollParent('delete-writer', 'W', '704');
+    const outsider = await enrollParent('delete-outsider', 'O', '705');
+    await environment.admin.grantCreateCubeCapability(creator.principal);
+    const createResponse = await environment.operations.createCube(
+      creator.credential,
+      createProtocolEnvelope('delete-cube-create', {
+        retry_key: '00000000-0000-4000-8000-000000000706',
+        name: 'Disposable Cube',
+        working_repo_name: 'disposable-cube',
+        repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000707' },
+        template: 'default',
+      }),
+    );
+    expectStatus(createResponse, 201, 'Disposable cube creation');
+    const created = decodeCreateCubeResponseEnvelope(createResponse.body).payload;
+    const cube = { id: created.cube_id };
+    const role = { id: created.default_worker_role_id };
+    await environment.admin.grantCube(manager.principal, cube, 'manage');
+    await environment.admin.grantCube(reader.principal, cube, 'read');
+    await environment.admin.grantCube(writer.principal, cube, 'write');
+    const drone = await environment.admin.createDrone(creator.principal, cube, role);
+    const droneCredential = await environment.admin.issueManagedDroneSession(drone);
+    const append = await environment.operations.append(
+      creator.credential,
+      cube,
+      createProtocolEnvelope('delete-log', { message: 'deleted with cube' }),
+    );
+    expectStatus(append, 201, 'Deletion fixture log');
+    const entry = decodeAppendLogResultEnvelope(append.body).payload.entry;
+    expectStatus(await environment.operations.ack(
+      creator.credential,
+      cube,
+      createProtocolEnvelope('delete-claim', { entry_id: entry.id, kind: 'claim' }),
+    ), 204, 'Deletion fixture claim');
+    expectStatus(await environment.operations.recordDecision(
+      manager.credential,
+      cube,
+      createProtocolEnvelope('delete-decision', { topic: 'cleanup', decision: 'delete' }),
+    ), 201, 'Deletion fixture decision');
+
+    const beforeDenied = await environment.admin.inspectCubeManagementState(cube);
+    for (const [kind, credential] of [
+      ['read', reader.credential],
+      ['write', writer.credential],
+    ] as const) {
+      expectError(
+        await environment.operations.deleteCube(
+          credential,
+          cube,
+          createProtocolEnvelope(`delete-${kind}-denied`, {}),
+        ),
+        403,
+        ErrorCode.ACCESS_DENIED,
+        `${kind} cube deletion`,
+      );
+      invariant(
+        same(await environment.admin.inspectCubeManagementState(cube), beforeDenied),
+        `${kind} cube deletion denial mutated the cube.`,
+      );
+    }
+    expectError(
+      await environment.operations.deleteCube(
+        outsider.credential,
+        cube,
+        createProtocolEnvelope('delete-outsider-denied', {}),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Never-authorized cube deletion',
+    );
+
+    const parentStream = await environment.operations.openStream(manager.credential, cube, null);
+    const droneStream = await environment.operations.openStream(droneCredential, cube, null);
+    expectStatus(parentStream, 200, 'Deletion parent stream');
+    expectStatus(droneStream, 200, 'Deletion drone stream');
+    invariant(parentStream.stream && droneStream.stream, 'Deletion fixture streams did not open.');
+    const parentEvents = new SseEventReader(parentStream.stream);
+    const droneEvents = new SseEventReader(droneStream.stream);
+    for (const streamReader of [parentEvents, droneEvents]) {
+      invariant((await streamReader.next()).type === 'log', 'Deletion stream omitted replay log.');
+      const bookmark = await streamReader.next();
+      invariant(bookmark.type === 'bookmark' && bookmark.replay_complete, 'Deletion stream omitted bookmark.');
+    }
+    const parentTerminal = parentEvents.next();
+    const droneTerminal = droneEvents.next();
+    await provePending(parentTerminal, 'Parent deletion terminal event', pendingProbeMs);
+    await provePending(droneTerminal, 'Drone deletion terminal event', pendingProbeMs);
+
+    const deleted = await environment.operations.deleteCube(
+      manager.credential,
+      cube,
+      createProtocolEnvelope('delete-managed-cube', {}),
+    );
+    expectStatus(deleted, 200, 'Managed cube deletion');
+    invariant(
+      same(decodeDeleteCubeResponseEnvelope(deleted.body).payload, {
+        cube_id: cube.id,
+        deleted: true,
+      }),
+      'Cube deletion response did not identify the terminal cube.',
+    );
+    for (const [kind, event] of [
+      ['parent', await within(parentTerminal, 'Parent deletion terminal event', streamDeadlineMs)],
+      ['drone', await within(droneTerminal, 'Drone deletion terminal event', streamDeadlineMs)],
+    ] as const) {
+      invariant(
+        event.type === 'error' && event.error.error.code === ErrorCode.CUBE_DELETED,
+        `${kind} stream did not receive CUBE_DELETED.`,
+      );
+    }
+    for (const streamReader of [parentEvents, droneEvents]) {
+      let closed = false;
+      try {
+        await within(streamReader.next(), 'Deleted cube stream close', streamDeadlineMs);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('did not settle')) throw error;
+        closed = true;
+      }
+      invariant(closed, 'Deleted cube stream yielded after its terminal error.');
+      await streamReader.close();
+    }
+
+    invariant(
+      same(await environment.admin.inspectDeletedCube(cube), {
+        cube_exists: false,
+        role_count: 0,
+        drone_count: 0,
+        log_count: 0,
+        claim_count: 0,
+        decision_count: 0,
+        grant_count: 0,
+        cube_create_binding_count: 0,
+        repository_association_count: 0,
+        active_stream_count: 0,
+        terminal_credential_count: 5,
+      }),
+      'Cube deletion did not atomically remove cube-owned state and preserve only terminal credentials.',
+    );
+    for (const [kind, credential] of [
+      ['creator', creator.credential],
+      ['manager', manager.credential],
+      ['reader', reader.credential],
+      ['writer', writer.credential],
+      ['drone', droneCredential],
+    ] as const) {
+      expectError(
+        await environment.operations.read(
+          credential,
+          cube,
+          createProtocolEnvelope(`delete-${kind}-terminal`, { cursor: null, limit: 1 }),
+        ),
+        PROTOCOL_HTTP_CONTRACT.cube_deleted_status,
+        ErrorCode.CUBE_DELETED,
+        `${kind} post-delete request`,
+      );
+    }
+    expectError(
+      await environment.operations.read(
+        outsider.credential,
+        cube,
+        createProtocolEnvelope('delete-outsider-hidden', { cursor: null, limit: 1 }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Never-authorized post-delete request',
+    );
+    await environment.admin.restartAuthority();
+    for (const [kind, credential] of [
+      ['manager', manager.credential],
+      ['drone', droneCredential],
+    ] as const) {
+      expectError(
+        await environment.operations.read(
+          credential,
+          cube,
+          createProtocolEnvelope(`delete-${kind}-after-restart`, { cursor: null, limit: 1 }),
+        ),
+        PROTOCOL_HTTP_CONTRACT.cube_deleted_status,
+        ErrorCode.CUBE_DELETED,
+        `${kind} post-restart deleted-cube request`,
+      );
+    }
+    return {
+      deletion_status: 200,
+      cascade_complete: true,
+      terminal_stream_error: ErrorCode.CUBE_DELETED,
+      terminal_http_status: 410,
+      terminal_state_durable_after_restart: true,
+      unknown_hidden_status: 404,
+      non_member_manager: true,
+    };
   });
 
   const normalizedTranscript = results.map(({ id, observations }) => ({ id, observations }));

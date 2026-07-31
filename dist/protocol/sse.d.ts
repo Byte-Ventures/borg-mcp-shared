@@ -1,5 +1,5 @@
 import type { EnrichedStreamEntry } from './types.js';
-import { type LogCursor } from './contract.js';
+import { type LogCursor, type ProtocolErrorEnvelope } from './contract.js';
 export declare const SSE_LIMITS: {
     readonly total_bytes: number;
     readonly frame_bytes: 65536;
@@ -21,7 +21,7 @@ export type StreamEvent = {
     log_entry_id: string;
     actor_drone_id: string;
     occurred_at: string;
-} | {
+} | StreamErrorEvent | {
     type: 'heartbeat';
     at: string;
     broadcast_hwm: LogCursor | null;
@@ -36,6 +36,10 @@ export type StreamEvent = {
     event: string;
     raw_data: string;
 };
+export interface StreamErrorEvent {
+    type: 'error';
+    error: ProtocolErrorEnvelope;
+}
 export declare function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry;
 export declare function encodeSseEvent(event: Exclude<StreamEvent, {
     type: 'unknown';

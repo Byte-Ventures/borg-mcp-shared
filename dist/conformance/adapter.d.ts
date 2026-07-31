@@ -82,6 +82,19 @@ export interface ConformanceCreatedCubeState {
     human_seat_role_matches: boolean;
     default_worker_role_matches: boolean;
 }
+export interface ConformanceDeletedCubeState {
+    readonly cube_exists: boolean;
+    readonly role_count: number;
+    readonly drone_count: number;
+    readonly log_count: number;
+    readonly claim_count: number;
+    readonly decision_count: number;
+    readonly grant_count: number;
+    readonly cube_create_binding_count: number;
+    readonly repository_association_count: number;
+    readonly active_stream_count: number;
+    readonly terminal_credential_count: number;
+}
 export interface ConformanceRepositoryCubeFixture {
     cube_id: string;
     name: string;
@@ -104,6 +117,7 @@ export interface ConformanceStreamResponse extends ConformanceHttpResponse {
 }
 export interface ConformanceAdmin {
     reset(): Promise<void>;
+    restartAuthority(): Promise<void>;
     createPrincipal(name: string): Promise<ConformancePrincipal>;
     createCube(name: string): Promise<ConformanceCube>;
     grantCube(principal: ConformancePrincipal, cube: ConformanceCube, access?: ConformanceCubeAccess): Promise<void>;
@@ -128,6 +142,7 @@ export interface ConformanceAdmin {
     issueSingleUseInvitation(principal: ConformancePrincipal, purpose: 'owner' | 'client'): Promise<string>;
     observeAuthorityState(): Promise<ConformanceAuthorityState>;
     inspectCreatedCube(creator: ConformancePrincipal, response: CreateCubeResponse): Promise<ConformanceCreatedCubeState>;
+    inspectDeletedCube(cube: ConformanceCube): Promise<ConformanceDeletedCubeState>;
     prepareRepositoryCube(cube: ConformanceCube, input: {
         name: string;
         template: CubeTemplate;
@@ -142,6 +157,7 @@ export interface ConformanceOperations {
     protocol(credential: string | null): Promise<ConformanceHttpResponse>;
     enroll(request: unknown): Promise<ConformanceHttpResponse>;
     createCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
+    deleteCube(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     resolveRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
     associateRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
     attach(credential: string, request: unknown): Promise<ConformanceHttpResponse>;
@@ -245,6 +261,9 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
 }, {
     readonly id: "security.active-stream-revocation";
     readonly area: "security";
+}, {
+    readonly id: "cubes.delete-terminal-cascade";
+    readonly area: "cubes";
 }];
 export type AdapterConformanceFixtureId = (typeof ADAPTER_CONFORMANCE_FIXTURES)[number]['id'];
 export interface AdapterConformanceResult {
