@@ -59,7 +59,7 @@ functions and contracts include API documentation in their TypeScript sources.
 
 ## Handshake
 
-The repository-first HTTP contract has six shared paths:
+Key paths in the repository-first HTTP contract include:
 
 - `GET /healthz` is the only unauthenticated liveness probe. Success is `204`
   with no body or identifying metadata.
@@ -87,6 +87,10 @@ The repository-first HTTP contract has six shared paths:
   `manage` authority. The same binding is idempotent; repository and cube
   conflicts return distinct non-enumerating error codes, and a conflict,
   validation failure, or permission failure performs no mutation.
+- `DELETE /api/cubes/:cubeId` requires cube `manage` authority and atomically
+  deletes the cube and its scoped state. Formerly authorized callers receive
+  `410 CUBE_DELETED`, while callers that were never authorized still receive
+  `404 NOT_FOUND`.
 
 `decodeProtocolTagPreflight` fails closed on any tag other than the exact
 expected version, on any extra field, or on a non-object body — before any
@@ -120,7 +124,7 @@ ordinary ungranted enrollment, cube creation, pending enrollment, and retry cont
 Server and client implementations should run the vectors exported from
 `borgmcp-shared/conformance` against their adapters. The vectors and runner are
 readonly data rather than Vitest-specific helpers, so they work with any test
-runner and in any JavaScript runtime. Cases cover HTTP and canonical errors,
+runner supported by the implementation. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
 idempotency, explicit repository resolution/adoption and conflict atomicity,
@@ -134,7 +138,7 @@ authority matrix: managing parents may mutate; known same-cube read/write
 parents receive `403 ACCESS_DENIED`; drone sessions remain non-managing; and
 no-grant, foreign, or unknown cubes remain hidden behind `404 NOT_FOUND`.
 
-Implement `AdapterConformanceDriver` with raw responses from the target adapter,
+Implement `ConformanceEnvironment` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,
 drives state transitions, and decides pass/fail; adapters do not submit expected
 results. Each server or client adapter runs this single portable suite against
@@ -157,24 +161,7 @@ together in a coordinated release, with no mixed-version window.
 See [docs/compatibility.md](docs/compatibility.md) for the exact-tag policy and
 the coordinated rollout order for introducing protocol changes.
 
-## Distribution
-
-This source identifies `borgmcp-shared@0.7.1`; install the published release from npm.
-
-See [RELEASES.md](RELEASES.md) for immutable release history.
-
-Consumers update shared, server, and client together: peers carrying protocol v2,
-v3, v4, v5, v6, and v7 reject incompatible tags during credential-free preflight. No
-registry token belongs in this repository, package metadata, lockfiles, or a
-committed `.npmrc`;
-publishing uses protected external credentials and provenance. Successful
-`npm publish` is the workflow terminal boundary; post-publication registry reads
-are outside the immutable release gate.
-
-The first client and server releases must consume the reviewed registry release,
-not a Git, tag, or local-path dependency. Public release requires the
-packed-artifact sensitivity audit, ownership and Trusted Publisher checks,
-provenance verification, and explicit release approval.
+See [RELEASES.md](RELEASES.md) for release history.
 
 ## Security Posture
 
@@ -194,16 +181,4 @@ calling a decoder only after an unbounded response has been buffered is unsafe.
 Please report vulnerabilities through the private process in
 [SECURITY.md](SECURITY.md), not through a public issue.
 
-## Development
-
-```sh
-npm install
-npm test
-npm run check
-npm run build
-npm pack --dry-run
-```
-
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change.
-Release operators must follow the protected [publishing runbook](docs/releasing.md);
-the runbook does not authorize a release.
