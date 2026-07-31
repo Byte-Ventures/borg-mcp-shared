@@ -1362,8 +1362,9 @@ export async function runAdapterConformance(environment, options = {}) {
             ['drone', droneCredential],
         ]) {
             expectError(await environment.operations.read(credential, cube, createProtocolEnvelope(`delete-${kind}-terminal`, { cursor: null, limit: 1 })), PROTOCOL_HTTP_CONTRACT.cube_deleted_status, ErrorCode.CUBE_DELETED, `${kind} post-delete request`);
+            expectError(await environment.operations.deleteCube(credential, cube, createProtocolEnvelope(`delete-${kind}-repeat-terminal`, {})), PROTOCOL_HTTP_CONTRACT.cube_deleted_status, ErrorCode.CUBE_DELETED, `${kind} post-delete DELETE`);
         }
-        expectError(await environment.operations.deleteCube(manager.credential, cube, createProtocolEnvelope('delete-repeat-terminal', {})), PROTOCOL_HTTP_CONTRACT.cube_deleted_status, ErrorCode.CUBE_DELETED, 'Repeated deleted-cube request');
+        expectError(await environment.operations.deleteCube(outsider.credential, cube, createProtocolEnvelope('delete-outsider-hidden-repeat', {})), 404, ErrorCode.NOT_FOUND, 'Never-authorized post-delete DELETE');
         expectError(await environment.operations.read(outsider.credential, cube, createProtocolEnvelope('delete-outsider-hidden', { cursor: null, limit: 1 })), 404, ErrorCode.NOT_FOUND, 'Never-authorized post-delete request');
         await environment.admin.restartAuthority();
         for (const [kind, credential] of [
@@ -1374,7 +1375,9 @@ export async function runAdapterConformance(environment, options = {}) {
             ['drone', droneCredential],
         ]) {
             expectError(await environment.operations.read(credential, cube, createProtocolEnvelope(`delete-${kind}-after-restart`, { cursor: null, limit: 1 })), PROTOCOL_HTTP_CONTRACT.cube_deleted_status, ErrorCode.CUBE_DELETED, `${kind} post-restart deleted-cube request`);
+            expectError(await environment.operations.deleteCube(credential, cube, createProtocolEnvelope(`delete-${kind}-repeat-after-restart`, {})), PROTOCOL_HTTP_CONTRACT.cube_deleted_status, ErrorCode.CUBE_DELETED, `${kind} post-restart DELETE`);
         }
+        expectError(await environment.operations.deleteCube(outsider.credential, cube, createProtocolEnvelope('delete-outsider-hidden-repeat-after-restart', {})), 404, ErrorCode.NOT_FOUND, 'Never-authorized post-restart DELETE');
         expectError(await environment.operations.read(outsider.credential, cube, createProtocolEnvelope('delete-outsider-hidden-after-restart', { cursor: null, limit: 1 })), 404, ErrorCode.NOT_FOUND, 'Never-authorized post-restart request');
         return {
             deletion_status: 200,

@@ -2634,16 +2634,26 @@ export async function runAdapterConformance(
         ErrorCode.CUBE_DELETED,
         `${kind} post-delete request`,
       );
+      expectError(
+        await environment.operations.deleteCube(
+          credential,
+          cube,
+          createProtocolEnvelope(`delete-${kind}-repeat-terminal`, {}),
+        ),
+        PROTOCOL_HTTP_CONTRACT.cube_deleted_status,
+        ErrorCode.CUBE_DELETED,
+        `${kind} post-delete DELETE`,
+      );
     }
     expectError(
       await environment.operations.deleteCube(
-        manager.credential,
+        outsider.credential,
         cube,
-        createProtocolEnvelope('delete-repeat-terminal', {}),
+        createProtocolEnvelope('delete-outsider-hidden-repeat', {}),
       ),
-      PROTOCOL_HTTP_CONTRACT.cube_deleted_status,
-      ErrorCode.CUBE_DELETED,
-      'Repeated deleted-cube request',
+      404,
+      ErrorCode.NOT_FOUND,
+      'Never-authorized post-delete DELETE',
     );
     expectError(
       await environment.operations.read(
@@ -2673,7 +2683,27 @@ export async function runAdapterConformance(
         ErrorCode.CUBE_DELETED,
         `${kind} post-restart deleted-cube request`,
       );
+      expectError(
+        await environment.operations.deleteCube(
+          credential,
+          cube,
+          createProtocolEnvelope(`delete-${kind}-repeat-after-restart`, {}),
+        ),
+        PROTOCOL_HTTP_CONTRACT.cube_deleted_status,
+        ErrorCode.CUBE_DELETED,
+        `${kind} post-restart DELETE`,
+      );
     }
+    expectError(
+      await environment.operations.deleteCube(
+        outsider.credential,
+        cube,
+        createProtocolEnvelope('delete-outsider-hidden-repeat-after-restart', {}),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Never-authorized post-restart DELETE',
+    );
     expectError(
       await environment.operations.read(
         outsider.credential,

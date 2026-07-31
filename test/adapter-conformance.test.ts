@@ -101,7 +101,8 @@ type Fault =
   | 'incomplete-cube-delete-cascade'
   | 'drop-cube-delete-terminal-event'
   | 'forget-cube-delete-after-restart'
-  | 'forget-some-cube-delete-credentials-after-restart';
+  | 'forget-some-cube-delete-credentials-after-restart'
+  | 'reveal-deleted-cube-on-delete';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -817,6 +818,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       cubeHandle: ConformanceCube,
       request: unknown,
     ): Promise<ConformanceHttpResponse> => {
+      if (this.fault === 'reveal-deleted-cube-on-delete' && this.deletedCubes.has(cubeHandle.id)) {
+        return this.error(410, ErrorCode.CUBE_DELETED);
+      }
       const terminal = this.deletedCubeResponse(credential, cubeHandle.id);
       if (terminal) return terminal;
       const access = this.fault === 'allow-non-manage-cube-delete'
@@ -1591,6 +1595,18 @@ describe('executable adapter conformance', () => {
     expect(deletion).toMatchObject({ ok: false });
     expect(deletion?.error).toContain(
       'creator post-restart deleted-cube request returned HTTP 404; expected 410',
+    );
+  });
+
+  it('rejects DELETE-only tombstone disclosure to a never-authorized caller', async () => {
+    const report = await runAdapterConformance(
+      new MemoryConformanceEnvironment('reveal-deleted-cube-on-delete'),
+      fastTimeouts,
+    );
+    const deletion = report.results.find((result) => result.id === 'cubes.delete-terminal-cascade');
+    expect(deletion).toMatchObject({ ok: false });
+    expect(deletion?.error).toContain(
+      'Never-authorized post-delete DELETE returned HTTP 410; expected 404',
     );
   });
 
