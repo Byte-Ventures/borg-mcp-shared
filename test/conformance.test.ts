@@ -6,6 +6,7 @@ import {
   CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
   CREATE_CUBE_ASSOCIATION_CONFORMANCE,
+  DELETE_CUBE_CONFORMANCE,
   RESOLVE_REPOSITORY_CUBE_CONFORMANCE,
   ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE,
   REPOSITORY_CUBE_PERMISSION_CONFORMANCE,
@@ -18,6 +19,7 @@ import {
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeResponse,
   decodeCreateCubeRequest,
+  decodeDeleteCubeRequest,
   decodeResolveRepositoryCubeRequest,
   decodeAssociateRepositoryCubeRequest,
   decodeAppendLogResult,
@@ -83,7 +85,7 @@ describe('public conformance vectors', () => {
     }
   });
 
-  it('pins the complete protocol-v6 cube-template acceptance set', () => {
+  it('pins the complete protocol-v7 cube-template acceptance set', () => {
     for (const vector of CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE) {
       const request = {
         retry_key: '00000000-0000-4000-8000-000000000120',
@@ -98,6 +100,31 @@ describe('public conformance vectors', () => {
         expect(() => decodeCreateCubeRequest(request), vector.name).toThrow();
       }
     }
+  });
+
+  it('pins cascading deletion and durable terminal-state vectors', () => {
+    for (const vector of DELETE_CUBE_CONFORMANCE) {
+      expect(decodeDeleteCubeRequest(vector.request), vector.name).toEqual({});
+    }
+    expect(DELETE_CUBE_CONFORMANCE).toEqual([
+      expect.objectContaining({ expected: { status: 200, response: { deleted: true }, mutation: 'cascade' } }),
+      expect.objectContaining({ expected: { status: 403, error: 'ACCESS_DENIED', mutation: 'none' } }),
+      expect.objectContaining({ expected: { status: 404, error: 'NOT_FOUND', mutation: 'none' } }),
+      expect.objectContaining({
+        expected: expect.objectContaining({
+          status: 410,
+          error: 'CUBE_DELETED',
+          terminal_sse: { event: 'error', error: 'CUBE_DELETED', closes_after_event: true },
+        }),
+      }),
+      expect.objectContaining({
+        expected: expect.objectContaining({
+          status: 410,
+          error: 'CUBE_DELETED',
+          durable_after_restart: true,
+        }),
+      }),
+    ]);
   });
 
   it('pins repository association resolution independently of retry keys', () => {

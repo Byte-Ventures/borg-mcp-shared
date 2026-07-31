@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ENROLLMENT_EXCHANGE_PATH,
   CUBES_PATH,
+  CUBE_PATH,
   REPOSITORY_CUBE_RESOLVE_PATH,
   REPOSITORY_CUBE_ASSOCIATION_PATH,
   HEALTH_PATH,
@@ -29,6 +30,10 @@ import {
   decodeCreateCubeRequestEnvelope,
   decodeCreateCubeResponse,
   decodeCreateCubeResponseEnvelope,
+  decodeDeleteCubeRequest,
+  decodeDeleteCubeRequestEnvelope,
+  decodeDeleteCubeResponse,
+  decodeDeleteCubeResponseEnvelope,
   decodeResolveRepositoryCubeRequest,
   decodeResolveRepositoryCubeRequestEnvelope,
   decodeResolveRepositoryCubeResponse,
@@ -59,7 +64,7 @@ import {
 } from '../src/index.js';
 import * as sharedApi from '../src/index.js';
 
-const tagPreflight = { protocol_version: '6' } as const;
+const tagPreflight = { protocol_version: '7' } as const;
 
 describe('package and handshake contract', () => {
   it('keeps the exported identity aligned with package.json', async () => {
@@ -68,7 +73,7 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.7.0');
+    expect(SHARED_PACKAGE_VERSION).toBe('0.7.1');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
@@ -81,6 +86,7 @@ describe('package and handshake contract', () => {
     expect(PROTOCOL_INFO_PATH).toBe('/api/protocol');
     expect(ENROLLMENT_EXCHANGE_PATH).toBe('/api/enrollment/exchange');
     expect(CUBES_PATH).toBe('/api/cubes');
+    expect(CUBE_PATH).toBe('/api/cubes/:cubeId');
     expect(REPOSITORY_CUBE_RESOLVE_PATH).toBe('/api/repository-cubes/resolve');
     expect(REPOSITORY_CUBE_ASSOCIATION_PATH).toBe('/api/repository-cubes/association');
     expect(PROTOCOL_HTTP_CONTRACT).toMatchObject({
@@ -88,6 +94,13 @@ describe('package and handshake contract', () => {
       protocol: { method: 'GET', success_status: 200, authenticated: false },
       enrollment: { success_status: 201, authenticated: 'invitation' },
       cubes: { success_status: 201, authenticated: true },
+      cube_delete: {
+        method: 'DELETE',
+        path: '/api/cubes/:cubeId',
+        success_status: 200,
+        authenticated: true,
+        mutation: true,
+      },
       repository_cube_resolve: {
         method: 'POST',
         success_status: 200,
@@ -125,6 +138,7 @@ describe('package and handshake contract', () => {
         authenticated: true,
       },
       drone_evicted_status: 410,
+      cube_deleted_status: 410,
       auth_expired_status: 401,
       session_revoked_status: 401,
       session_rejected_status: 401,
@@ -134,7 +148,7 @@ describe('package and handshake contract', () => {
 
   it('emits and decodes a tag-only preflight carrying nothing but the exact tag', () => {
     const emitted = createProtocolTagPreflight();
-    expect(emitted).toEqual({ protocol_version: '6' });
+    expect(emitted).toEqual({ protocol_version: '7' });
     expect(Object.keys(emitted)).toEqual(['protocol_version']);
     expect(decodeProtocolTagPreflight(tagPreflight)).toEqual(tagPreflight);
   });
@@ -197,7 +211,7 @@ describe('package and handshake contract', () => {
       throw new Error('PAYLOAD-DECODER-WAS-CALLED');
     };
     const secretPayload: Record<string, unknown> = { client_credential: marker, [marker]: marker };
-    const staticPreflightMessage = 'This client requires protocol v6. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.';
+    const staticPreflightMessage = 'This client requires protocol v7. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.';
     const boundaries: Array<[string, (protocol_version: unknown) => unknown, string]> = [
       ['tag preflight', (v) => decodeProtocolTagPreflight({ protocol_version: v }), staticPreflightMessage],
       ['generic success envelope', (v) => decodeProtocolEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }, sentinelDecoder), 'Unsupported protocol version.'],
@@ -206,6 +220,8 @@ describe('package and handshake contract', () => {
       ['enrollment response envelope', (v) => decodeEnrollmentExchangeResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
       ['cube request envelope', (v) => decodeCreateCubeRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
       ['cube response envelope', (v) => decodeCreateCubeResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
+      ['cube delete request envelope', (v) => decodeDeleteCubeRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
+      ['cube delete response envelope', (v) => decodeDeleteCubeResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
       ['attach request envelope', (v) => decodeAttachRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
       ['attach response envelope', (v) => decodeAttachResponseEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
       ['reassign request envelope', (v) => decodeReassignDroneRequestEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }), 'Unsupported protocol version.'],
@@ -274,7 +290,7 @@ describe('package and handshake contract', () => {
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
     expect(createProtocolEnvelope('req-12345678', { ok: true })).toEqual({
-      protocol_version: '6',
+      protocol_version: '7',
       request_id: 'req-12345678',
       payload: { ok: true },
     });
@@ -292,7 +308,7 @@ describe('package and handshake contract', () => {
   it('decodes canonical errors without accepting secret-bearing fields', () => {
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         request_id: 'req-12345678',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -300,7 +316,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         error: {
           code: 'AUTH_INVALID',
           message: 'Authentication failed.',
@@ -317,7 +333,7 @@ describe('package and handshake contract', () => {
     );
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         error: { code: 'AUTH_INVALID', message: `Credential ${secret} failed.` },
       }).error.message,
     ).toBe('Credential <REDACTED> failed.');
@@ -342,7 +358,7 @@ describe('package and handshake contract', () => {
       `retry_key\\u0009:<REDACTED> cube_id=${publicId}`,
     );
     expect(decodeProtocolErrorEnvelope({
-      protocol_version: '6',
+      protocol_version: '7',
       error: {
         code: 'AUTH_INVALID',
         message: `retry-key\n: ${retryKey}`,
@@ -362,7 +378,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         request_id: 'valid-id\r\nInjected',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -372,7 +388,7 @@ describe('package and handshake contract', () => {
   it('rejects retired capability-negotiation error fields', () => {
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         error: {
           code: 'AUTH_INVALID',
           message: 'Unsupported.',
@@ -382,7 +398,7 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         error: {
           code: 'UNSUPPORTED_PROTOCOL_VERSION',
           message: 'Unsupported.',
@@ -392,39 +408,75 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
   });
 
-  it('keeps expired, revoked, takeover, and evicted session outcomes distinct', () => {
+  it('keeps deleted, expired, revoked, takeover, and evicted outcomes distinct', () => {
     expect(PROTOCOL_HTTP_CONTRACT.auth_expired_status).toBe(401);
     expect(PROTOCOL_HTTP_CONTRACT.session_revoked_status).toBe(401);
     expect(PROTOCOL_HTTP_CONTRACT.session_rejected_status).toBe(401);
     expect(PROTOCOL_HTTP_CONTRACT.drone_evicted_status).toBe(410);
+    expect(PROTOCOL_HTTP_CONTRACT.cube_deleted_status).toBe(410);
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
+        request_id: 'req-12345678',
+        error: { code: 'CUBE_DELETED', message: 'This cube was deleted.' },
+      }),
+    ).toMatchObject({ error: { code: 'CUBE_DELETED' } });
+    expect(
+      decodeProtocolErrorEnvelope({
+        protocol_version: '7',
         request_id: 'req-12345678',
         error: { code: 'AUTH_EXPIRED', message: 'Session expired.' },
       }),
     ).toMatchObject({ error: { code: 'AUTH_EXPIRED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REVOKED', message: 'Session revoked.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REVOKED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REJECTED', message: 'Seat already bound.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REJECTED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '6',
+        protocol_version: '7',
         request_id: 'req-12345678',
         error: { code: 'DRONE_EVICTED', message: 'This seat was evicted.' },
       }),
     ).toMatchObject({ error: { code: 'DRONE_EVICTED' } });
+  });
+});
+
+describe('cube-deletion codecs', () => {
+  const cubeId = '10000000-0000-4000-8000-000000000001';
+
+  it('strictly decodes empty requests and terminal success envelopes', () => {
+    expect(decodeDeleteCubeRequest({})).toEqual({});
+    expect(decodeDeleteCubeRequestEnvelope(createProtocolEnvelope('delete-cube-1', {})).payload)
+      .toEqual({});
+    expect(decodeDeleteCubeResponse({ cube_id: cubeId, deleted: true })).toEqual({
+      cube_id: cubeId,
+      deleted: true,
+    });
+    expect(decodeDeleteCubeResponseEnvelope(createProtocolEnvelope('delete-cube-1', {
+      cube_id: cubeId,
+      deleted: true,
+    })).payload).toEqual({ cube_id: cubeId, deleted: true });
+  });
+
+  it('rejects fields in requests and malformed terminal responses', () => {
+    expect(() => decodeDeleteCubeRequest({ confirm: true })).toThrow(ProtocolContractError);
+    expect(() => decodeDeleteCubeResponse({ cube_id: cubeId, deleted: false }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeDeleteCubeResponse({ cube_id: 'not-a-uuid', deleted: true }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeDeleteCubeResponse({ cube_id: cubeId, deleted: true, cascade: true }))
+      .toThrow(ProtocolContractError);
   });
 });
 
@@ -794,7 +846,7 @@ describe('repository cube association codecs', () => {
     'CUBE_ALREADY_ASSOCIATED',
   ] as const)('decodes the stable %s conflict class', (code) => {
     expect(decodeProtocolErrorEnvelope({
-      protocol_version: '6',
+      protocol_version: '7',
       request_id: 'repo-conflict-1',
       error: { code, message: 'Association conflicts with existing state.' },
     }).error.code).toBe(code);
@@ -841,10 +893,10 @@ describe('coordination request codecs', () => {
     } satisfies AppendLogResponse;
     expect(decodeAppendLogResult(payload)).toEqual(payload);
     expect(decodeAppendLogResultEnvelope({
-      protocol_version: '6',
+      protocol_version: '7',
       request_id: 'append-log-1',
       payload,
-    })).toEqual({ protocol_version: '6', request_id: 'append-log-1', payload });
+    })).toEqual({ protocol_version: '7', request_id: 'append-log-1', payload });
   });
 
   it('rejects every unknown-field class in the append-log response', () => {
@@ -1145,12 +1197,12 @@ describe('clean-slate attach wire types', () => {
 
   it('decodes attach response envelope with correct protocol version', () => {
     const envelope = {
-      protocol_version: '6',
+      protocol_version: '7',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
     const decoded = decodeAttachResponseEnvelope(envelope);
-    expect(decoded.protocol_version).toBe('6');
+    expect(decoded.protocol_version).toBe('7');
     expect(decoded.payload.result).toBe('created');
   });
 
@@ -1165,7 +1217,7 @@ describe('clean-slate attach wire types', () => {
 
   it('rejects attach response envelope with unknown protocol version', () => {
     const envelope = {
-      protocol_version: '7',
+      protocol_version: '999',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
@@ -1185,7 +1237,7 @@ describe('clean-slate attach wire types', () => {
 
   it('creates and decodes a valid attach request envelope round-trip', () => {
     const envelope = createAttachRequestEnvelope('test-req-001', validAttachRequest);
-    expect(envelope.protocol_version).toBe('6');
+    expect(envelope.protocol_version).toBe('7');
     expect(envelope.request_id).toBe('test-req-001');
     expect(envelope.payload.cube_id).toBe(validAttachRequest.cube_id);
 
@@ -1196,7 +1248,7 @@ describe('clean-slate attach wire types', () => {
 
   it('decodes attach request envelope from raw JSON', () => {
     const raw = {
-      protocol_version: '6',
+      protocol_version: '7',
       request_id: 'test-req-002',
       payload: validAttachRequest,
     };

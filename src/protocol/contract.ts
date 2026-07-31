@@ -13,12 +13,13 @@ import type {
 } from './types.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.7.0' as const;
+export const SHARED_PACKAGE_VERSION = '0.7.1' as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange' as const;
 export const CUBES_PATH = '/api/cubes' as const;
+export const CUBE_PATH = '/api/cubes/:cubeId' as const;
 export const REPOSITORY_CUBE_RESOLVE_PATH = '/api/repository-cubes/resolve' as const;
 export const REPOSITORY_CUBE_ASSOCIATION_PATH = '/api/repository-cubes/association' as const;
 export const ATTACH_PATH = '/api/client/attach' as const;
@@ -29,6 +30,13 @@ export const PROTOCOL_HTTP_CONTRACT = {
   protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: false, success_status: 200 },
   enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
   cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
+  cube_delete: {
+    method: 'DELETE',
+    path: CUBE_PATH,
+    authenticated: true,
+    success_status: 200,
+    mutation: true,
+  },
   repository_cube_resolve: {
     method: 'POST',
     path: REPOSITORY_CUBE_RESOLVE_PATH,
@@ -68,6 +76,7 @@ export const PROTOCOL_HTTP_CONTRACT = {
   session_revoked_status: 401,
   session_rejected_status: 401,
   cursor_expired_status: 410,
+  cube_deleted_status: 410,
   drone_evicted_status: 410,
   content_too_large_status: 413,
   unsupported_protocol_status: 426,
@@ -162,6 +171,13 @@ export interface CreateCubeResponse {
   human_seat_role_id: string;
   default_worker_role_id: string;
   access: 'manage';
+}
+
+export type DeleteCubeRequest = Record<string, never>;
+
+export interface DeleteCubeResponse {
+  cube_id: string;
+  deleted: true;
 }
 
 export interface ResolveRepositoryCubeRequest {
@@ -327,7 +343,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'This client requires protocol v6. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
+      'This client requires protocol v7. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -594,6 +610,30 @@ function decodeCreateCubeRepository(
 
 export function decodeCreateCubeResponseEnvelope(value: unknown): ProtocolEnvelope<CreateCubeResponse> {
   return decodeProtocolEnvelope(value, decodeCreateCubeResponse);
+}
+
+export function decodeDeleteCubeRequest(value: unknown): DeleteCubeRequest {
+  const input = record(value);
+  exactKeys(input, [], []);
+  return {};
+}
+
+export function decodeDeleteCubeRequestEnvelope(value: unknown): ProtocolEnvelope<DeleteCubeRequest> {
+  return decodeProtocolEnvelope(value, decodeDeleteCubeRequest);
+}
+
+export function decodeDeleteCubeResponse(value: unknown): DeleteCubeResponse {
+  const input = record(value);
+  exactKeys(input, ['cube_id', 'deleted'], ['cube_id', 'deleted']);
+  if (input.deleted !== true) fail('Cube deletion result must be terminal.', ['deleted']);
+  return {
+    cube_id: decodeUuid(input.cube_id, ['cube_id']),
+    deleted: true,
+  };
+}
+
+export function decodeDeleteCubeResponseEnvelope(value: unknown): ProtocolEnvelope<DeleteCubeResponse> {
+  return decodeProtocolEnvelope(value, decodeDeleteCubeResponse);
 }
 
 export function decodeResolveRepositoryCubeRequest(value: unknown): ResolveRepositoryCubeRequest {
