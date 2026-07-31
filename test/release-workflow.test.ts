@@ -5,14 +5,6 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-function assertCurrentReleaseTarget(readme: string, version: string): void {
-  const targets = [...readme.matchAll(
-    /^This source identifies `borgmcp-shared@([^`]+)`; install the published release from npm\.$/gm,
-  )];
-  expect(targets).toHaveLength(1);
-  expect(targets[0]?.[1]).toBe(version);
-}
-
 function assertHistoricalReleaseRecord(releases: string): void {
   expect(releases).not.toMatch(
     /(?:\b(?:current|currently|now)\b(?:(?!\n\s*\n)[\s\S])*?\b(?:(?:un)?publish(?:ed|ing)?|install(?:ed|ing)?)\b|\b(?:(?:un)?publish(?:ed|ing)?|install(?:ed|ing)?)\b(?:(?!\n\s*\n)[\s\S])*?\b(?:current|currently|now)\b)/i,
@@ -101,11 +93,10 @@ describe('npm publish workflow', () => {
     expect(configurationGuard).not.toContain('ALLOW_UNCLAIMED_FIRST_PUBLISH');
   });
 
-  it('guards the current release target and keeps release history free of current-state claims', async () => {
+  it('keeps internal release state out of the README and release history', async () => {
     // SR f0969024: a version bump must retire the pre-bump framing. A stale claim
     // that the source "never claims to be <version>" or defers the bump to a
     // future sprint-close step contradicts an exact head that already carries it.
-    const pkg = JSON.parse(await readFile('package.json', 'utf8')) as { version: string };
     const distribution = await readFile('README.md', 'utf8');
     const releases = await readFile('RELEASES.md', 'utf8');
     const enrollment = await readFile('docs/enrollment.md', 'utf8');
@@ -115,16 +106,10 @@ describe('npm publish workflow', () => {
       expect(doc).not.toMatch(/never claims to be/i);
       expect(doc).not.toMatch(/sprint-close (publish )?step/i);
     }
-    assertCurrentReleaseTarget(distribution, pkg.version);
+    expect(distribution).not.toMatch(
+      /\b(?:release candidate|registry token|npm publish|publishing uses|provenance verification|release approval)\b/i,
+    );
     assertHistoricalReleaseRecord(releases);
-
-    const target = `This source identifies \`borgmcp-shared@${pkg.version}\`; install the published release from npm.`;
-    expect(() => assertCurrentReleaseTarget(distribution.replace(target, ''), pkg.version)).toThrow();
-    expect(() => assertCurrentReleaseTarget(`${distribution}\n${target}\n`, pkg.version)).toThrow();
-    expect(() => assertCurrentReleaseTarget(
-      distribution.replace(`@${pkg.version}\``, '@0.0.0`'),
-      pkg.version,
-    )).toThrow();
     for (const presentStateClaim of [
       'This source now identifies the unpublished `0.7.1` release candidate.',
       'This source now identifies the\nunpublished `0.7.1` release candidate.',
