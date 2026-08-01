@@ -701,6 +701,14 @@ describe('enrollment codecs', () => {
     );
     expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'http://borg.example.test' }))
       .toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://borg.example.test:00443' }))
+      .toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://999.999.999.999:7091' }))
+      .toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://[:::]:7091' }))
+      .toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://borg.example.test:00000' }))
+      .toThrow(ProtocolContractError);
     expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://user@borg.example.test' }))
       .toThrow(ProtocolContractError);
     expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://borg.example.test/#fragment' }))
@@ -714,7 +722,13 @@ describe('enrollment codecs', () => {
     expect(() => encodeInvitationArtifact({ ...artifact, integrity: 'I'.repeat(42) })).toThrow(
       ProtocolContractError,
     );
+    expect(() => encodeInvitationArtifact({ ...artifact, secret: 'S'.repeat(1024) })).toThrow(
+      ProtocolContractError,
+    );
     expect(() => decodeInvitationArtifact(`${encodeInvitationArtifact(artifact)}=`)).toThrow(
+      ProtocolContractError,
+    );
+    expect(() => decodeInvitationArtifact(`${encodeInvitationArtifact(artifact)}A`)).toThrow(
       ProtocolContractError,
     );
   });

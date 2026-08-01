@@ -648,14 +648,21 @@ export async function runAdapterConformance(
   await record('enrollment.invitation-artifact', async () => {
     const errors: string[] = [];
     for (const vector of INVITATION_ARTIFACT_CONFORMANCE) {
+      if (vector.expected === null) {
+        let rejected = false;
+        try {
+          decodeInvitationArtifact(vector.input);
+        } catch {
+          rejected = true;
+        }
+        if (!rejected) errors.push(`${vector.name}: permissive decoder accepted the invalid artifact.`);
+        continue;
+      }
       try {
         const decoded = decodeInvitationArtifact(vector.input);
-        invariant(vector.expected !== null, `${vector.name} unexpectedly decoded.`);
         invariant(same(decoded, vector.expected), `${vector.name} decoded a different artifact.`);
       } catch (error) {
-        if (vector.expected !== null) {
-          errors.push(`${vector.name}: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        errors.push(`${vector.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     invariant(errors.length === 0, errors.join(' | '));

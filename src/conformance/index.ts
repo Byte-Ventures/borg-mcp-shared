@@ -242,6 +242,7 @@ const ENROLLMENT_ARTIFACT: InvitationArtifact = {
   secret: 'S'.repeat(43),
   integrity: 'I'.repeat(43),
 };
+const ENROLLMENT_ARTIFACT_TOKEN = encodeInvitationArtifact(ENROLLMENT_ARTIFACT);
 
 export const INVITATION_ARTIFACT_CONFORMANCE: readonly ConformanceVector<
   string,
@@ -249,12 +250,27 @@ export const INVITATION_ARTIFACT_CONFORMANCE: readonly ConformanceVector<
 >[] = [
   {
     name: 'decodes the canonical v2 invitation artifact',
-    input: encodeInvitationArtifact(ENROLLMENT_ARTIFACT),
+    input: ENROLLMENT_ARTIFACT_TOKEN,
     expected: ENROLLMENT_ARTIFACT,
   },
   {
     name: 'rejects a legacy opaque invitation before use',
     input: 'I'.repeat(43),
+    expected: null,
+  },
+  {
+    name: 'rejects a mangled noncanonical invitation token',
+    input: `${ENROLLMENT_ARTIFACT_TOKEN}=`,
+    expected: null,
+  },
+  {
+    name: 'rejects an invitation token above the outer bound',
+    input: 'A'.repeat(1025),
+    expected: null,
+  },
+  {
+    name: 'rejects a token with a duplicate trailing field',
+    input: `${ENROLLMENT_ARTIFACT_TOKEN}A`,
     expected: null,
   },
 ];

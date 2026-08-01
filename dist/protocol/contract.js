@@ -234,9 +234,19 @@ function decodeInvitationField(payload, cursor, path) {
 }
 function canonicalInvitationEndpoint(value, path) {
     const endpoint = boundedString(value, 1, 512, path);
-    const match = /^https:\/\/(\[[0-9a-f:]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::([0-9]{1,5}))?$/.exec(endpoint);
-    if (!match || match[1].includes('..') || match[1].includes('.-') || match[1].includes('-.') ||
-        (match[2] !== undefined && Number.parseInt(match[2], 10) > 65_535)) {
+    const UrlParser = globalThis.URL;
+    if (UrlParser === undefined)
+        fail('Invitation endpoint URL parsing is unavailable.', path);
+    let parsed;
+    try {
+        parsed = new UrlParser(endpoint);
+    }
+    catch {
+        fail('Invitation endpoint must be a valid URL.', path);
+    }
+    if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password ||
+        parsed.pathname !== '/' || parsed.search || parsed.hash || endpoint !== parsed.origin ||
+        (parsed.port !== '' && (Number.parseInt(parsed.port, 10) < 1 || Number.parseInt(parsed.port, 10) > 65_535))) {
         fail('Invitation endpoint must be a canonical HTTPS origin.', path);
     }
     return endpoint;
