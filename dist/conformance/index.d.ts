@@ -1,5 +1,6 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
 import type { AssociateRepositoryCubeRequest, CreateCubeRequest, DeleteCubeRequest, EnrollmentExchangeRequest, ResolveRepositoryCubeRequest } from '../protocol/contract.js';
+import { type InvitationArtifact } from '../protocol/contract.js';
 export * from './adapter.js';
 export interface ConformanceVector<Input, Output> {
     name: string;
@@ -38,6 +39,7 @@ export interface EnrollmentRetryConformanceVector {
         error: 'AUTH_INVALID';
     };
 }
+export declare const INVITATION_ARTIFACT_CONFORMANCE: readonly ConformanceVector<string, InvitationArtifact | null>[];
 export declare const ENROLLMENT_RETRY_CONFORMANCE: readonly EnrollmentRetryConformanceVector[];
 export interface CreateCubeRetryConformanceVector {
     name: string;

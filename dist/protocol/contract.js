@@ -75,6 +75,7 @@ export const PROTOCOL_LIMIT_CEILINGS = {
     max_read_page_size: 500,
     max_replay_page_size: 1000,
 };
+export const INVITATION_ARTIFACT_VERSION = 2;
 export const SERVER_CAPABILITIES = ['create_cube'];
 export const CUBE_TEMPLATES = ['default', 'software-dev', 'starter', 'local-model'];
 export class ProtocolContractError extends Error {
@@ -153,6 +154,185 @@ function opaqueToken(value, path) {
         fail('Expected an unpadded base64url token.', path);
     }
     return token;
+}
+const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const INVITATION_MAGIC = 'B2';
+const INVITATION_LENGTH_HEX_DIGITS = 3;
+function encodeBase64UrlAscii(value) {
+    let output = '';
+    for (let index = 0; index < value.length; index += 3) {
+        const first = value.charCodeAt(index);
+        const hasSecond = index + 1 < value.length;
+        const hasThird = index + 2 < value.length;
+        const second = hasSecond ? value.charCodeAt(index + 1) : 0;
+        const third = hasThird ? value.charCodeAt(index + 2) : 0;
+        output += BASE64URL_ALPHABET[first >> 2];
+        output += BASE64URL_ALPHABET[((first & 0x03) << 4) | (second >> 4)];
+        if (hasSecond)
+            output += BASE64URL_ALPHABET[((second & 0x0f) << 2) | (third >> 6)];
+        if (hasThird)
+            output += BASE64URL_ALPHABET[third & 0x3f];
+    }
+    return output;
+}
+function decodeBase64UrlAscii(value, path) {
+    if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) {
+        fail('Expected an unpadded base64url value.', path);
+    }
+    let output = '';
+    for (let index = 0; index < value.length; index += 4) {
+        const first = BASE64URL_ALPHABET.indexOf(value[index]);
+        const second = BASE64URL_ALPHABET.indexOf(value[index + 1]);
+        const third = index + 2 < value.length ? BASE64URL_ALPHABET.indexOf(value[index + 2]) : 0;
+        const fourth = index + 3 < value.length ? BASE64URL_ALPHABET.indexOf(value[index + 3]) : 0;
+        if (first < 0 || second < 0 || (index + 2 < value.length && third < 0) ||
+            (index + 3 < value.length && fourth < 0)) {
+            fail('Expected an unpadded base64url value.', path);
+        }
+        const bytes = [
+            (first << 2) | (second >> 4),
+            ((second & 0x0f) << 4) | (third >> 2),
+            ((third & 0x03) << 6) | fourth,
+        ];
+        const byteCount = Math.min(3, value.length - index - 1);
+        for (let byteIndex = 0; byteIndex < byteCount; byteIndex++) {
+            if (bytes[byteIndex] > 0x7f)
+                fail('Invitation fields must contain ASCII bytes.', path);
+            output += String.fromCharCode(bytes[byteIndex]);
+        }
+    }
+    if (encodeBase64UrlAscii(output) !== value) {
+        fail('Expected canonical unpadded base64url encoding.', path);
+    }
+    return output;
+}
+function encodedBase64UrlLength(byteLength) {
+    const remainder = byteLength % 3;
+    return Math.floor(byteLength / 3) * 4 + (remainder === 0 ? 0 : remainder + 1);
+}
+function invitationFieldLength(value, path) {
+    const length = value.length;
+    if (length > 0xfff)
+        fail('Invitation field is too long.', path);
+    return length.toString(16).padStart(INVITATION_LENGTH_HEX_DIGITS, '0');
+}
+function decodeInvitationField(payload, cursor, path) {
+    const lengthText = payload.slice(cursor.value, cursor.value + INVITATION_LENGTH_HEX_DIGITS);
+    if (!/^[0-9a-f]{3}$/.test(lengthText))
+        fail('Invitation field length is invalid.', path);
+    cursor.value += INVITATION_LENGTH_HEX_DIGITS;
+    const byteLength = Number.parseInt(lengthText, 16);
+    const encodedLength = encodedBase64UrlLength(byteLength);
+    const encoded = payload.slice(cursor.value, cursor.value + encodedLength);
+    if (encoded.length !== encodedLength)
+        fail('Invitation field is truncated.', path);
+    cursor.value += encodedLength;
+    const decoded = decodeBase64UrlAscii(encoded, path);
+    if (decoded.length !== byteLength)
+        fail('Invitation field length does not match its value.', path);
+    return decoded;
+}
+function canonicalInvitationEndpoint(value, path) {
+    const endpoint = boundedString(value, 1, 512, path);
+    const UrlParser = globalThis.URL;
+    if (UrlParser === undefined)
+        fail('Invitation endpoint URL parsing is unavailable.', path);
+    let parsed;
+    try {
+        parsed = new UrlParser(endpoint);
+    }
+    catch {
+        fail('Invitation endpoint must be a valid URL.', path);
+    }
+    if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password ||
+        parsed.pathname !== '/' || parsed.search || parsed.hash || endpoint !== parsed.origin ||
+        (parsed.port !== '' && (Number.parseInt(parsed.port, 10) < 1 || Number.parseInt(parsed.port, 10) > 65_535))) {
+        fail('Invitation endpoint must be a canonical HTTPS origin.', path);
+    }
+    return endpoint;
+}
+function validateInvitationArtifact(value) {
+    const input = record(value);
+    exactKeys(input, ['version', 'endpoint', 'ca_spki_sha256', 'authority', 'secret', 'integrity'], [
+        'version',
+        'endpoint',
+        'ca_spki_sha256',
+        'authority',
+        'secret',
+        'integrity',
+    ]);
+    if (input.version !== INVITATION_ARTIFACT_VERSION) {
+        fail('Unsupported invitation artifact version.', ['version']);
+    }
+    const endpoint = canonicalInvitationEndpoint(input.endpoint, ['endpoint']);
+    const caSpkiSha256 = boundedString(input.ca_spki_sha256, 64, 64, ['ca_spki_sha256']);
+    if (!/^[0-9a-f]{64}$/.test(caSpkiSha256)) {
+        fail('CA SPKI SHA-256 must be lowercase hexadecimal.', ['ca_spki_sha256']);
+    }
+    if (input.authority !== 'client' && input.authority !== 'owner') {
+        fail('Invitation authority is invalid.', ['authority']);
+    }
+    return {
+        version: INVITATION_ARTIFACT_VERSION,
+        endpoint,
+        ca_spki_sha256: caSpkiSha256,
+        authority: input.authority,
+        secret: opaqueToken(input.secret, ['secret']),
+        integrity: opaqueToken(input.integrity, ['integrity']),
+    };
+}
+export function getInvitationArtifactIntegrityInput(value) {
+    const artifact = validateInvitationArtifact(value);
+    const endpoint = encodeBase64UrlAscii(artifact.endpoint);
+    const secret = encodeBase64UrlAscii(artifact.secret);
+    return [
+        INVITATION_MAGIC,
+        invitationFieldLength(artifact.endpoint, ['endpoint']),
+        endpoint,
+        artifact.ca_spki_sha256,
+        artifact.authority === 'client' ? 'c' : 'o',
+        invitationFieldLength(artifact.secret, ['secret']),
+        secret,
+    ].join('');
+}
+export function encodeInvitationArtifact(value) {
+    const artifact = validateInvitationArtifact(value);
+    const payload = [
+        getInvitationArtifactIntegrityInput(artifact),
+        invitationFieldLength(artifact.integrity, ['integrity']),
+        encodeBase64UrlAscii(artifact.integrity),
+    ].join('');
+    const token = encodeBase64UrlAscii(payload);
+    if (token.length < 43 || token.length > 1024) {
+        fail('Encoded invitation artifact exceeds the supported token bound.');
+    }
+    return token;
+}
+export function decodeInvitationArtifact(value) {
+    const token = opaqueToken(value, ['invitation']);
+    const payload = decodeBase64UrlAscii(token, ['invitation']);
+    if (!payload.startsWith(INVITATION_MAGIC)) {
+        fail('Invitation uses an unsupported or legacy format.', ['invitation']);
+    }
+    const cursor = { value: INVITATION_MAGIC.length };
+    const endpoint = decodeInvitationField(payload, cursor, ['endpoint']);
+    const caSpkiSha256 = payload.slice(cursor.value, cursor.value + 64);
+    if (caSpkiSha256.length !== 64)
+        fail('Invitation pin is truncated.', ['ca_spki_sha256']);
+    cursor.value += 64;
+    const authority = payload[cursor.value++];
+    const secret = decodeInvitationField(payload, cursor, ['secret']);
+    const integrity = decodeInvitationField(payload, cursor, ['integrity']);
+    if (cursor.value !== payload.length)
+        fail('Invitation contains trailing fields.', ['invitation']);
+    return validateInvitationArtifact({
+        version: INVITATION_ARTIFACT_VERSION,
+        endpoint,
+        ca_spki_sha256: caSpkiSha256,
+        authority: authority === 'c' ? 'client' : authority === 'o' ? 'owner' : authority,
+        secret,
+        integrity,
+    });
 }
 function decodeRequestId(value, path) {
     const decoded = boundedString(value, 8, 128, path);

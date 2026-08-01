@@ -187,6 +187,9 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
     readonly id: "protocol.credential-free-preflight";
     readonly area: "protocol";
 }, {
+    readonly id: "enrollment.invitation-artifact";
+    readonly area: "enrollment";
+}, {
     readonly id: "enrollment.retry-authority";
     readonly area: "enrollment";
 }, {

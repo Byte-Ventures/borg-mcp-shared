@@ -9,6 +9,7 @@ import {
   decodeDecisionResultEnvelope,
   decodeDecisionsResultEnvelope,
   decodeEnrollmentExchangeResponseEnvelope,
+  decodeInvitationArtifact,
   decodeAttachResponseEnvelope,
   decodeDroneRuntimeMetadataPatch,
   decodeEvictDroneResultEnvelope,
@@ -35,6 +36,7 @@ import {
 import {
   CREATE_CUBE_ASSOCIATION_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
+  INVITATION_ARTIFACT_CONFORMANCE,
   ENROLLMENT_RETRY_CONFORMANCE,
 } from './index.js';
 
@@ -335,6 +337,7 @@ export interface ConformanceEnvironment {
 export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'http.unauthenticated-liveness', area: 'http' },
   { id: 'protocol.credential-free-preflight', area: 'protocol' },
+  { id: 'enrollment.invitation-artifact', area: 'enrollment' },
   { id: 'enrollment.retry-authority', area: 'enrollment' },
   { id: 'repository.explicit-association', area: 'repository' },
   { id: 'security.adapter-boundary-injection', area: 'security' },
@@ -640,6 +643,30 @@ export async function runAdapterConformance(
     );
     assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Protocol-tag preflight');
     return { authenticated: false, mutation_free: true, protocol_version: preflight.protocol_version };
+  });
+
+  await record('enrollment.invitation-artifact', async () => {
+    const errors: string[] = [];
+    for (const vector of INVITATION_ARTIFACT_CONFORMANCE) {
+      if (vector.expected === null) {
+        let rejected = false;
+        try {
+          decodeInvitationArtifact(vector.input);
+        } catch {
+          rejected = true;
+        }
+        if (!rejected) errors.push(`${vector.name}: permissive decoder accepted the invalid artifact.`);
+        continue;
+      }
+      try {
+        const decoded = decodeInvitationArtifact(vector.input);
+        invariant(same(decoded, vector.expected), `${vector.name} decoded a different artifact.`);
+      } catch (error) {
+        errors.push(`${vector.name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    invariant(errors.length === 0, errors.join(' | '));
+    return { vectors: INVITATION_ARTIFACT_CONFORMANCE.length };
   });
 
   await record('enrollment.retry-authority', async () => {

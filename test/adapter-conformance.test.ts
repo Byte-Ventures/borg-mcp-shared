@@ -9,6 +9,7 @@ import {
   decodeAckLogRequest,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
+  encodeInvitationArtifact,
   decodeAttachRequestEnvelope,
   decodeAssociateRepositoryCubeRequestEnvelope,
   decodeCreateCubeRequestEnvelope,
@@ -420,7 +421,15 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       principal: ConformancePrincipal,
       purpose: 'owner' | 'client',
     ): Promise<string> => {
-      const invitation = this.token('invitation', this.sequence++);
+      const secret = this.token('invitation', this.sequence++);
+      const invitation = encodeInvitationArtifact({
+        version: 2,
+        endpoint: 'https://127.0.0.1:7091',
+        ca_spki_sha256: 'a'.repeat(64),
+        authority: purpose,
+        secret,
+        integrity: this.token('integrity', this.sequence++),
+      });
       this.invitations.set(invitation, { principalId: principal.id, purpose, binding: null });
       return invitation;
     },

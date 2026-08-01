@@ -7,6 +7,10 @@ import type {
   EnrollmentExchangeRequest,
   ResolveRepositoryCubeRequest,
 } from '../protocol/contract.js';
+import {
+  encodeInvitationArtifact,
+  type InvitationArtifact,
+} from '../protocol/contract.js';
 import type { EnrichedStreamEntry } from '../protocol/types.js';
 
 export * from './adapter.js';
@@ -230,7 +234,51 @@ export interface EnrollmentRetryConformanceVector {
     };
 }
 
-const ENROLLMENT_INVITATION = 'I'.repeat(43);
+const ENROLLMENT_ARTIFACT: InvitationArtifact = {
+  version: 2,
+  endpoint: 'https://borg.example.test:7091',
+  ca_spki_sha256: 'a'.repeat(64),
+  authority: 'client',
+  secret: 'S'.repeat(43),
+  integrity: 'I'.repeat(43),
+};
+const ENROLLMENT_ARTIFACT_TOKEN = encodeInvitationArtifact(ENROLLMENT_ARTIFACT);
+
+export const INVITATION_ARTIFACT_CONFORMANCE: readonly ConformanceVector<
+  string,
+  InvitationArtifact | null
+>[] = [
+  {
+    name: 'decodes the canonical v2 invitation artifact',
+    input: ENROLLMENT_ARTIFACT_TOKEN,
+    expected: ENROLLMENT_ARTIFACT,
+  },
+  {
+    name: 'rejects a legacy opaque invitation before use',
+    input: 'I'.repeat(43),
+    expected: null,
+  },
+  {
+    name: 'rejects a mangled noncanonical invitation token',
+    input: `${ENROLLMENT_ARTIFACT_TOKEN}=`,
+    expected: null,
+  },
+  {
+    name: 'rejects an invitation token above the outer bound',
+    input: 'A'.repeat(1025),
+    expected: null,
+  },
+  {
+    name: 'rejects a token with a duplicate trailing field',
+    input: `${ENROLLMENT_ARTIFACT_TOKEN}A`,
+    expected: null,
+  },
+];
+
+const ENROLLMENT_INVITATION = encodeInvitationArtifact({
+  ...ENROLLMENT_ARTIFACT,
+  authority: 'client',
+});
 const ENROLLMENT_CREDENTIAL = 'A'.repeat(43);
 const ENROLLMENT_RETRY_KEY = '00000000-0000-4000-8000-000000000101';
 

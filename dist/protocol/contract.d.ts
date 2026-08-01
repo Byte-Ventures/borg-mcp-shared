@@ -125,6 +125,16 @@ export interface EnrollmentExchangeRequest {
     client_credential: string;
     client_name?: string;
 }
+export declare const INVITATION_ARTIFACT_VERSION: 2;
+export type InvitationAuthority = 'client' | 'owner';
+export interface InvitationArtifact {
+    version: typeof INVITATION_ARTIFACT_VERSION;
+    endpoint: string;
+    ca_spki_sha256: string;
+    authority: InvitationAuthority;
+    secret: string;
+    integrity: string;
+}
 export declare const SERVER_CAPABILITIES: readonly ["create_cube"];
 export type ServerCapability = (typeof SERVER_CAPABILITIES)[number];
 export interface ClientEnrollmentExchangeResponse {
@@ -211,6 +221,9 @@ export declare class ProtocolContractError extends Error {
     constructor(message: string, code?: ErrorCode, path?: readonly (string | number)[]);
 }
 export declare function utf8ByteLength(value: string): number;
+export declare function getInvitationArtifactIntegrityInput(value: InvitationArtifact): string;
+export declare function encodeInvitationArtifact(value: InvitationArtifact): string;
+export declare function decodeInvitationArtifact(value: unknown): InvitationArtifact;
 export declare function createProtocolTagPreflight(): ProtocolTagPreflight;
 export declare function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight;
 export declare function createProtocolEnvelope<T>(requestId: string, payload: T): ProtocolEnvelope<T>;

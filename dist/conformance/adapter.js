@@ -1,8 +1,9 @@
-import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeAssociateRepositoryCubeResponseEnvelope, decodeCreateCubeResponseEnvelope, decodeDeleteCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeAttachResponseEnvelope, decodeDroneRuntimeMetadataPatch, decodeEvictDroneResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeResolveRepositoryCubeResponseEnvelope, decodeReassignDroneResultEnvelope, decodeUpdateDroneRuntimeMetadataResponseEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
-import { CREATE_CUBE_ASSOCIATION_CONFORMANCE, CREATE_CUBE_RETRY_CONFORMANCE, ENROLLMENT_RETRY_CONFORMANCE, } from './index.js';
+import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeAssociateRepositoryCubeResponseEnvelope, decodeCreateCubeResponseEnvelope, decodeDeleteCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeInvitationArtifact, decodeAttachResponseEnvelope, decodeDroneRuntimeMetadataPatch, decodeEvictDroneResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeResolveRepositoryCubeResponseEnvelope, decodeReassignDroneResultEnvelope, decodeUpdateDroneRuntimeMetadataResponseEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
+import { CREATE_CUBE_ASSOCIATION_CONFORMANCE, CREATE_CUBE_RETRY_CONFORMANCE, INVITATION_ARTIFACT_CONFORMANCE, ENROLLMENT_RETRY_CONFORMANCE, } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
     { id: 'protocol.credential-free-preflight', area: 'protocol' },
+    { id: 'enrollment.invitation-artifact', area: 'enrollment' },
     { id: 'enrollment.retry-authority', area: 'enrollment' },
     { id: 'repository.explicit-association', area: 'repository' },
     { id: 'security.adapter-boundary-injection', area: 'security' },
@@ -208,6 +209,32 @@ export async function runAdapterConformance(environment, options = {}) {
         invariant(Object.keys(preflight).length === 1 && preflight.protocol_version === PROTOCOL_VERSION, 'Protocol-tag preflight exposed more than the exact tag.');
         assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Protocol-tag preflight');
         return { authenticated: false, mutation_free: true, protocol_version: preflight.protocol_version };
+    });
+    await record('enrollment.invitation-artifact', async () => {
+        const errors = [];
+        for (const vector of INVITATION_ARTIFACT_CONFORMANCE) {
+            if (vector.expected === null) {
+                let rejected = false;
+                try {
+                    decodeInvitationArtifact(vector.input);
+                }
+                catch {
+                    rejected = true;
+                }
+                if (!rejected)
+                    errors.push(`${vector.name}: permissive decoder accepted the invalid artifact.`);
+                continue;
+            }
+            try {
+                const decoded = decodeInvitationArtifact(vector.input);
+                invariant(same(decoded, vector.expected), `${vector.name} decoded a different artifact.`);
+            }
+            catch (error) {
+                errors.push(`${vector.name}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+        invariant(errors.length === 0, errors.join(' | '));
+        return { vectors: INVITATION_ARTIFACT_CONFORMANCE.length };
     });
     await record('enrollment.retry-authority', async () => {
         const retryVectorErrors = [];
