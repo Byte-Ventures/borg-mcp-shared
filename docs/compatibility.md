@@ -56,13 +56,18 @@ Director/Shaper/Executor template. A v5 peer and a v6 peer reject each other
 during credential-free preflight, before an older peer can reject the new
 template later while decoding a cube-creation request.
 
-The `borgmcp-shared@0.7.1` release candidate carries protocol v7. It adds
+Published `borgmcp-shared@0.7.1` carries protocol v7. It adds
 manage-gated `DELETE /api/cubes/:cubeId` with an exact terminal response,
 atomic cascade semantics, and `CUBE_DELETED`. Every connected deleted-cube
 stream receives one strict protocol error envelope as `event: error` before
 close. Former authorized parent and drone credentials receive
 `410 CUBE_DELETED` for that cube, including after authority restart; callers
 that were never authorized still receive non-enumerating `404 NOT_FOUND`.
+
+The `borgmcp-shared@0.8.0` release candidate retains protocol v7 and adds the
+v2 invitation artifact: a canonical opaque token carrying the HTTPS endpoint,
+CA SPKI SHA-256 pin, enrollment authority, secret, and integrity binding. The
+strict codec rejects legacy or non-canonical forms before enrollment dispatch.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a

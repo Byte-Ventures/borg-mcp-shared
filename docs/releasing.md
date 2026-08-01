@@ -139,9 +139,9 @@ mutation. Never rerun or move that tag. `borgmcp-shared@0.6.1`,
 `fa8a2dc072d4ffe2a16d5f02576fead822a2f72e`; successful attempt-1 workflow run
 `30169732628` published registry integrity
 `sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
-Never rerun or move that tag. `borgmcp-shared@0.7.0` is published and immutable.
-This source identifies the unpublished `0.7.1` protocol-v7 cube-deletion
-release candidate. Its release requires
+Never rerun or move that tag. `borgmcp-shared@0.7.0` and
+`borgmcp-shared@0.7.1` are published and immutable. This source identifies the
+unpublished `0.8.0` protocol-v7 invitation-artifact release candidate. Its release requires
 reviewed source and explicit publication authorization through one protected
 publish run whose terminal boundary is successful `npm publish`. The workflow
 performs no post-publication registry readback. Consumers must update the

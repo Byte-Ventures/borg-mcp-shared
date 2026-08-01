@@ -27,3 +27,7 @@ Never rerun or move that tag.
 `borgmcp-shared@0.7.0` is published and immutable: annotated tag object
 `5ddaf5821c49ac0893fdffbac6115b48d0795281` peels to protected-main commit
 `30af2629052014feba3f3ebf4d9eb29e977e38a7`. Never rerun or move that tag.
+`borgmcp-shared@0.7.1` is published and immutable: annotated tag object
+`672423566ed75cf7704775cb480a75767e7c6851` peels to protected-main commit
+`f4870596ba79702f2e4eb3a6620802d5e538052d`; successful attempt-1 workflow run
+`30625736845` published it. Never rerun or move that tag.
