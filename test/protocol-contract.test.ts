@@ -2,6 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
   ENROLLMENT_EXCHANGE_PATH,
+  encodeInvitationArtifact,
+  decodeInvitationArtifact,
+  getInvitationArtifactIntegrityInput,
   CUBES_PATH,
   CUBE_PATH,
   REPOSITORY_CUBE_RESOLVE_PATH,
@@ -661,6 +664,59 @@ describe('enrollment codecs', () => {
         server_capabilities: ['create_cube'],
       }),
     ).toThrow(ProtocolContractError);
+  });
+
+  it('round-trips the versioned opaque invitation artifact canonically', () => {
+    const artifact = {
+      version: 2 as const,
+      endpoint: 'https://borg.example.test:7091',
+      ca_spki_sha256: 'a'.repeat(64),
+      authority: 'client' as const,
+      secret: 'S'.repeat(43),
+      integrity: 'I'.repeat(43),
+    };
+    const token = encodeInvitationArtifact(artifact);
+
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43,1024}$/);
+    expect(decodeInvitationArtifact(token)).toEqual(artifact);
+    expect(encodeInvitationArtifact(decodeInvitationArtifact(token))).toBe(token);
+    expect(getInvitationArtifactIntegrityInput(artifact)).toBe(
+      getInvitationArtifactIntegrityInput({ ...artifact, integrity: 'J'.repeat(43) }),
+    );
+  });
+
+  it('rejects old, malformed, and ambiguous invitation artifacts before use', () => {
+    const artifact = {
+      version: 2 as const,
+      endpoint: 'https://borg.example.test:7091',
+      ca_spki_sha256: 'a'.repeat(64),
+      authority: 'client' as const,
+      secret: 'S'.repeat(43),
+      integrity: 'I'.repeat(43),
+    };
+
+    expect(() => decodeInvitationArtifact('a'.repeat(43))).toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, version: 1 } as never)).toThrow(
+      ProtocolContractError,
+    );
+    expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'http://borg.example.test' }))
+      .toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://user@borg.example.test' }))
+      .toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, endpoint: 'https://borg.example.test/#fragment' }))
+      .toThrow(ProtocolContractError);
+    expect(() => encodeInvitationArtifact({ ...artifact, ca_spki_sha256: 'A'.repeat(64) })).toThrow(
+      ProtocolContractError,
+    );
+    expect(() => encodeInvitationArtifact({ ...artifact, authority: 'admin' as 'client' })).toThrow(
+      ProtocolContractError,
+    );
+    expect(() => encodeInvitationArtifact({ ...artifact, integrity: 'I'.repeat(42) })).toThrow(
+      ProtocolContractError,
+    );
+    expect(() => decodeInvitationArtifact(`${encodeInvitationArtifact(artifact)}=`)).toThrow(
+      ProtocolContractError,
+    );
   });
 });
 
