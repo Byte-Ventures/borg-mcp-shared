@@ -3,6 +3,7 @@ import {
   ANTI_PASSIVE_STANDING_DISCIPLINE,
   LEGACY_DEFAULT_TEMPLATE_LABEL,
   NEW_CUBE_TEMPLATE_PRESENTATIONS,
+  SAME_REPOSITORY_WORKFLOW_DISCIPLINE,
   TEMPLATES,
   getTemplate,
   listTemplateNames,
@@ -349,6 +350,25 @@ describe('cube templates', () => {
 
   it('keeps source and generated template output identical', () => {
     expect(generatedTemplates.TEMPLATES).toEqual(TEMPLATES);
+  });
+
+  it('ships same-repository worktree and handover rules at cube level', () => {
+    for (const template of Object.values(TEMPLATES)) {
+      expect(template.cube_directive).toContain(SAME_REPOSITORY_WORKFLOW_DISCIPLINE);
+    }
+
+    for (const phrase of [
+      'one stable worktree',
+      'git checkout -b <branch>',
+      'One branch equals one work item and one owning seat',
+      'git checkout --detach <SHA>',
+      'git push -u origin <branch>',
+      'With no hosted remote',
+      'local bare repository as the origin path',
+      'git fetch origin && git merge origin/main',
+    ]) {
+      expect(SAME_REPOSITORY_WORKFLOW_DISCIPLINE).toContain(phrase);
+    }
   });
 });
 

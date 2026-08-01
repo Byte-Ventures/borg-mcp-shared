@@ -82,6 +82,17 @@ export const PUSH_DISCIPLINE_BUILDER = `
 Push discipline:
 - Push only the assigned branch after verifying the staged paths and final diff.
 - Do not force-push, rebase a shared branch, or publish from a local substitute artifact.`;
+export const SAME_REPOSITORY_WORKFLOW_DISCIPLINE = `
+
+Same-repository worktrees and handover:
+- One seat uses one stable worktree, created once at assimilation under the standard worktree root and approved once by the operator. All seats for a repository are worktrees of the same clone family, sharing its object database and refs.
+- Start each new work item by switching branches in that seat's worktree with \`git checkout -b <branch>\`; never create a new worktree or folder per work item.
+- Create a branch only for a routed work item and announce its name in STARTING. One branch equals one work item and one owning seat; hand a branch to another seat only through an explicit log event.
+- Use merge-only history: no rebases and no force-pushes, because another seat may have the branch checked out or fetched.
+- Hand over a ref and exact commit SHA, never a filesystem path. Reviewers check out the SHA in their own worktree with \`git checkout --detach <SHA>\`; never read another seat's folder. Each review round binds to one exact SHA, and a new SHA restarts the gate sequence.
+- With a hosted origin, push the branch at creation with \`git push -u origin <branch>\`; a branch is cube-visible and REVIEW-READY only after that push.
+- With no hosted remote, the commit itself is the durable handover artifact because clone-family worktrees share refs; omit the push step. If push/fetch semantics are needed locally, use a local bare repository as the origin path.
+- After every merge to the protected or main branch, broadcast the merge SHA. When an origin exists, include \`git fetch origin && git merge origin/main\` as the merge-only sync instruction.`;
 export const UNIVERSAL_SAFETY_DISCIPLINES = [WAKE_PATH_MONITOR_DISCIPLINE];
 export const ROLE_SCOPED_SAFETY_DISCIPLINES = [
     GIT_OPERATIONAL_DISCIPLINE_BUILDER,
@@ -105,7 +116,7 @@ const SOFTWARE_DEV_DIRECTIVE = `## Scope and coordination
 - Reviewers assess the routed exact revision and do not create or expand work.
 - Waiting is valid when no authorized action is available.
 - Merge, deploy, publish, tag, release, credential, and live-operator actions require explicit authority.
-- Keep cube-log signals concise. Put durable reasoning in the relevant issue, change, or existing maintained documentation only when it has an operational consumer.`;
+- Keep cube-log signals concise. Put durable reasoning in the relevant issue, change, or existing maintained documentation only when it has an operational consumer.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}`;
 const SOFTWARE_DEV_TAXONOMY = [
     {
         class: 'status-claim',
@@ -401,7 +412,7 @@ const STARTER = {
 - Assignment, review, and completion do not authorize unrelated work or integration.
 - ACK is receipt only; STARTING or substantive PROGRESS confirms activation.
 - Findings outside scope are reported, not automatically fixed.
-- Waiting is valid when no authorized action is available.`,
+- Waiting is valid when no authorized action is available.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}`,
     message_taxonomy: STARTER_TAXONOMY,
     roles: [
         {
@@ -521,7 +532,7 @@ const LOCAL_MODEL_DIRECTIVE = `## Verification-cost workflow
 - A fourth seat is optional: add a second Executor when throughput-bound, or a second capable Director as an independent review lens when correctness-bound. Never use a cheap model as a review lens.
 - Waiting is valid only when no authorized action or active assigned work remains, or while a role is awaiting a named predecessor and has no independent action it can advance.
 - Dispatch, packet echo, status, and answers are not completion. Each role continues its active item in the same turn until it posts a terminal signal from its own vocabulary.
-- Merge, publish, deploy, tag, release, credential, and irreversible actions require explicit authority.`;
+- Merge, publish, deploy, tag, release, credential, and irreversible actions require explicit authority.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}`;
 const LOCAL_MODEL_DIRECTOR = `You own authorized intent, priorities, decisions, and verification that requires careful reading. Never implement a change.
 
 Scope and authority:
