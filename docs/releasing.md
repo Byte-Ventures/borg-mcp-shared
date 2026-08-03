@@ -117,6 +117,30 @@ Once npm accepts the version, the immutable release has occurred. Never rerun,
 republish, overwrite, unpublish, or silently substitute a replacement because a
 later registry read is delayed or unavailable.
 
+## Failed-Superseded Recovery
+
+The tag-triggered workflow is single-job and first-attempt-only. If attempt 1
+fails before the tarball is built, the tarball is verified, the clean consumer
+is exercised, or `npm publish` runs, preserve the failed tag and run as immutable
+evidence. The failed version is not an install target and must not be rerun.
+
+Record the failure and prepare a newer version only from a clean tree:
+
+```sh
+npm run release:prepare -- <next-version> \
+  --workflow-run-id <failed-tag-run-id> \
+  --workflow-run-attempt 1 \
+  --workflow-conclusion failure
+```
+
+The release identity verifier binds the record to the annotated tag, the exact
+workflow run and commit, the completed failed `publish` job, and the skipped
+tarball, clean-consumer, and publish steps. It independently checks the npm
+version list for registry absence. An attempt-2 run, a failure after packaging
+or publication, an artifact integrity value on a failed record, or a version
+present in npm is rejected. The generated record is `failed-superseded`; the
+next release uses a new version and a new annotated tag.
+
 ## Immutable Historical Evidence
 
 These records remain evidence, not reusable release inputs:
