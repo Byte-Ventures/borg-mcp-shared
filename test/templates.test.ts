@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   ANTI_PASSIVE_STANDING_DISCIPLINE,
+  COORDINATOR_FINDING_DISPATCH_DISCIPLINE,
   LEGACY_DEFAULT_TEMPLATE_LABEL,
   NEW_CUBE_TEMPLATE_PRESENTATIONS,
+  REVIEWER_FINDING_DISCIPLINE,
   SAME_REPOSITORY_WORKFLOW_DISCIPLINE,
   TEMPLATES,
   getTemplate,
@@ -368,6 +370,42 @@ describe('cube templates', () => {
       'git fetch origin && git merge origin/main',
     ]) {
       expect(SAME_REPOSITORY_WORKFLOW_DISCIPLINE).toContain(phrase);
+    }
+  });
+
+  it('keeps #1118 process rules at Coordinator and reviewer role scope', () => {
+    const coordinators = [
+      TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!,
+      TEMPLATES.starter.roles.find((role) => role.name === 'Coordinator')!,
+    ];
+    for (const role of coordinators) {
+      expect(role.detailed_description).toContain(COORDINATOR_FINDING_DISPATCH_DISCIPLINE);
+      expect(role.detailed_description).not.toContain(REVIEWER_FINDING_DISCIPLINE);
+    }
+
+    const reviewers = [
+      ...['Code Reviewer', 'Release Quality', 'Product Design', 'Product Strategy', 'Security Auditor']
+        .map((name) => TEMPLATES['software-dev'].roles.find((role) => role.name === name)!),
+      TEMPLATES.starter.roles.find((role) => role.name === 'Reviewer')!,
+    ];
+    for (const role of reviewers) {
+      expect(role.detailed_description).toContain(REVIEWER_FINDING_DISCIPLINE);
+      expect(role.detailed_description).not.toContain(COORDINATOR_FINDING_DISPATCH_DISCIPLINE);
+    }
+
+    for (const template of Object.values(TEMPLATES)) {
+      expect(template.cube_directive).not.toContain(COORDINATOR_FINDING_DISPATCH_DISCIPLINE);
+      expect(template.cube_directive).not.toContain(REVIEWER_FINDING_DISCIPLINE);
+    }
+
+    for (const phrase of [
+      'open ASK or an unverified condition',
+      'Hold the rework until the ANSWER lands or the finding is withdrawn',
+      'Never post an unanswered ASK and the consequences that depend on it in the same entry',
+      'The ASK goes alone; the finding follows the answer',
+      'a post naming a path and a consequence is actionable on its face',
+    ]) {
+      expect(`${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}\n${REVIEWER_FINDING_DISCIPLINE}`).toContain(phrase);
     }
   });
 });
