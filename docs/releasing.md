@@ -81,6 +81,22 @@ repository, workflow output, artifact, issue, or shell history.
    the version or updating consumers. Registry propagation and later consumer
    availability are operational observations, not release-workflow gates.
 
+## Coupled Publication Window
+
+The shared, server, and client packages are published independently. The current
+release workflows publish directly to npm's default `latest` dist-tag, so the
+least-bad order is shared first, server second, and client third. This keeps each
+consumer pointed at an immutable shared artifact, but it cannot make the three
+`latest` pointers atomic.
+
+During that sequence, a user can install the newest server and newest client
+while they still carry different protocol tags. Their credential-free preflight
+fails closed by design; this is a publication-window mismatch, not a negotiation
+or fallback case. The user remedy is to install the matching coupled shared,
+server, and client versions from the coordinated release rather than retrying
+`latest`. Do not describe this window as eliminated or promise an atomic
+multi-package publication until all three release workflows support that shape.
+
 The workflow publishes only `./release/<tarball>`. It never publishes from the
 repository directory, a package name, a URL, a prior workflow artifact, or a
 locally rebuilt replacement.
