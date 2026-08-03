@@ -130,7 +130,7 @@ export async function verifyPackedArtifact(tarballPath) {
         throw new Error(`Unexpected dist artifact: ${path}`);
       }
       if (rootEntry === 'src' && !path.endsWith('.ts')) throw new Error(`Unexpected source artifact: ${path}`);
-      if (rootEntry === 'docs' && !path.endsWith('.md')) throw new Error(`Unexpected documentation artifact: ${path}`);
+      if (rootEntry === 'docs' && !/\.(?:md|json)$/.test(path)) throw new Error(`Unexpected documentation artifact: ${path}`);
       if (/(^|\/)(\.env(?:\.|$)|\.npmrc$|node_modules|[^/]+\.(?:pem|key|p12|pfx))/.test(path)) {
         throw new Error(`Forbidden packed path: ${path}`);
       }
