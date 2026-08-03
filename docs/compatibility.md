@@ -20,9 +20,11 @@ that presents a different tag is rejected — it is never adapted to.
 ## Change Policy
 
 A wire-shape change is simply made: the protocol tag increments and both the
-client and server adopt the new tag together in a coordinated release. There is
-no mixed-version window in which an old client and a new server (or the reverse)
-interoperate; incompatible peers fail closed rather than degrade.
+client and server adopt the new tag together in a coordinated release. During
+the independently published rollout, a new client and server can temporarily
+be the latest published packages without sharing the same tag; incompatible
+peers fail closed rather than degrade. The publication window is a release
+property, not a compatibility mode.
 
 A wire-shape change must include:
 
@@ -76,7 +78,8 @@ exact tag they implement.
 
 ## Coordinated Rollout
 
-The rollout order is fail-closed:
+The current workflows publish each package directly to npm's default `latest`
+dist-tag. The least-bad order is therefore:
 
 1. Publish the reviewed `borgmcp-shared` registry artifact only after its
    separate tag and publication gates pass, under a version that has never been
@@ -87,6 +90,12 @@ The rollout order is fail-closed:
 3. Run the shared adapter conformance suite in both consumers before release.
 4. Deploy client and server support together. A peer on the prior protocol tag
    and a peer on the new tag are incompatible; neither side falls back.
+
+This order does not eliminate the publication window. Until the client release
+finishes, `latest` can resolve to a new server and an older client, or the
+reverse while the order advances. A user who installs both packages during that
+window must install the matching coupled shared, server, and client versions
+from the coordinated release instead of relying on `latest` for both peers.
 
 ## Model/Provider Selection
 
