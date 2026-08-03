@@ -156,6 +156,7 @@ Same-repository worktrees and handover:
 - Hand over a ref and exact commit SHA, never a filesystem path. Reviewers check out the SHA in their own worktree with \`git checkout --detach <SHA>\`; never read another seat's folder. Each review round binds to one exact SHA, and a new SHA restarts the gate sequence.
 - With a hosted origin, push the branch at creation with \`git push -u origin <branch>\`; a branch is cube-visible and REVIEW-READY only after that push.
 - With no hosted remote, the commit itself is the durable handover artifact because clone-family worktrees share refs; omit the push step. If push/fetch semantics are needed locally, use a local bare repository as the origin path.
+- Put all scratch work — detached review checkouts, clean-environment verification rigs, fake HOMEs, unpacked artifacts, and throwaway worktrees — under \`~/.borg/scratch/<your-seat-label>/\`; never use \`/tmp\` or an ad-hoc path. Scratch contents are disposable and must be cleaned up with the work.
 - After every merge to the protected or main branch, broadcast the merge SHA. When an origin exists, include \`git fetch origin && git merge origin/main\` as the merge-only sync instruction.`;
 
 export const UNIVERSAL_SAFETY_DISCIPLINES = [WAKE_PATH_MONITOR_DISCIPLINE];
