@@ -367,6 +367,10 @@ describe('cube templates', () => {
       'git push -u origin <branch>',
       'With no hosted remote',
       'local bare repository as the origin path',
+      '~/.borg/scratch/<your-seat-label>/',
+      'never use `/tmp` or an ad-hoc path',
+      'Scratch contents are disposable',
+      'cleaned up with the work',
       'git fetch origin && git merge origin/main',
     ]) {
       expect(SAME_REPOSITORY_WORKFLOW_DISCIPLINE).toContain(phrase);
