@@ -15,6 +15,7 @@ describe('npm publish workflow', () => {
   it('uses one protected build, package, and publish authority', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
+    const compatibility = await readFile('docs/compatibility.md', 'utf8');
     const configurationGuard = await readFile('scripts/verify-release-configuration.mjs', 'utf8');
 
     expect(workflow).toContain("tags: ['v*.*.*']");
@@ -88,6 +89,11 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('one protected workflow job');
     expect(runbook).toContain('does not authorize a tag or publication');
     expect(runbook).toContain('no post-publication registry readback');
+    expect(runbook).toContain('Coupled Publication Window');
+    expect(runbook).toContain('matching coupled');
+    expect(compatibility).toMatch(/publication window is a release\s+property/i);
+    expect(compatibility).toContain('matching coupled shared, server, and client versions');
+    expect(compatibility).not.toContain('There is no mixed-version window');
     expect(runbook).not.toContain('ARTIFACT_SR_');
     expect(runbook).not.toContain('Security must download and audit that exact workflow artifact');
     expect(configurationGuard).not.toContain('ALLOW_UNCLAIMED_FIRST_PUBLISH');

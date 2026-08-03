@@ -1,0 +1,16 @@
+[
+  {
+    "outcome": "published",
+    "version": "0.7.1",
+    "tag": "v0.7.1",
+    "tag_object": "672423566ed75cf7704775cb480a75767e7c6851",
+    "commit": "f4870596ba79702f2e4eb3a6620802d5e538052d",
+    "tree": "ed3117008afede794a71620b6dfb4430ee4123a2",
+    "workflow_run_id": 30625736845,
+    "workflow_run_attempt": 1,
+    "workflow_conclusion": "success",
+    "verify_job_id": null,
+    "publish_job_id": null,
+    "artifact_integrity": "sha512-d4GE7ezGyoFN0uwA62gvRPUMfMdJ1kxhTunqU8dW3Qhy1n2SlNXZWr1Nthm6Goo0bAgvax8KEywyReodA6FyQA=="
+  }
+]
