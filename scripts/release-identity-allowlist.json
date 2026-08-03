@@ -1,0 +1,10 @@
+{
+  "versionPins": [
+    "scripts/verify-packed-artifact.mjs",
+    "scripts/verify-release-sbom.mjs",
+    "src/protocol/contract.ts",
+    "test/packed-artifact.test.ts",
+    "test/protocol-contract.test.ts",
+    "test/release-sbom.test.ts"
+  ]
+}
