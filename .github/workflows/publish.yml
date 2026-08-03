@@ -43,7 +43,7 @@ jobs:
       - name: Set up exact Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.22.2
+          node-version: 24.19.0
 
       - name: Set up exact npm
         shell: bash
@@ -63,7 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(node --version)" = "v22.22.2"
+          test "$(node --version)" = "v24.19.0"
           test "$(npm --version)" = "11.18.0"
           version="$(node -p "require('./package.json').version")"
           test "${GITHUB_REF_TYPE}" = "tag"
