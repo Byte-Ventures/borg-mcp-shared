@@ -2,7 +2,7 @@ import { ErrorCode } from './errors.js';
 import { PROTOCOL_VERSION } from './version.js';
 import { canonicalizeRepositoryIdentity, RuntimeMetadataValidationError, validateRuntimeMetadata, validateRuntimeMetadataPatch, validateRuntimeMetadataReportState, } from '../runtime-metadata.js';
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared';
-export const SHARED_PACKAGE_VERSION = '0.8.0';
+export const SHARED_PACKAGE_VERSION = '0.8.1';
 export const HEALTH_PATH = '/healthz';
 export const PROTOCOL_INFO_PATH = '/api/protocol';
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange';
