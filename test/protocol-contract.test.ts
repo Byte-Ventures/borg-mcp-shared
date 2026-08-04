@@ -1050,6 +1050,9 @@ describe('coordination request codecs', () => {
       decodeRecordDecisionRequest({ topic: 'server-runtime', decision: '€'.repeat(170) }),
     ).toEqual({ topic: 'server-runtime', decision: '€'.repeat(170) });
     expect(() =>
+      decodeRecordDecisionRequest({ topic: 'server-runtime', decision: '€'.repeat(512) }),
+    ).toThrow('between 1 and 512 UTF-8 bytes');
+    expect(() =>
       decodeRecordDecisionRequest({ topic: 'server-runtime', rationale: '€'.repeat(171), decision: 'short' }),
     ).toThrow('between 1 and 512 UTF-8 bytes');
     expect(decodeRemoveDecisionRequest({ topic: 'server-runtime' })).toEqual({
