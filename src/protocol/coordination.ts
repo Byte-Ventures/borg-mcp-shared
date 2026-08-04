@@ -343,8 +343,9 @@ export function decodeDecision(value: unknown): Decision {
     id: decodeUuid(input.id, ['id']),
     cube_id: decodeUuid(input.cube_id, ['cube_id']),
     topic: boundedString(input.topic, 'topic', 120),
-    decision: boundedString(input.decision, 'decision', 2000),
-    rationale: nullableString(input.rationale, 'rationale', 2000),
+    // Existing registry entries may exceed the write limit; only new writes are capped.
+    decision: boundedString(input.decision, 'decision', Number.MAX_SAFE_INTEGER),
+    rationale: nullableString(input.rationale, 'rationale', Number.MAX_SAFE_INTEGER),
     ratified_by: input.ratified_by === undefined
       ? undefined
       : input.ratified_by === null

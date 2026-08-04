@@ -3,6 +3,7 @@ import { type ProtocolVersion } from './version.js';
 import type { DroneRuntimeMetadata, DroneRuntimeMetadataPatch } from './types.js';
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
 export declare const SHARED_PACKAGE_VERSION: "0.8.1";
+export declare const DECISION_TEXT_MAX_BYTES: 512;
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
