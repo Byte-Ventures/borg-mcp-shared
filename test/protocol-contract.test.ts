@@ -77,7 +77,7 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.8.1');
+    expect(SHARED_PACKAGE_VERSION).toBe('0.9.0');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,

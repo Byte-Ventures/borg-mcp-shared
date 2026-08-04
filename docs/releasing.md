@@ -181,7 +181,7 @@ mutation. Never rerun or move that tag. `borgmcp-shared@0.6.1`,
 `sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
 Never rerun or move that tag. `borgmcp-shared@0.7.0` and
 `borgmcp-shared@0.7.1` are published and immutable. This source identifies the
-unpublished `0.8.1` protocol-v7 invitation-artifact release candidate. Its release requires
+unpublished `0.9.0` protocol-v7 decision-limit release candidate. Its release requires
 reviewed source and explicit publication authorization through one protected
 publish run whose terminal boundary is successful `npm publish`. The workflow
 performs no post-publication registry readback. Consumers must update the

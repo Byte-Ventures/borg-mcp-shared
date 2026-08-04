@@ -27,8 +27,8 @@ mutation and must never be rerun or moved. `borgmcp-shared@0.6.1`,
 `sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
 Never rerun or move that tag. `borgmcp-shared@0.7.0` and
 `borgmcp-shared@0.7.1` are published and immutable. This source now identifies
-the unpublished `0.8.1` protocol-v7 invitation-artifact release candidate. The
-version bump grants no tag or publication authority: creating `v0.8.1` and
+the unpublished `0.9.0` protocol-v7 decision-limit release candidate. The
+version bump grants no tag or publication authority: creating `v0.9.0` and
 publishing the reviewed artifact remain separate, independently gated steps.
 There is no compatibility path that returns a bearer from the server.
 
