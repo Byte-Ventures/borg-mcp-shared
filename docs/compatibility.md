@@ -66,10 +66,13 @@ close. Former authorized parent and drone credentials receive
 `410 CUBE_DELETED` for that cube, including after authority restart; callers
 that were never authorized still receive non-enumerating `404 NOT_FOUND`.
 
-The `borgmcp-shared@0.8.1` release candidate retains protocol v7 and adds the
-v2 invitation artifact: a canonical opaque token carrying the HTTPS endpoint,
-CA SPKI SHA-256 pin, enrollment authority, secret, and integrity binding. The
-strict codec rejects legacy or non-canonical forms before enrollment dispatch.
+The `borgmcp-shared@0.9.0` release candidate retains protocol v7 and carries
+the v2 invitation artifact: a canonical opaque token carrying the HTTPS
+endpoint, CA SPKI SHA-256 pin, enrollment authority, secret, and integrity
+binding. Decision write requests cap each `decision` and optional `rationale`
+field at 512 UTF-8 bytes independently; response decoders retain longer
+historical values. The strict codec rejects legacy or non-canonical invitation
+forms before enrollment dispatch.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a

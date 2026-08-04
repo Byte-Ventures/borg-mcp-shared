@@ -138,6 +138,10 @@ authority matrix: managing parents may mutate; known same-cube read/write
 parents receive `403 ACCESS_DENIED`; drone sessions remain non-managing; and
 no-grant, foreign, or unknown cubes remain hidden behind `404 NOT_FOUND`.
 
+Decision write requests cap each `decision` and optional `rationale` field at
+512 UTF-8 bytes independently. Response decoders continue to read longer
+historical values so existing registry entries remain compatible.
+
 Implement `ConformanceEnvironment` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,
 drives state transitions, and decides pass/fail; adapters do not submit expected
