@@ -14,6 +14,8 @@ import type {
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
 export const SHARED_PACKAGE_VERSION = '0.8.1' as const;
+/** Maximum UTF-8 payload for each newly recorded decision text field. */
+export const DECISION_TEXT_MAX_BYTES = 512 as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
@@ -1034,10 +1036,10 @@ export function decodeRecordDecisionRequest(
   exactKeys(input, ['topic', 'decision', 'rationale'], ['topic', 'decision']);
   const output: import('./types.js').RecordDecisionRequest = {
     topic: boundedString(input.topic, 1, 120, ['topic']),
-    decision: boundedString(input.decision, 1, 2000, ['decision']),
+    decision: boundedString(input.decision, 1, DECISION_TEXT_MAX_BYTES, ['decision']),
   };
   if (input.rationale !== undefined) {
-    output.rationale = boundedString(input.rationale, 1, 2000, ['rationale']);
+    output.rationale = boundedString(input.rationale, 1, DECISION_TEXT_MAX_BYTES, ['rationale']);
   }
   return output;
 }

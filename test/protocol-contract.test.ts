@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
   ENROLLMENT_EXCHANGE_PATH,
+  DECISION_TEXT_MAX_BYTES,
   encodeInvitationArtifact,
   decodeInvitationArtifact,
   getInvitationArtifactIntegrityInput,
@@ -1034,10 +1035,23 @@ describe('coordination request codecs', () => {
     ).toThrow(ProtocolContractError);
   });
 
-  it('enforces decision bounds and an exclusive removal selector', () => {
+  it('enforces UTF-8 byte decision bounds and an exclusive removal selector', () => {
+    expect(DECISION_TEXT_MAX_BYTES).toBe(512);
     expect(
       decodeRecordDecisionRequest({ topic: 'server-runtime', decision: 'Use Node 22.' }),
     ).toEqual({ topic: 'server-runtime', decision: 'Use Node 22.' });
+    expect(
+      decodeRecordDecisionRequest({ topic: 'server-runtime', decision: 'x'.repeat(512) }),
+    ).toEqual({ topic: 'server-runtime', decision: 'x'.repeat(512) });
+    expect(() =>
+      decodeRecordDecisionRequest({ topic: 'server-runtime', decision: 'x'.repeat(513) }),
+    ).toThrow('between 1 and 512 UTF-8 bytes');
+    expect(
+      decodeRecordDecisionRequest({ topic: 'server-runtime', decision: '€'.repeat(170) }),
+    ).toEqual({ topic: 'server-runtime', decision: '€'.repeat(170) });
+    expect(() =>
+      decodeRecordDecisionRequest({ topic: 'server-runtime', rationale: '€'.repeat(171), decision: 'short' }),
+    ).toThrow('between 1 and 512 UTF-8 bytes');
     expect(decodeRemoveDecisionRequest({ topic: 'server-runtime' })).toEqual({
       topic: 'server-runtime',
     });
@@ -1047,6 +1061,23 @@ describe('coordination request codecs', () => {
         decision_id: '00000000-0000-4000-8000-000000000001',
       }),
     ).toThrow(ProtocolContractError);
+  });
+
+  it('keeps oversized historical decisions readable', () => {
+    const decision = 'legacy '.repeat(500);
+    expect(
+      decodeDecision({
+        id: '00000000-0000-4000-8000-000000000001',
+        cube_id: '10000000-0000-4000-8000-000000000001',
+        topic: 'legacy',
+        decision,
+        rationale: decision,
+        ratified_by: null,
+        status: 'active',
+        supersedes: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toMatchObject({ decision, rationale: decision });
   });
 
   it('requires positive read limits and a cursor matching the final ordered entry', () => {

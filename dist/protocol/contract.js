@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION } from './version.js';
 import { canonicalizeRepositoryIdentity, RuntimeMetadataValidationError, validateRuntimeMetadata, validateRuntimeMetadataPatch, validateRuntimeMetadataReportState, } from '../runtime-metadata.js';
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared';
 export const SHARED_PACKAGE_VERSION = '0.8.1';
+export const DECISION_TEXT_MAX_BYTES = 512;
 export const HEALTH_PATH = '/healthz';
 export const PROTOCOL_INFO_PATH = '/api/protocol';
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange';
@@ -723,10 +724,10 @@ export function decodeRecordDecisionRequest(value) {
     exactKeys(input, ['topic', 'decision', 'rationale'], ['topic', 'decision']);
     const output = {
         topic: boundedString(input.topic, 1, 120, ['topic']),
-        decision: boundedString(input.decision, 1, 2000, ['decision']),
+        decision: boundedString(input.decision, 1, DECISION_TEXT_MAX_BYTES, ['decision']),
     };
     if (input.rationale !== undefined) {
-        output.rationale = boundedString(input.rationale, 1, 2000, ['rationale']);
+        output.rationale = boundedString(input.rationale, 1, DECISION_TEXT_MAX_BYTES, ['rationale']);
     }
     return output;
 }
