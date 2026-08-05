@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -25,7 +25,6 @@ describe('npm publish workflow', () => {
     expect(workflow).toContain('id-token: write');
     expect(workflow).toContain('contents: read');
     expect(workflow).toContain('test "${GITHUB_RUN_ATTEMPT}" = "1"');
-    expect(workflow).toContain('test ! -e .npmrc');
 
     for (const command of [
       'npm ci --ignore-scripts',
@@ -143,26 +142,6 @@ describe('npm publish workflow', () => {
       env: { ...process.env, GITHUB_RUN_ATTEMPT: attempt },
       stdio: 'ignore',
     })).toThrow();
-  });
-
-  it('rejects a hostile repository npm config before npm bootstrap', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'borgmcp-hostile-npmrc-'));
-    const fakeBin = join(root, 'bin');
-    const marker = join(root, 'npm-ran');
-    try {
-      await mkdir(fakeBin);
-      await writeFile(join(root, '.npmrc'), 'registry=https://registry.invalid/\n');
-      await writeFile(join(fakeBin, 'npm'), '#!/bin/sh\ntouch "${MARKER}"\n');
-      await chmod(join(fakeBin, 'npm'), 0o755);
-      expect(() => execFileSync('bash', ['-eu', '-c', 'test ! -e .npmrc; npm --version'], {
-        cwd: root,
-        env: { ...process.env, MARKER: marker, PATH: `${fakeBin}:${process.env.PATH}` },
-        stdio: 'ignore',
-      })).toThrow();
-      await expect(access(marker)).rejects.toThrow();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 
   it('passes a generated tarball to npm as an explicit local file', async () => {

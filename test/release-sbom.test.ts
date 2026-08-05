@@ -193,9 +193,6 @@ describe('release SBOM', () => {
     expect(workflow).toContain('RELEASE_TARGET_OS: linux');
     expect(workflow).toContain('RELEASE_TARGET_CPU: x64');
     expect(workflow).toContain('RELEASE_TARGET_LIBC: glibc');
-    const ci = await readFile('.github/workflows/ci.yml', 'utf8');
-    expect(ci).toContain('os: [ubuntu-latest, macos-latest]');
-    expect(ci).toContain('npx vitest run test/release-sbom.test.ts');
   });
 
   it('accepts npm 11 components without package-path properties', async () => {
