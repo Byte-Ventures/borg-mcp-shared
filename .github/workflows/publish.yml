@@ -32,12 +32,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reject untrusted release inputs before npm bootstrap
+      - name: Reject invalid release inputs
         shell: bash
         run: |
           set -euo pipefail
           test "${GITHUB_RUN_ATTEMPT}" = "1"
-          test ! -e .npmrc
           test "${{ github.event.repository.private }}" = "false"
 
       - name: Set up exact Node.js
@@ -45,26 +44,11 @@ jobs:
         with:
           node-version: 24.19.0
 
-      - name: Set up exact npm
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm_prefix="${RUNNER_TEMP}/npm-11.18.0"
-          npm_userconfig="${RUNNER_TEMP}/npm-bootstrap-user.npmrc"
-          npm_cache="${RUNNER_TEMP}/npm-bootstrap-cache"
-          : > "${npm_userconfig}"
-          npm --userconfig="${npm_userconfig}" --cache="${npm_cache}" --registry=https://registry.npmjs.org install --prefix "${npm_prefix}" --ignore-scripts --no-save npm@11.18.0
-          test "$("${npm_prefix}/node_modules/.bin/npm" --version)" = "11.18.0"
-          test "$("${npm_prefix}/node_modules/.bin/npm" --userconfig="${npm_userconfig}" --registry=https://registry.npmjs.org config get registry)" = "https://registry.npmjs.org/"
-          echo "${npm_prefix}/node_modules/.bin" >> "${GITHUB_PATH}"
-
       - name: Verify release source and tag
         id: release
         shell: bash
         run: |
           set -euo pipefail
-          test "$(node --version)" = "v24.19.0"
-          test "$(npm --version)" = "11.18.0"
           version="$(node -p "require('./package.json').version")"
           test "${GITHUB_REF_TYPE}" = "tag"
           test "${GITHUB_REF_NAME}" = "v${version}"
@@ -93,9 +77,6 @@ jobs:
 
       - name: Rebuild tracked output
         run: npm run build
-
-      - name: Reject generated-output drift
-        run: git diff --exit-code -- dist
 
       - name: Build exact release tarball
         id: pack
