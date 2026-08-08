@@ -49,6 +49,26 @@ describe('npm publish workflow', () => {
     }
   });
 
+  it('passes a changed version when the trusted base verifier succeeds', async () => {
+    const fixture = await createClassifierFixture(
+      '1.0.0',
+      '1.0.1',
+      'process.exit(23);\n',
+      [
+        "import { appendFileSync } from 'node:fs';",
+        "appendFileSync(process.env.VERIFIER_MARKER, 'base verifier ran\\n');",
+        '',
+      ].join('\n'),
+    );
+    try {
+      const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
+      expect(runClassifier(fixture, workflow)).toBe('');
+      expect(await readFile(fixture.marker, 'utf8')).toBe('base verifier ran\n');
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   it('uses one protected build, package, and publish authority', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
@@ -357,17 +377,18 @@ async function createClassifierFixture(
   baseVersion: string,
   candidateVersion: string,
   candidateVerifier?: string,
+  baseVerifier = [
+    "import { appendFileSync } from 'node:fs';",
+    "appendFileSync(process.env.VERIFIER_MARKER, 'base verifier ran\\n');",
+    'process.exit(23);',
+    '',
+  ].join('\n'),
 ): Promise<ClassifierFixture> {
   const root = await mkdtemp(join(tmpdir(), 'borgmcp-shared-release-classifier-'));
   const marker = join(root, 'verifier-marker');
   await mkdir(join(root, 'scripts'));
   await writeFile(join(root, 'package.json'), JSON.stringify({ version: baseVersion }) + '\n');
-  await writeFile(join(root, 'scripts/release-identity.mjs'), [
-    "import { appendFileSync } from 'node:fs';",
-    "appendFileSync(process.env.VERIFIER_MARKER, 'base verifier ran\\n');",
-    'process.exit(23);',
-    '',
-  ].join('\n'));
+  await writeFile(join(root, 'scripts/release-identity.mjs'), baseVerifier);
   execFileSync('git', ['init', '--initial-branch=main'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.name', 'Release Classifier Test'], { cwd: root });
   execFileSync('git', ['config', 'user.email', 'release-classifier@example.invalid'], { cwd: root });
