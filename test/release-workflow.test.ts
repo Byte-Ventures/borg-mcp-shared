@@ -26,6 +26,29 @@ describe('npm publish workflow', () => {
     expect(workflow.match(/node "\$\{trusted_verifier\}" verify/g)).toHaveLength(1);
   });
 
+  it('skips the release identity verifier when the package version is unchanged', async () => {
+    const fixture = await createClassifierFixture('1.0.0', '1.0.0');
+    try {
+      const output = runClassifier(fixture, await readFile('.github/workflows/ci.yml', 'utf8'));
+
+      expect(output).toContain('Package version unchanged');
+      await expect(readFile(fixture.marker, 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('runs the trusted base verifier and propagates its failure when the version changes', async () => {
+    const fixture = await createClassifierFixture('1.0.0', '1.0.1', 'process.exit(0);\n');
+    try {
+      const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
+      expect(() => runClassifier(fixture, workflow)).toThrow();
+      expect(await readFile(fixture.marker, 'utf8')).toBe('base verifier ran\n');
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   it('uses one protected build, package, and publish authority', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
@@ -322,3 +345,60 @@ describe('npm publish workflow', () => {
     }
   }, 10_000);
 });
+
+interface ClassifierFixture {
+  root: string;
+  base: string;
+  candidate: string;
+  marker: string;
+}
+
+async function createClassifierFixture(
+  baseVersion: string,
+  candidateVersion: string,
+  candidateVerifier?: string,
+): Promise<ClassifierFixture> {
+  const root = await mkdtemp(join(tmpdir(), 'borgmcp-shared-release-classifier-'));
+  const marker = join(root, 'verifier-marker');
+  await mkdir(join(root, 'scripts'));
+  await writeFile(join(root, 'package.json'), JSON.stringify({ version: baseVersion }) + '\n');
+  await writeFile(join(root, 'scripts/release-identity.mjs'), [
+    "import { appendFileSync } from 'node:fs';",
+    "appendFileSync(process.env.VERIFIER_MARKER, 'base verifier ran\\n');",
+    'process.exit(23);',
+    '',
+  ].join('\n'));
+  execFileSync('git', ['init', '--initial-branch=main'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Release Classifier Test'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'release-classifier@example.invalid'], { cwd: root });
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: root, stdio: 'ignore' });
+  const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+  await writeFile(join(root, 'package.json'), JSON.stringify({ version: candidateVersion }) + '\n');
+  await writeFile(join(root, 'candidate-change'), 'candidate\n');
+  if (candidateVerifier !== undefined) {
+    await writeFile(join(root, 'scripts/release-identity.mjs'), candidateVerifier);
+  }
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '-m', 'candidate'], { cwd: root, stdio: 'ignore' });
+  const candidate = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  return { root, base, candidate, marker };
+}
+
+function runClassifier(fixture: ClassifierFixture, workflow: string): string {
+  const runBlock = workflow.match(/      - name: Classify release identity[\s\S]*?        run: \|\n((?: {10}.*\n?)*)$/);
+  if (runBlock?.[1] === undefined) throw new Error('release identity classifier run block not found');
+  const script = runBlock[1].replace(/^ {10}/gm, '');
+  return execFileSync('bash', ['-c', script], {
+    cwd: fixture.root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BASE_SHA: fixture.base,
+      CANDIDATE_SHA: fixture.candidate,
+      RUNNER_TEMP: fixture.root,
+      VERIFIER_MARKER: fixture.marker,
+    },
+  });
+}
