@@ -12,6 +12,20 @@ function assertHistoricalReleaseRecord(releases: string): void {
 }
 
 describe('npm publish workflow', () => {
+  it('classifies release identity PRs with the trusted base verifier', async () => {
+    const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
+
+    expect(workflow.match(/^  release-identity:$/gm)).toHaveLength(1);
+    expect(workflow).toContain("if: github.event_name == 'pull_request'");
+    expect(workflow).toContain('fetch-depth: 0');
+    expect(workflow).toContain('BASE_SHA: ${{ github.event.pull_request.base.sha }}');
+    expect(workflow).toContain('CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}');
+    expect(workflow).toContain('if test "${base_version}" = "${candidate_version}"; then');
+    expect(workflow).toContain('git show "${BASE_SHA}:scripts/release-identity.mjs" > "${trusted_verifier}"');
+    expect(workflow).toContain('node "${trusted_verifier}" verify "${BASE_SHA}" "${CANDIDATE_SHA}"');
+    expect(workflow.match(/node "\$\{trusted_verifier\}" verify/g)).toHaveLength(1);
+  });
+
   it('uses one protected build, package, and publish authority', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
