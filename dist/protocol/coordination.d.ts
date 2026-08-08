@@ -57,7 +57,7 @@ export interface RoleRationaleResult {
         body: string;
     };
 }
-export declare const ROLE_RATIONALE_SECTION_BODY_MAX_BYTES: number;
+export declare const ROLE_RATIONALE_SECTION_BODY_MAX_BYTES: 51200;
 export declare function decodeReassignDroneRequest(value: unknown): ReassignDroneRequest;
 export declare function decodeReassignDroneRequestEnvelope(value: unknown): ProtocolEnvelope<ReassignDroneRequest>;
 export declare function decodeReassignDroneResult(value: unknown): ReassignDroneResult;

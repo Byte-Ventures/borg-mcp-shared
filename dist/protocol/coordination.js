@@ -1,8 +1,8 @@
-import { ProtocolContractError, compareLogCursor, decodeCanonicalTimestamp, decodeLogCursor, decodeProtocolEnvelope, decodeUuid, PROTOCOL_LIMIT_CEILINGS, utf8ByteLength, } from './contract.js';
+import { ProtocolContractError, compareLogCursor, decodeCanonicalTimestamp, decodeLogCursor, decodeProtocolEnvelope, decodeUuid, ROLE_TEXT_MAX_BYTES, utf8ByteLength, } from './contract.js';
 import { decodeEnrichedStreamEntry } from './sse.js';
 import { isLabelLine, parseRoleSections } from '../role-section.js';
 export const ROLE_IN_USE_DELETE_MESSAGE = 'Reassign or evict every drone assigned to this role before deleting it.';
-export const ROLE_RATIONALE_SECTION_BODY_MAX_BYTES = PROTOCOL_LIMIT_CEILINGS.max_request_bytes;
+export const ROLE_RATIONALE_SECTION_BODY_MAX_BYTES = ROLE_TEXT_MAX_BYTES;
 function object(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         throw new ProtocolContractError('Expected a coordination object.');

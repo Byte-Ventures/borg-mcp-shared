@@ -11,6 +11,7 @@ import {
   ROLE_PATH,
   ROLE_RATIONALE_PATH,
   ROLE_RATIONALE_SECTION_BODY_MAX_BYTES,
+  ROLE_TEXT_MAX_BYTES,
   REPOSITORY_CUBE_RESOLVE_PATH,
   REPOSITORY_CUBE_ASSOCIATION_PATH,
   HEALTH_PATH,
@@ -649,7 +650,7 @@ describe('role-management codecs', () => {
       .toThrow(ProtocolContractError);
   });
 
-  it('bounds rationale section result bodies at the protocol request ceiling', () => {
+  it('bounds rationale section results at the UTF-8 role-text ceiling', () => {
     const prefix = 'Workflow rationale:\n';
     const atLimit = prefix + 'a'.repeat(
       ROLE_RATIONALE_SECTION_BODY_MAX_BYTES - Buffer.byteLength(prefix),
@@ -659,7 +660,8 @@ describe('role-management codecs', () => {
       role_name: 'Builder',
       section: { heading: 'Workflow rationale', body: atLimit },
     };
-    expect(ROLE_RATIONALE_SECTION_BODY_MAX_BYTES).toBe(10 * 1024 * 1024);
+    expect(ROLE_TEXT_MAX_BYTES).toBe(51_200);
+    expect(ROLE_RATIONALE_SECTION_BODY_MAX_BYTES).toBe(ROLE_TEXT_MAX_BYTES);
     expect(decodeRoleRationaleResult(valid)).toEqual(valid);
     expect(() => decodeRoleRationaleResult({
       ...valid,

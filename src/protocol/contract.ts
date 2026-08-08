@@ -16,6 +16,8 @@ export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
 export const SHARED_PACKAGE_VERSION = '0.9.0' as const;
 /** Maximum UTF-8 payload for each newly recorded decision text field. */
 export const DECISION_TEXT_MAX_BYTES = 512 as const;
+/** Maximum UTF-8 size of role detailed-description text and any returned section slice. */
+export const ROLE_TEXT_MAX_BYTES = 51_200 as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;

@@ -5,7 +5,7 @@ import {
   decodeLogCursor,
   decodeProtocolEnvelope,
   decodeUuid,
-  PROTOCOL_LIMIT_CEILINGS,
+  ROLE_TEXT_MAX_BYTES,
   utf8ByteLength,
   type LogCursor,
   type ProtocolEnvelope,
@@ -93,7 +93,7 @@ export interface RoleRationaleResult {
 
 /** Maximum UTF-8 payload for one returned role-description section. */
 export const ROLE_RATIONALE_SECTION_BODY_MAX_BYTES =
-  PROTOCOL_LIMIT_CEILINGS.max_request_bytes;
+  ROLE_TEXT_MAX_BYTES;
 
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {

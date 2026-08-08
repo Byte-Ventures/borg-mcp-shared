@@ -24,6 +24,7 @@ import {
   decodeReassignDroneRequestEnvelope,
   decodeRecordDecisionRequest,
   parseRoleSections,
+  ROLE_RATIONALE_SECTION_BODY_MAX_BYTES,
   encodeSseEvent,
   PROTOCOL_VERSION,
   runAdapterConformance,
@@ -1535,7 +1536,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
               : this.fault === 'append-rationale-section'
                 ? `${section.body}Boundaries:\nLeaked neighboring section.\n`
                 : this.fault === 'oversize-rationale-body'
-                  ? `${section.heading}:\n${'a'.repeat(10 * 1024 * 1024)}`
+                  ? `${section.heading}:\n${'a'.repeat(ROLE_RATIONALE_SECTION_BODY_MAX_BYTES)}`
                   : section.body,
           },
         }),
