@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createReleaseRecord,
   prepareRelease,
+  verifyReleaseIdentity,
   type ReleaseAuthorities,
 } from '../scripts/release-identity.mjs';
 
@@ -78,6 +79,39 @@ describe('release identity recovery', () => {
     expect(JSON.parse(await readFile(join(fixture.root, 'package-lock.json'), 'utf8')).packages[''].version).toBe('1.2.0');
     expect(await readFile(join(fixture.root, 'test/version-pin.test.ts'), 'utf8')).toContain('1.2.0');
     expect(JSON.parse(await readFile(join(fixture.root, 'docs/release-records.json'), 'utf8'))).toHaveLength(2);
+  });
+
+  it('verifies a byte-identical generated release identity tree', async () => {
+    const fixture = await createFixture();
+    const base = git(fixture.root, 'rev-parse', 'HEAD');
+    await prepareRelease(fixture.root, '1.2.0', {
+      workflowRunId: 200,
+      workflowRunAttempt: 1,
+      workflowConclusion: 'failure',
+    }, fixture.authorities);
+    git(fixture.root, 'add', '.');
+    git(fixture.root, 'commit', '-m', 'prepare 1.2.0');
+    const candidate = git(fixture.root, 'rev-parse', 'HEAD');
+
+    expect(verifyReleaseIdentity(fixture.root, base, candidate, fixture.authorities))
+      .toMatchObject({ base, candidate, oldVersion: '1.1.0', newVersion: '1.2.0' });
+  });
+
+  it('rejects a genuine release identity shape mismatch', async () => {
+    const fixture = await createFixture();
+    const base = git(fixture.root, 'rev-parse', 'HEAD');
+    await prepareRelease(fixture.root, '1.2.0', {
+      workflowRunId: 200,
+      workflowRunAttempt: 1,
+      workflowConclusion: 'failure',
+    }, fixture.authorities);
+    await writeFile(join(fixture.root, 'test/version-pin.test.ts'), "expect('tampered').toBe('tampered');\n");
+    git(fixture.root, 'add', '.');
+    git(fixture.root, 'commit', '-m', 'tamper with release identity');
+    const candidate = git(fixture.root, 'rev-parse', 'HEAD');
+
+    expect(() => verifyReleaseIdentity(fixture.root, base, candidate, fixture.authorities))
+      .toThrow(/Release identity shape mismatch: test\/version-pin\.test\.ts/);
   });
 });
 

@@ -21,17 +21,18 @@ function fail(message) {
 }
 
 function command(name, args, options = {}) {
-  return execFileSync(name, args, {
+  const output = execFileSync(name, args, {
     cwd: options.cwd,
     encoding: 'utf8',
     input: options.input,
     maxBuffer: 10 * 1024 * 1024,
     stdio: options.input === undefined ? ['ignore', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
-  }).trim();
+  });
+  return options.raw ? output : output.trim();
 }
 
 function git(root, args, options = {}) {
-  return command('git', args, { cwd: root, ...options });
+  return command('git', args, { cwd: root, raw: args[0] === 'show', ...options });
 }
 
 function json(raw, description) {
