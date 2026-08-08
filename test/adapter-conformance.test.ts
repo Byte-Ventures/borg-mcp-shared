@@ -97,7 +97,6 @@ type Fault =
   | 'reveal-unknown-manage-denial'
   | 'revoke-session-on-eviction-denial'
   | 'reveal-cross-cube-drone-session'
-  | 'collapse-session-expiry'
   | 'metadata-cross-seat-write'
   | 'metadata-partial-invalid-write'
   | 'metadata-derived-role-mutation'
@@ -168,7 +167,7 @@ interface DroneState {
   roleId: string;
   label: string;
   credential: string | null;
-  sessionState: 'active' | 'revoked' | 'expired';
+  sessionState: 'active' | 'revoked';
   evicted: boolean;
   metadata: DroneRuntimeMetadata;
   metadataReported: boolean;
@@ -382,9 +381,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     revokeManagedDroneSession: async (drone: ConformanceDrone): Promise<void> => {
       this.drone(drone.id).sessionState = 'revoked';
-    },
-    expireManagedDroneSession: async (drone: ConformanceDrone): Promise<void> => {
-      this.drone(drone.id).sessionState = 'expired';
     },
     inspectManagedDrone: async (drone: ConformanceDrone) => {
       const state = this.drone(drone.id);
@@ -1600,14 +1596,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (drone.sessionState === 'revoked') {
           return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
         }
-        if (drone.sessionState === 'expired') {
-          return { error: this.error(
-            401,
-            this.fault === 'collapse-session-expiry'
-              ? ErrorCode.SESSION_REVOKED
-              : ErrorCode.AUTH_EXPIRED,
-          ) };
-        }
         const principal = this.principal(drone.principalId);
         if (principal.revoked) return { error: this.error(401, ErrorCode.SESSION_REVOKED) };
         return { principal, drone, droneSession: true };
@@ -1849,7 +1837,6 @@ describe('executable adapter conformance', () => {
     ['revealed unknown cube through 403', 'reveal-unknown-manage-denial', 'security.manage-access-matrix'],
     ['revoked target session on denied eviction', 'revoke-session-on-eviction-denial', 'security.manage-access-matrix'],
     ['revealed cross-cube target to bound drone session', 'reveal-cross-cube-drone-session', 'security.cross-cube-drone-management'],
-    ['collapsed expired session into revocation', 'collapse-session-expiry', 'security.drone-session-rejection-causes'],
     ['wrote metadata to another seat', 'metadata-cross-seat-write', 'security.metadata-own-seat'],
     ['partially wrote an invalid metadata patch', 'metadata-partial-invalid-write', 'security.metadata-invalid-atomic'],
     ['derived a role mutation from metadata', 'metadata-derived-role-mutation', 'security.metadata-own-seat'],

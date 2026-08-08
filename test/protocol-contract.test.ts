@@ -171,7 +171,6 @@ describe('package and handshake contract', () => {
       },
       drone_evicted_status: 410,
       cube_deleted_status: 410,
-      auth_expired_status: 401,
       session_revoked_status: 401,
       session_rejected_status: 401,
       redirect_policy: 'error',
@@ -444,8 +443,7 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
   });
 
-  it('keeps deleted, expired, revoked, takeover, and evicted outcomes distinct', () => {
-    expect(PROTOCOL_HTTP_CONTRACT.auth_expired_status).toBe(401);
+  it('keeps deleted, revoked, takeover, and evicted outcomes distinct', () => {
     expect(PROTOCOL_HTTP_CONTRACT.session_revoked_status).toBe(401);
     expect(PROTOCOL_HTTP_CONTRACT.session_rejected_status).toBe(401);
     expect(PROTOCOL_HTTP_CONTRACT.drone_evicted_status).toBe(410);
@@ -457,13 +455,6 @@ describe('package and handshake contract', () => {
         error: { code: 'CUBE_DELETED', message: 'This cube was deleted.' },
       }),
     ).toMatchObject({ error: { code: 'CUBE_DELETED' } });
-    expect(
-      decodeProtocolErrorEnvelope({
-        protocol_version: '8',
-        request_id: 'req-12345678',
-        error: { code: 'AUTH_EXPIRED', message: 'Session expired.' },
-      }),
-    ).toMatchObject({ error: { code: 'AUTH_EXPIRED' } });
     expect(
       decodeProtocolErrorEnvelope({
         protocol_version: '8',
@@ -485,6 +476,11 @@ describe('package and handshake contract', () => {
         error: { code: 'DRONE_EVICTED', message: 'This seat was evicted.' },
       }),
     ).toMatchObject({ error: { code: 'DRONE_EVICTED' } });
+  });
+
+  it('does not expose a time-expiry outcome for enrolled sessions', () => {
+    expect(sharedApi.ErrorCode).not.toHaveProperty('AUTH_EXPIRED');
+    expect(PROTOCOL_HTTP_CONTRACT).not.toHaveProperty('auth_expired_status');
   });
 });
 

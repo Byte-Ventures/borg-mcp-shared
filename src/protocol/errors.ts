@@ -2,7 +2,6 @@
 export enum ErrorCode {
   AUTH_MISSING = 'AUTH_MISSING',
   AUTH_INVALID = 'AUTH_INVALID',
-  AUTH_EXPIRED = 'AUTH_EXPIRED',
   SUBSCRIPTION_REQUIRED = 'SUBSCRIPTION_REQUIRED',
   ACCESS_DENIED = 'ACCESS_DENIED',
   INVALID_INPUT = 'INVALID_INPUT',
@@ -33,8 +32,7 @@ export enum ErrorCode {
    * The presented session bearer does not match the seat it targets: a fresh or
    * non-matching bearer against an already-bound active seat. Distinct from
    * SESSION_REVOKED (a formerly valid credential that was explicitly revoked).
-   * AUTH_EXPIRED is the only recoverable expired-session outcome. Carried by the
-   * server's typed 401 takeover rejection.
+   * Carried by the server's typed 401 takeover rejection.
    */
   SESSION_REJECTED = 'SESSION_REJECTED',
 }

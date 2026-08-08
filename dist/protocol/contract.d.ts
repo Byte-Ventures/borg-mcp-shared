@@ -2,7 +2,7 @@ import { ErrorCode } from './errors.js';
 import { type ProtocolVersion } from './version.js';
 import type { DroneRuntimeMetadata, DroneRuntimeMetadataPatch } from './types.js';
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
-export declare const SHARED_PACKAGE_VERSION: "0.9.0";
+export declare const SHARED_PACKAGE_VERSION: "0.10.0";
 export declare const DECISION_TEXT_MAX_BYTES: 512;
 export declare const ROLE_TEXT_MAX_BYTES: 51200;
 export declare const HEALTH_PATH: "/healthz";
@@ -103,7 +103,6 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
     };
     readonly auth_missing_status: 401;
     readonly auth_invalid_status: 401;
-    readonly auth_expired_status: 401;
     readonly session_revoked_status: 401;
     readonly session_rejected_status: 401;
     readonly cursor_expired_status: 410;

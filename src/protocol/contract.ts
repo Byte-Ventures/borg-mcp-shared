@@ -92,7 +92,6 @@ export const PROTOCOL_HTTP_CONTRACT = {
   },
   auth_missing_status: 401,
   auth_invalid_status: 401,
-  auth_expired_status: 401,
   session_revoked_status: 401,
   session_rejected_status: 401,
   cursor_expired_status: 410,

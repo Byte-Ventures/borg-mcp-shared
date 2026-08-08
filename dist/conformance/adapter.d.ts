@@ -21,7 +21,7 @@ export interface ConformanceDroneRuntimeState {
     readonly metadata_revision: number;
     readonly cube_id: string;
     readonly role_id: string;
-    readonly session_state: 'active' | 'revoked' | 'expired';
+    readonly session_state: 'active' | 'revoked';
     readonly evicted: boolean;
     readonly last_seen: string;
     readonly heartbeat_count: number;
@@ -134,7 +134,6 @@ export interface ConformanceAdmin {
     createDrone(principal: ConformancePrincipal, cube: ConformanceCube, role: ConformanceRole): Promise<ConformanceDrone>;
     issueManagedDroneSession(drone: ConformanceDrone): Promise<string>;
     revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
-    expireManagedDroneSession(drone: ConformanceDrone): Promise<void>;
     inspectManagedDrone(drone: ConformanceDrone): Promise<{
         readonly role_id: string;
         readonly evicted: boolean;
@@ -250,9 +249,6 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
 }, {
     readonly id: "roles.rationale-contract";
     readonly area: "roles";
-}, {
-    readonly id: "security.drone-session-rejection-causes";
-    readonly area: "security";
 }, {
     readonly id: "metadata.attach-report";
     readonly area: "metadata";
