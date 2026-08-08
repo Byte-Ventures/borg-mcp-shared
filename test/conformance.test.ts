@@ -93,6 +93,7 @@ describe('public conformance vectors', () => {
       { status: 404, error: 'ROLE_NOT_FOUND', mutation: 'none' },
       { status: 404, error: 'ROLE_SECTION_NOT_FOUND', mutation: 'none' },
       { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
+      { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
     ]);
   });
 

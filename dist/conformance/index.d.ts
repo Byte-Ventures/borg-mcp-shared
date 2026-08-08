@@ -272,7 +272,7 @@ export interface RoleDeleteConformanceVector {
 export declare const ROLE_DELETE_CONFORMANCE: readonly RoleDeleteConformanceVector[];
 export interface RoleRationaleConformanceVector {
     name: string;
-    fixture: 'uuid-exact' | 'name-case-insensitive' | 'unknown-role' | 'inaccessible-role' | 'unknown-section' | 'invalid-selector';
+    fixture: 'uuid-exact' | 'name-case-insensitive' | 'unknown-role' | 'inaccessible-role' | 'unknown-section' | 'ambiguous-role-name' | 'invalid-selector';
     expected: {
         status: 200;
         canonical_heading: true;

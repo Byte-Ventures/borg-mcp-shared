@@ -867,6 +867,7 @@ export interface RoleRationaleConformanceVector {
     | 'unknown-role'
     | 'inaccessible-role'
     | 'unknown-section'
+    | 'ambiguous-role-name'
     | 'invalid-selector';
   expected:
     | { status: 200; canonical_heading: true; exact_body: true; mutation: 'none' }
@@ -900,6 +901,11 @@ export const ROLE_RATIONALE_CONFORMANCE: readonly RoleRationaleConformanceVector
     name: 'returns a typed refusal for an unknown section',
     fixture: 'unknown-section',
     expected: { status: 404, error: 'ROLE_SECTION_NOT_FOUND', mutation: 'none' },
+  },
+  {
+    name: 'rejects a role name with multiple case-insensitive matches',
+    fixture: 'ambiguous-role-name',
+    expected: { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
   },
   {
     name: 'rejects malformed or ambiguous selectors',

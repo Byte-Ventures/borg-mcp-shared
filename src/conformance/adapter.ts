@@ -2336,6 +2336,31 @@ export async function runAdapterConformance(
       ErrorCode.ROLE_SECTION_NOT_FOUND,
       'Unknown role section lookup',
     );
+    await environment.admin.createRole(roleContractCube, {
+      roleClass: 'worker',
+      isHumanSeat: false,
+      name: 'Ambiguous Role',
+      detailedDescription,
+    });
+    await environment.admin.createRole(roleContractCube, {
+      roleClass: 'worker',
+      isHumanSeat: false,
+      name: 'AMBIGUOUS ROLE',
+      detailedDescription,
+    });
+    expectError(
+      await environment.operations.roleRationale(
+        roleContractReadCredential,
+        roleContractCube,
+        createProtocolEnvelope('rationale-ambiguous-role', {
+          role: 'ambiguous role',
+          section: 'Workflow rationale',
+        }),
+      ),
+      400,
+      ErrorCode.INVALID_INPUT,
+      'Ambiguous role rationale lookup',
+    );
     expectError(
       await environment.operations.roleRationale(
         roleContractReadCredential,
@@ -2357,6 +2382,7 @@ export async function runAdapterConformance(
       unknown_role_code: ErrorCode.ROLE_NOT_FOUND,
       inaccessible_role_code: ErrorCode.ROLE_NOT_FOUND,
       unknown_section_code: ErrorCode.ROLE_SECTION_NOT_FOUND,
+      ambiguous_role_code: ErrorCode.INVALID_INPUT,
       invalid_selector_code: ErrorCode.INVALID_INPUT,
     };
   });

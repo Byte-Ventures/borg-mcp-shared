@@ -25,11 +25,8 @@ mutation and must never be rerun or moved. `borgmcp-shared@0.6.1`,
 `fa8a2dc072d4ffe2a16d5f02576fead822a2f72e`; successful attempt-1 workflow run
 `30169732628` published registry integrity
 `sha512-Wm4b0uoOAw9JCz5OTHD0Q2uXKkeWYdkVksdeZvRG8l62XGMY+G8GkNEsZT9L533LbVbQ29GhgF0htjDenQThDg==`.
-Never rerun or move that tag. `borgmcp-shared@0.7.0` and
-`borgmcp-shared@0.7.1` are published and immutable. This source now identifies
-the unpublished `0.9.0` protocol-v7 decision-limit release candidate. The
-version bump grants no tag or publication authority: creating `v0.9.0` and
-publishing the reviewed artifact remain separate, independently gated steps.
+Never rerun or move that tag. `borgmcp-shared@0.7.0`,
+`borgmcp-shared@0.7.1`, and `borgmcp-shared@0.9.0` are published and immutable.
 There is no compatibility path that returns a bearer from the server.
 
 A client verifies the credential-free `GET /api/protocol` tag preflight before

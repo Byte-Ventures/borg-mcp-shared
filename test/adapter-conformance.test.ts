@@ -118,7 +118,8 @@ type Fault =
   | 'rationale-case-sensitive'
   | 'normalize-rationale-body'
   | 'wrong-rationale-role-code'
-  | 'wrong-rationale-section-code';
+  | 'wrong-rationale-section-code'
+  | 'accept-ambiguous-rationale-role';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -1485,11 +1486,19 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       const cube = this.cube(cubeHandle.id);
       const selector = envelope.payload.role;
-      const role = cube.roles.get(selector) ?? [...cube.roles.values()].find((candidate) =>
+      const matchingNames = [...cube.roles.values()].filter((candidate) =>
         this.fault === 'rationale-case-sensitive'
           ? candidate.name === selector
           : candidate.name?.toLowerCase() === selector.toLowerCase()
       );
+      if (
+        !cube.roles.has(selector) &&
+        matchingNames.length > 1 &&
+        this.fault !== 'accept-ambiguous-rationale-role'
+      ) {
+        return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
+      const role = cube.roles.get(selector) ?? matchingNames[0];
       if (!role) {
         return this.error(
           404,
@@ -1852,6 +1861,7 @@ describe('executable adapter conformance', () => {
     ['normalized the exact rationale section body', 'normalize-rationale-body', 'roles.rationale-contract'],
     ['collapsed the unknown-role rationale code', 'wrong-rationale-role-code', 'roles.rationale-contract'],
     ['collapsed the unknown-section rationale code', 'wrong-rationale-section-code', 'roles.rationale-contract'],
+    ['accepted an ambiguous case-insensitive rationale role name', 'accept-ambiguous-rationale-role', 'roles.rationale-contract'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

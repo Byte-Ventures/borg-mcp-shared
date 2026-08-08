@@ -671,6 +671,11 @@ export const ROLE_RATIONALE_CONFORMANCE = [
         expected: { status: 404, error: 'ROLE_SECTION_NOT_FOUND', mutation: 'none' },
     },
     {
+        name: 'rejects a role name with multiple case-insensitive matches',
+        fixture: 'ambiguous-role-name',
+        expected: { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
+    },
+    {
         name: 'rejects malformed or ambiguous selectors',
         fixture: 'invalid-selector',
         expected: { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
