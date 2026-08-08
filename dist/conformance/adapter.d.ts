@@ -125,7 +125,12 @@ export interface ConformanceAdmin {
     createRole(cube: ConformanceCube, input: {
         readonly roleClass: 'queen' | 'worker';
         readonly isHumanSeat: boolean;
+        readonly name?: string;
+        readonly detailedDescription?: string;
+        readonly isDefault?: boolean;
+        readonly isMandatory?: boolean;
     }): Promise<ConformanceRole>;
+    referenceRoleFromTaxonomy(cube: ConformanceCube, role: ConformanceRole): Promise<void>;
     createDrone(principal: ConformancePrincipal, cube: ConformanceCube, role: ConformanceRole): Promise<ConformanceDrone>;
     issueManagedDroneSession(drone: ConformanceDrone): Promise<string>;
     revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
@@ -174,6 +179,8 @@ export interface ConformanceOperations {
     listDrones(credential: string, cube: ConformanceCube): Promise<ConformanceHttpResponse>;
     reassignDrone(credential: string, cube: ConformanceCube, drone: ConformanceDrone, request: unknown): Promise<ConformanceHttpResponse>;
     evictDrone(credential: string, cube: ConformanceCube, drone: ConformanceDrone, request: unknown): Promise<ConformanceHttpResponse>;
+    deleteRole(credential: string, cube: ConformanceCube, role: ConformanceRole, request: unknown): Promise<ConformanceHttpResponse>;
+    roleRationale(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
     openStream(credential: string, cube: ConformanceCube, cursor: LogCursor | null): Promise<ConformanceStreamResponse>;
 }
 export interface ConformanceEnvironment {
@@ -237,6 +244,12 @@ export declare const ADAPTER_CONFORMANCE_FIXTURES: readonly [{
 }, {
     readonly id: "drones.evict-terminal-signal";
     readonly area: "drones";
+}, {
+    readonly id: "roles.delete-contract";
+    readonly area: "roles";
+}, {
+    readonly id: "roles.rationale-contract";
+    readonly area: "roles";
 }, {
     readonly id: "security.drone-session-rejection-causes";
     readonly area: "security";

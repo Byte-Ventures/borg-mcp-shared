@@ -22,6 +22,8 @@ export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
 export const ENROLLMENT_EXCHANGE_PATH = '/api/enrollment/exchange' as const;
 export const CUBES_PATH = '/api/cubes' as const;
 export const CUBE_PATH = '/api/cubes/:cubeId' as const;
+export const ROLE_PATH = '/api/cubes/:cubeId/roles/:roleId' as const;
+export const ROLE_RATIONALE_PATH = '/api/cubes/:cubeId/role-rationale' as const;
 export const REPOSITORY_CUBE_RESOLVE_PATH = '/api/repository-cubes/resolve' as const;
 export const REPOSITORY_CUBE_ASSOCIATION_PATH = '/api/repository-cubes/association' as const;
 export const ATTACH_PATH = '/api/client/attach' as const;
@@ -38,6 +40,20 @@ export const PROTOCOL_HTTP_CONTRACT = {
     authenticated: true,
     success_status: 200,
     mutation: true,
+  },
+  role_delete: {
+    method: 'DELETE',
+    path: ROLE_PATH,
+    authenticated: true,
+    success_status: 200,
+    mutation: true,
+  },
+  role_rationale: {
+    method: 'POST',
+    path: ROLE_RATIONALE_PATH,
+    authenticated: true,
+    success_status: 200,
+    mutation: false,
   },
   repository_cube_resolve: {
     method: 'POST',
@@ -563,7 +579,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'This client requires protocol v7. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
+      'This client requires protocol v8. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );

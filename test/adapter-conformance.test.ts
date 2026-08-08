@@ -16,11 +16,14 @@ import {
   decodeDeleteCubeRequestEnvelope,
   decodeDroneRuntimeMetadataPatch,
   decodeEvictDroneRequestEnvelope,
+  decodeDeleteRoleRequestEnvelope,
+  decodeRoleRationaleRequestEnvelope,
   decodeProtocolEnvelope,
   decodeReadLogRequest,
   decodeResolveRepositoryCubeRequestEnvelope,
   decodeReassignDroneRequestEnvelope,
   decodeRecordDecisionRequest,
+  parseRoleSections,
   encodeSseEvent,
   PROTOCOL_VERSION,
   runAdapterConformance,
@@ -103,7 +106,19 @@ type Fault =
   | 'drop-cube-delete-terminal-event'
   | 'forget-cube-delete-after-restart'
   | 'forget-some-cube-delete-credentials-after-restart'
-  | 'reveal-deleted-cube-on-delete';
+  | 'reveal-deleted-cube-on-delete'
+  | 'allow-active-role-delete'
+  | 'allow-default-role-delete'
+  | 'allow-required-role-delete'
+  | 'allow-referenced-role-delete'
+  | 'reveal-unknown-role-delete'
+  | 'wrong-role-in-use-message'
+  | 'skip-evicted-role-retarget'
+  | 'drop-role-log-attribution'
+  | 'rationale-case-sensitive'
+  | 'normalize-rationale-body'
+  | 'wrong-rationale-role-code'
+  | 'wrong-rationale-section-code';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -134,6 +149,11 @@ interface RoleState {
   handle: ConformanceRole;
   roleClass: 'queen' | 'worker';
   isHumanSeat: boolean;
+  name?: string;
+  detailedDescription?: string;
+  isDefault?: boolean;
+  isMandatory?: boolean;
+  taxonomyReferenced?: boolean;
   templateKind?: 'human_seat' | 'default_worker';
 }
 
@@ -301,11 +321,26 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     createRole: async (
       cube: ConformanceCube,
-      input: { readonly roleClass: 'queen' | 'worker'; readonly isHumanSeat: boolean },
+      input: {
+        readonly roleClass: 'queen' | 'worker';
+        readonly isHumanSeat: boolean;
+        readonly name?: string;
+        readonly detailedDescription?: string;
+        readonly isDefault?: boolean;
+        readonly isMandatory?: boolean;
+      },
     ): Promise<ConformanceRole> => {
       const handle = { id: this.uuid() };
       this.cube(cube.id).roles.set(handle.id, { handle, ...input });
       return handle;
+    },
+    referenceRoleFromTaxonomy: async (
+      cube: ConformanceCube,
+      role: ConformanceRole,
+    ): Promise<void> => {
+      const state = this.cube(cube.id).roles.get(role.id);
+      if (!state) throw new Error('Cannot reference a foreign role from taxonomy.');
+      state.taxonomyReferenced = true;
     },
     createDrone: async (
       principal: ConformancePrincipal,
@@ -607,7 +642,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '7',
+                protocol_version: '8',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -627,7 +662,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '7',
+                protocol_version: '8',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -726,7 +761,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '7',
+              protocol_version: '8',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -1048,7 +1083,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '7', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '8', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1214,6 +1249,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         handle,
         roleClass: 'worker',
         isHumanSeat: false,
+        name: envelope.payload.name,
+        detailedDescription: '',
       });
       return {
         status: 201,
@@ -1358,6 +1395,132 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         body: createProtocolEnvelope(envelope.request_id, {
           drone_id: drone.handle.id,
           evicted: true,
+        }),
+      };
+    },
+    deleteRole: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      roleHandle: ConformanceRole,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorizeManager(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      let envelope;
+      try {
+        envelope = decodeDeleteRoleRequestEnvelope(request);
+      } catch (error) {
+        if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
+        throw error;
+      }
+      const cube = this.cube(cubeHandle.id);
+      const role = cube.roles.get(roleHandle.id);
+      if (!role) {
+        return this.error(
+          this.fault === 'reveal-unknown-role-delete' ? 409 : 404,
+          this.fault === 'reveal-unknown-role-delete' ? ErrorCode.ROLE_REQUIRED : ErrorCode.NOT_FOUND,
+          envelope.request_id,
+        );
+      }
+      if (role.isDefault && this.fault !== 'allow-default-role-delete') {
+        return this.error(409, ErrorCode.DEFAULT_ROLE_REQUIRED, envelope.request_id);
+      }
+      if ((role.isMandatory || role.isHumanSeat) && this.fault !== 'allow-required-role-delete') {
+        return this.error(409, ErrorCode.ROLE_REQUIRED, envelope.request_id);
+      }
+      if (role.taxonomyReferenced && this.fault !== 'allow-referenced-role-delete') {
+        return this.error(409, ErrorCode.ROLE_REFERENCED, envelope.request_id);
+      }
+      if ([...cube.drones.values()].some(
+        (drone) => !drone.evicted && drone.roleId === roleHandle.id,
+      ) && this.fault !== 'allow-active-role-delete') {
+        return this.error(
+          409,
+          ErrorCode.ROLE_IN_USE,
+          envelope.request_id,
+          this.fault === 'wrong-role-in-use-message'
+            ? 'Role is in use.'
+            : 'Reassign or evict every drone assigned to this role before deleting it.',
+        );
+      }
+      const defaultRole = [...cube.roles.values()].find((candidate) => candidate.isDefault);
+      if (!defaultRole) throw new Error('Role deletion fixture requires a surviving default role.');
+      const affectedDroneIds = new Set(
+        [...cube.drones.values()]
+          .filter((drone) => drone.evicted && drone.roleId === roleHandle.id)
+          .map((drone) => drone.handle.id),
+      );
+      if (this.fault !== 'skip-evicted-role-retarget') {
+        for (const drone of cube.drones.values()) {
+          if (affectedDroneIds.has(drone.handle.id)) drone.roleId = defaultRole.handle.id;
+        }
+      }
+      if (this.fault === 'drop-role-log-attribution') {
+        cube.entries = cube.entries.filter(
+          (entry) => entry.drone_id === null || !affectedDroneIds.has(entry.drone_id),
+        );
+      }
+      cube.roles.delete(roleHandle.id);
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, {
+          role_id: roleHandle.id,
+          deleted: true,
+        }),
+      };
+    },
+    roleRationale: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      let envelope;
+      try {
+        envelope = decodeRoleRationaleRequestEnvelope(request);
+      } catch (error) {
+        if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
+        throw error;
+      }
+      const cube = this.cube(cubeHandle.id);
+      const selector = envelope.payload.role;
+      const role = cube.roles.get(selector) ?? [...cube.roles.values()].find((candidate) =>
+        this.fault === 'rationale-case-sensitive'
+          ? candidate.name === selector
+          : candidate.name?.toLowerCase() === selector.toLowerCase()
+      );
+      if (!role) {
+        return this.error(
+          404,
+          this.fault === 'wrong-rationale-role-code'
+            ? ErrorCode.NOT_FOUND
+            : ErrorCode.ROLE_NOT_FOUND,
+          envelope.request_id,
+        );
+      }
+      const section = parseRoleSections(role.detailedDescription ?? '').find(
+        (candidate) => candidate.kind === 'label' &&
+          candidate.heading?.toLowerCase() === envelope.payload.section.toLowerCase(),
+      );
+      if (!section?.heading) {
+        return this.error(
+          404,
+          this.fault === 'wrong-rationale-section-code'
+            ? ErrorCode.NOT_FOUND
+            : ErrorCode.ROLE_SECTION_NOT_FOUND,
+          envelope.request_id,
+        );
+      }
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, {
+          role_id: role.handle.id,
+          role_name: role.name ?? 'Unnamed Role',
+          section: {
+            heading: section.heading,
+            body: this.fault === 'normalize-rationale-body' ? section.body.trim() : section.body,
+          },
         }),
       };
     },
@@ -1567,13 +1730,18 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return `${prefix}_${String(sequence).padStart(64 - prefix.length, '0')}`;
   }
 
-  private error(status: number, code: ErrorCode, requestId?: string): ConformanceHttpResponse {
+  private error(
+    status: number,
+    code: ErrorCode,
+    requestId?: string,
+    message = 'Conformance request failed.',
+  ): ConformanceHttpResponse {
     return {
       status,
       body: {
-        protocol_version: '7',
+        protocol_version: '8',
         ...(requestId ? { request_id: requestId } : {}),
-        error: { code, message: 'Conformance request failed.' },
+        error: { code, message },
       },
     };
   }
@@ -1672,6 +1840,18 @@ describe('executable adapter conformance', () => {
     ['left cube-owned state after deletion', 'incomplete-cube-delete-cascade', 'cubes.delete-terminal-cascade'],
     ['closed deleted-cube streams without a terminal error', 'drop-cube-delete-terminal-event', 'cubes.delete-terminal-cascade'],
     ['forgot deleted-cube terminal state after restart', 'forget-cube-delete-after-restart', 'cubes.delete-terminal-cascade'],
+    ['allowed deletion of an actively assigned role', 'allow-active-role-delete', 'roles.delete-contract'],
+    ['allowed deletion of the default role', 'allow-default-role-delete', 'roles.delete-contract'],
+    ['allowed deletion of a required role', 'allow-required-role-delete', 'roles.delete-contract'],
+    ['allowed deletion of a taxonomy-referenced role', 'allow-referenced-role-delete', 'roles.delete-contract'],
+    ['revealed an unknown role through a typed integrity refusal', 'reveal-unknown-role-delete', 'roles.delete-contract'],
+    ['returned an unactionable role-in-use message', 'wrong-role-in-use-message', 'roles.delete-contract'],
+    ['left an evicted drone on its deleted role', 'skip-evicted-role-retarget', 'roles.delete-contract'],
+    ['lost activity-log attribution during role deletion', 'drop-role-log-attribution', 'roles.delete-contract'],
+    ['matched rationale role names case-sensitively', 'rationale-case-sensitive', 'roles.rationale-contract'],
+    ['normalized the exact rationale section body', 'normalize-rationale-body', 'roles.rationale-contract'],
+    ['collapsed the unknown-role rationale code', 'wrong-rationale-role-code', 'roles.rationale-contract'],
+    ['collapsed the unknown-section rationale code', 'wrong-rationale-section-code', 'roles.rationale-contract'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

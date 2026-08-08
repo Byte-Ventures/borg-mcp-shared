@@ -39,6 +39,24 @@ export interface EvictDroneResult {
     drone_id: string;
     evicted: true;
 }
+export type DeleteRoleRequest = Record<string, never>;
+export declare const ROLE_IN_USE_DELETE_MESSAGE: "Reassign or evict every drone assigned to this role before deleting it.";
+export interface DeleteRoleResult {
+    role_id: string;
+    deleted: true;
+}
+export interface RoleRationaleRequest {
+    role: string;
+    section: string;
+}
+export interface RoleRationaleResult {
+    role_id: string;
+    role_name: string;
+    section: {
+        heading: string;
+        body: string;
+    };
+}
 export declare function decodeReassignDroneRequest(value: unknown): ReassignDroneRequest;
 export declare function decodeReassignDroneRequestEnvelope(value: unknown): ProtocolEnvelope<ReassignDroneRequest>;
 export declare function decodeReassignDroneResult(value: unknown): ReassignDroneResult;
@@ -47,6 +65,14 @@ export declare function decodeEvictDroneRequest(value: unknown): EvictDroneReque
 export declare function decodeEvictDroneRequestEnvelope(value: unknown): ProtocolEnvelope<EvictDroneRequest>;
 export declare function decodeEvictDroneResult(value: unknown): EvictDroneResult;
 export declare function decodeEvictDroneResultEnvelope(value: unknown): ProtocolEnvelope<EvictDroneResult>;
+export declare function decodeDeleteRoleRequest(value: unknown): DeleteRoleRequest;
+export declare function decodeDeleteRoleRequestEnvelope(value: unknown): ProtocolEnvelope<DeleteRoleRequest>;
+export declare function decodeDeleteRoleResult(value: unknown): DeleteRoleResult;
+export declare function decodeDeleteRoleResultEnvelope(value: unknown): ProtocolEnvelope<DeleteRoleResult>;
+export declare function decodeRoleRationaleRequest(value: unknown): RoleRationaleRequest;
+export declare function decodeRoleRationaleRequestEnvelope(value: unknown): ProtocolEnvelope<RoleRationaleRequest>;
+export declare function decodeRoleRationaleResult(value: unknown): RoleRationaleResult;
+export declare function decodeRoleRationaleResultEnvelope(value: unknown): ProtocolEnvelope<RoleRationaleResult>;
 export declare function decodeReadLogRequest(value: unknown): ReadLogRequest;
 export declare function decodeReadLogRequestEnvelope(value: unknown): ProtocolEnvelope<ReadLogRequest>;
 export declare function decodeAppendLogResult(value: unknown): AppendLogResult;

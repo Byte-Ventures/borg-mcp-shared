@@ -66,13 +66,21 @@ close. Former authorized parent and drone credentials receive
 `410 CUBE_DELETED` for that cube, including after authority restart; callers
 that were never authorized still receive non-enumerating `404 NOT_FOUND`.
 
-The `borgmcp-shared@0.9.0` release candidate retains protocol v7 and carries
+Published `borgmcp-shared@0.9.0` retains protocol v7 and carries
 the v2 invitation artifact: a canonical opaque token carrying the HTTPS
 endpoint, CA SPKI SHA-256 pin, enrollment authority, secret, and integrity
 binding. Decision write requests cap each `decision` and optional `rationale`
 field at 512 UTF-8 bytes independently; response decoders retain longer
 historical values. The strict codec rejects legacy or non-canonical invitation
 forms before enrollment dispatch.
+
+The `borgmcp-shared@0.10.0` release candidate carries protocol v8. It adds
+manage-gated `DELETE /api/cubes/:cubeId/roles/:roleId` with integrity refusals
+for active, default, mandatory, human-seat, and taxonomy-referenced roles. It
+also adds the read-authorized `POST /api/cubes/:cubeId/role-rationale` lookup for
+one named, plain-label section of a role description. A v7 peer and a v8 peer
+reject each other during credential-free preflight before either new route is
+dispatched.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a

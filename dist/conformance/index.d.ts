@@ -1,6 +1,7 @@
 import type { BroadcastHwm } from '../log-stream-hwm.js';
 import type { AssociateRepositoryCubeRequest, CreateCubeRequest, DeleteCubeRequest, EnrollmentExchangeRequest, ResolveRepositoryCubeRequest } from '../protocol/contract.js';
 import { type InvitationArtifact } from '../protocol/contract.js';
+import { ROLE_IN_USE_DELETE_MESSAGE } from '../protocol/coordination.js';
 export * from './adapter.js';
 export interface ConformanceVector<Input, Output> {
     name: string;
@@ -246,5 +247,47 @@ export interface RuntimeMetadataRepositoryConformanceVector {
         working_repo_origin: string;
     } | null;
 }
+export interface RoleDeleteConformanceVector {
+    name: string;
+    fixture: 'deletable' | 'evicted-drone' | 'active-drone' | 'default' | 'mandatory' | 'human-seat' | 'taxonomy-reference' | 'unknown';
+    expected: {
+        status: 200;
+        response: {
+            deleted: true;
+        };
+        mutation: 'delete-role';
+        evicted_drone_retarget?: 'default-role';
+        activity_log_attribution?: 'preserved';
+    } | {
+        status: 409;
+        error: 'ROLE_IN_USE' | 'DEFAULT_ROLE_REQUIRED' | 'ROLE_REQUIRED' | 'ROLE_REFERENCED';
+        mutation: 'none';
+        message?: typeof ROLE_IN_USE_DELETE_MESSAGE;
+    } | {
+        status: 404;
+        error: 'NOT_FOUND';
+        mutation: 'none';
+    };
+}
+export declare const ROLE_DELETE_CONFORMANCE: readonly RoleDeleteConformanceVector[];
+export interface RoleRationaleConformanceVector {
+    name: string;
+    fixture: 'uuid-exact' | 'name-case-insensitive' | 'unknown-role' | 'inaccessible-role' | 'unknown-section' | 'invalid-selector';
+    expected: {
+        status: 200;
+        canonical_heading: true;
+        exact_body: true;
+        mutation: 'none';
+    } | {
+        status: 404;
+        error: 'ROLE_NOT_FOUND' | 'ROLE_SECTION_NOT_FOUND';
+        mutation: 'none';
+    } | {
+        status: 400;
+        error: 'INVALID_INPUT';
+        mutation: 'none';
+    };
+}
+export declare const ROLE_RATIONALE_CONFORMANCE: readonly RoleRationaleConformanceVector[];
 export declare const RUNTIME_METADATA_REPOSITORY_CONFORMANCE: readonly RuntimeMetadataRepositoryConformanceVector[];
 //# sourceMappingURL=index.d.ts.map
