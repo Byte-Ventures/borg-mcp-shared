@@ -5,6 +5,7 @@ import {
   decodeLogCursor,
   decodeProtocolEnvelope,
   decodeUuid,
+  PROTOCOL_LIMIT_CEILINGS,
   utf8ByteLength,
   type LogCursor,
   type ProtocolEnvelope,
@@ -16,7 +17,7 @@ import type {
   EnrichedStreamEntry,
   RoutingEcho,
 } from './types.js';
-import { isLabelLine } from '../role-section.js';
+import { isLabelLine, parseRoleSections } from '../role-section.js';
 
 export interface ReadLogRequest {
   cursor: LogCursor | null;
@@ -89,6 +90,10 @@ export interface RoleRationaleResult {
     body: string;
   };
 }
+
+/** Maximum UTF-8 payload for one returned role-description section. */
+export const ROLE_RATIONALE_SECTION_BODY_MAX_BYTES =
+  PROTOCOL_LIMIT_CEILINGS.max_request_bytes;
 
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -254,12 +259,29 @@ export function decodeRoleRationaleResult(value: unknown): RoleRationaleResult {
   exact(input, ['role_id', 'role_name', 'section'], ['role_id', 'role_name', 'section']);
   const section = object(input.section);
   exact(section, ['heading', 'body'], ['heading', 'body']);
+  const heading = plainRoleSectionHeading(section.heading);
+  const body = boundedString(
+    section.body,
+    'section.body',
+    ROLE_RATIONALE_SECTION_BODY_MAX_BYTES,
+  );
+  const parsed = parseRoleSections(body);
+  if (
+    parsed.length !== 2 ||
+    parsed[0]?.kind !== 'preamble' ||
+    parsed[0].body !== '' ||
+    parsed[1]?.kind !== 'label' ||
+    parsed[1].heading !== heading ||
+    parsed[1].body !== body
+  ) {
+    throw new ProtocolContractError('Invalid coordination field "section.body".');
+  }
   return {
     role_id: decodeUuid(input.role_id, ['role_id']),
     role_name: boundedString(input.role_name, 'role_name', 120),
     section: {
-      heading: plainRoleSectionHeading(section.heading),
-      body: boundedString(section.body, 'section.body', Number.MAX_SAFE_INTEGER),
+      heading,
+      body,
     },
   };
 }

@@ -10,6 +10,7 @@ import {
   CUBE_PATH,
   ROLE_PATH,
   ROLE_RATIONALE_PATH,
+  ROLE_RATIONALE_SECTION_BODY_MAX_BYTES,
   REPOSITORY_CUBE_RESOLVE_PATH,
   REPOSITORY_CUBE_ASSOCIATION_PATH,
   HEALTH_PATH,
@@ -633,8 +634,37 @@ describe('role-management codecs', () => {
       ...valid,
       section: { ...valid.section, heading: 'Workflow rationale:' },
     })).toThrow(ProtocolContractError);
+    expect(() => decodeRoleRationaleResult({
+      ...valid,
+      section: {
+        ...valid.section,
+        body: 'Workflow rationale:\nBody.\n\nBoundaries:\nLeaked neighboring section.\n',
+      },
+    })).toThrow(ProtocolContractError);
+    expect(() => decodeRoleRationaleResult({
+      ...valid,
+      section: { ...valid.section, body: 'Different heading:\nBody.\n' },
+    })).toThrow(ProtocolContractError);
     expect(() => decodeRoleRationaleResult({ ...valid, source: 'template' }))
       .toThrow(ProtocolContractError);
+  });
+
+  it('bounds rationale section result bodies at the protocol request ceiling', () => {
+    const prefix = 'Workflow rationale:\n';
+    const atLimit = prefix + 'a'.repeat(
+      ROLE_RATIONALE_SECTION_BODY_MAX_BYTES - Buffer.byteLength(prefix),
+    );
+    const valid = {
+      role_id: roleId,
+      role_name: 'Builder',
+      section: { heading: 'Workflow rationale', body: atLimit },
+    };
+    expect(ROLE_RATIONALE_SECTION_BODY_MAX_BYTES).toBe(10 * 1024 * 1024);
+    expect(decodeRoleRationaleResult(valid)).toEqual(valid);
+    expect(() => decodeRoleRationaleResult({
+      ...valid,
+      section: { ...valid.section, body: `${atLimit}a` },
+    })).toThrow(ProtocolContractError);
   });
 });
 

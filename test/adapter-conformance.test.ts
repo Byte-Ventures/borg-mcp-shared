@@ -119,7 +119,9 @@ type Fault =
   | 'normalize-rationale-body'
   | 'wrong-rationale-role-code'
   | 'wrong-rationale-section-code'
-  | 'accept-ambiguous-rationale-role';
+  | 'accept-ambiguous-rationale-role'
+  | 'append-rationale-section'
+  | 'oversize-rationale-body';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -1528,7 +1530,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           role_name: role.name ?? 'Unnamed Role',
           section: {
             heading: section.heading,
-            body: this.fault === 'normalize-rationale-body' ? section.body.trim() : section.body,
+            body: this.fault === 'normalize-rationale-body'
+              ? section.body.trim()
+              : this.fault === 'append-rationale-section'
+                ? `${section.body}Boundaries:\nLeaked neighboring section.\n`
+                : this.fault === 'oversize-rationale-body'
+                  ? `${section.heading}:\n${'a'.repeat(10 * 1024 * 1024)}`
+                  : section.body,
           },
         }),
       };
@@ -1862,6 +1870,8 @@ describe('executable adapter conformance', () => {
     ['collapsed the unknown-role rationale code', 'wrong-rationale-role-code', 'roles.rationale-contract'],
     ['collapsed the unknown-section rationale code', 'wrong-rationale-section-code', 'roles.rationale-contract'],
     ['accepted an ambiguous case-insensitive rationale role name', 'accept-ambiguous-rationale-role', 'roles.rationale-contract'],
+    ['returned a neighboring rationale section', 'append-rationale-section', 'roles.rationale-contract'],
+    ['returned an oversized rationale section', 'oversize-rationale-body', 'roles.rationale-contract'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),
