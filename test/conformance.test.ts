@@ -16,6 +16,8 @@ import {
   ENROLLMENT_REDACTION_CONFORMANCE,
   ENROLLMENT_RETRY_CONFORMANCE,
   ROLE_SECTION_ROUND_TRIP_CONFORMANCE,
+  ROLE_DELETE_CONFORMANCE,
+  ROLE_RATIONALE_CONFORMANCE,
   decodeEnrollmentExchangeRequest,
   decodeEnrollmentExchangeResponse,
   decodeCreateCubeRequest,
@@ -59,6 +61,42 @@ describe('public conformance vectors', () => {
     }
   });
 
+  it('pins every role-deletion refusal and the actionable in-use message', () => {
+    expect(ROLE_DELETE_CONFORMANCE.map((vector) => vector.expected)).toEqual([
+      { status: 200, response: { deleted: true }, mutation: 'delete-role' },
+      {
+        status: 200,
+        response: { deleted: true },
+        mutation: 'delete-role',
+        evicted_drone_retarget: 'default-role',
+        activity_log_attribution: 'preserved',
+      },
+      {
+        status: 409,
+        error: 'ROLE_IN_USE',
+        mutation: 'none',
+        message: 'Reassign or evict every drone assigned to this role before deleting it.',
+      },
+      { status: 409, error: 'DEFAULT_ROLE_REQUIRED', mutation: 'none' },
+      { status: 409, error: 'ROLE_REQUIRED', mutation: 'none' },
+      { status: 409, error: 'ROLE_REQUIRED', mutation: 'none' },
+      { status: 409, error: 'ROLE_REFERENCED', mutation: 'none' },
+      { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+    ]);
+  });
+
+  it('pins rationale resolution and every typed lookup refusal', () => {
+    expect(ROLE_RATIONALE_CONFORMANCE.map((vector) => vector.expected)).toEqual([
+      { status: 200, canonical_heading: true, exact_body: true, mutation: 'none' },
+      { status: 200, canonical_heading: true, exact_body: true, mutation: 'none' },
+      { status: 404, error: 'ROLE_NOT_FOUND', mutation: 'none' },
+      { status: 404, error: 'ROLE_NOT_FOUND', mutation: 'none' },
+      { status: 404, error: 'ROLE_SECTION_NOT_FOUND', mutation: 'none' },
+      { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
+      { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
+    ]);
+  });
+
   it('pins retry tuple equality and mismatch vectors', () => {
     for (const vector of ENROLLMENT_RETRY_CONFORMANCE) {
       const initial = decodeEnrollmentExchangeRequest(vector.initial);
@@ -85,7 +123,7 @@ describe('public conformance vectors', () => {
     }
   });
 
-  it('pins the complete protocol-v7 cube-template acceptance set', () => {
+  it('pins the complete protocol-v8 cube-template acceptance set', () => {
     for (const vector of CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE) {
       const request = {
         retry_key: '00000000-0000-4000-8000-000000000120',

@@ -1,4 +1,5 @@
 import { encodeInvitationArtifact, } from '../protocol/contract.js';
+import { ROLE_IN_USE_DELETE_MESSAGE } from '../protocol/coordination.js';
 export * from './adapter.js';
 export const BROADCAST_HWM_CONFORMANCE = [
     {
@@ -588,6 +589,96 @@ export const ATTACH_SESSION_CONFORMANCE = [
         name: 'rejects session fields beyond id',
         response: { ...ATTACH_RESPONSE, session: { ...ATTACH_RESPONSE.session, extra: 'value' } },
         accepts: false,
+    },
+];
+export const ROLE_DELETE_CONFORMANCE = [
+    {
+        name: 'deletes an unreferenced unassigned ordinary role',
+        fixture: 'deletable',
+        expected: { status: 200, response: { deleted: true }, mutation: 'delete-role' },
+    },
+    {
+        name: 'retargets evicted drones without losing existing log attribution',
+        fixture: 'evicted-drone',
+        expected: {
+            status: 200,
+            response: { deleted: true },
+            mutation: 'delete-role',
+            evicted_drone_retarget: 'default-role',
+            activity_log_attribution: 'preserved',
+        },
+    },
+    {
+        name: 'refuses a role held by an active drone with an actionable message',
+        fixture: 'active-drone',
+        expected: {
+            status: 409,
+            error: 'ROLE_IN_USE',
+            mutation: 'none',
+            message: ROLE_IN_USE_DELETE_MESSAGE,
+        },
+    },
+    {
+        name: 'refuses the cube default role',
+        fixture: 'default',
+        expected: { status: 409, error: 'DEFAULT_ROLE_REQUIRED', mutation: 'none' },
+    },
+    {
+        name: 'refuses a mandatory role',
+        fixture: 'mandatory',
+        expected: { status: 409, error: 'ROLE_REQUIRED', mutation: 'none' },
+    },
+    {
+        name: 'refuses a human-seat role',
+        fixture: 'human-seat',
+        expected: { status: 409, error: 'ROLE_REQUIRED', mutation: 'none' },
+    },
+    {
+        name: 'refuses a taxonomy default-recipient role',
+        fixture: 'taxonomy-reference',
+        expected: { status: 409, error: 'ROLE_REFERENCED', mutation: 'none' },
+    },
+    {
+        name: 'hides an unknown or inaccessible role',
+        fixture: 'unknown',
+        expected: { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+    },
+];
+export const ROLE_RATIONALE_CONFORMANCE = [
+    {
+        name: 'resolves an exact role UUID and returns the exact stored section',
+        fixture: 'uuid-exact',
+        expected: { status: 200, canonical_heading: true, exact_body: true, mutation: 'none' },
+    },
+    {
+        name: 'resolves a role name and section heading case-insensitively',
+        fixture: 'name-case-insensitive',
+        expected: { status: 200, canonical_heading: true, exact_body: true, mutation: 'none' },
+    },
+    {
+        name: 'returns a typed refusal for an unknown role',
+        fixture: 'unknown-role',
+        expected: { status: 404, error: 'ROLE_NOT_FOUND', mutation: 'none' },
+    },
+    {
+        name: 'does not resolve a role outside the addressed cube',
+        fixture: 'inaccessible-role',
+        expected: { status: 404, error: 'ROLE_NOT_FOUND', mutation: 'none' },
+    },
+    {
+        name: 'returns a typed refusal for an unknown section',
+        fixture: 'unknown-section',
+        expected: { status: 404, error: 'ROLE_SECTION_NOT_FOUND', mutation: 'none' },
+    },
+    {
+        name: 'rejects a role name with multiple case-insensitive matches',
+        fixture: 'ambiguous-role-name',
+        expected: { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
+    },
+    {
+        name: 'rejects malformed or ambiguous selectors',
+        fixture: 'invalid-selector',
+        expected: { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
     },
 ];
 export const RUNTIME_METADATA_REPOSITORY_CONFORMANCE = [

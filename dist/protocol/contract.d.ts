@@ -4,11 +4,14 @@ import type { DroneRuntimeMetadata, DroneRuntimeMetadataPatch } from './types.js
 export declare const SHARED_PACKAGE_NAME: "borgmcp-shared";
 export declare const SHARED_PACKAGE_VERSION: "0.9.0";
 export declare const DECISION_TEXT_MAX_BYTES: 512;
+export declare const ROLE_TEXT_MAX_BYTES: 51200;
 export declare const HEALTH_PATH: "/healthz";
 export declare const PROTOCOL_INFO_PATH: "/api/protocol";
 export declare const ENROLLMENT_EXCHANGE_PATH: "/api/enrollment/exchange";
 export declare const CUBES_PATH: "/api/cubes";
 export declare const CUBE_PATH: "/api/cubes/:cubeId";
+export declare const ROLE_PATH: "/api/cubes/:cubeId/roles/:roleId";
+export declare const ROLE_RATIONALE_PATH: "/api/cubes/:cubeId/role-rationale";
 export declare const REPOSITORY_CUBE_RESOLVE_PATH: "/api/repository-cubes/resolve";
 export declare const REPOSITORY_CUBE_ASSOCIATION_PATH: "/api/repository-cubes/association";
 export declare const ATTACH_PATH: "/api/client/attach";
@@ -45,6 +48,20 @@ export declare const PROTOCOL_HTTP_CONTRACT: {
         readonly authenticated: true;
         readonly success_status: 200;
         readonly mutation: true;
+    };
+    readonly role_delete: {
+        readonly method: "DELETE";
+        readonly path: "/api/cubes/:cubeId/roles/:roleId";
+        readonly authenticated: true;
+        readonly success_status: 200;
+        readonly mutation: true;
+    };
+    readonly role_rationale: {
+        readonly method: "POST";
+        readonly path: "/api/cubes/:cubeId/role-rationale";
+        readonly authenticated: true;
+        readonly success_status: 200;
+        readonly mutation: false;
     };
     readonly repository_cube_resolve: {
         readonly method: "POST";

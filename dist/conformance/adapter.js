@@ -1,4 +1,4 @@
-import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeAssociateRepositoryCubeResponseEnvelope, decodeCreateCubeResponseEnvelope, decodeDeleteCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeInvitationArtifact, decodeAttachResponseEnvelope, decodeDroneRuntimeMetadataPatch, decodeEvictDroneResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeResolveRepositoryCubeResponseEnvelope, decodeReassignDroneResultEnvelope, decodeUpdateDroneRuntimeMetadataResponseEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, utf8ByteLength, } from '../protocol/index.js';
+import { ErrorCode, compareLogCursor, createProtocolEnvelope, decodeAssociateRepositoryCubeResponseEnvelope, decodeCreateCubeResponseEnvelope, decodeDeleteCubeResponseEnvelope, decodeAppendLogResultEnvelope, decodeDecisionResultEnvelope, decodeDecisionsResultEnvelope, decodeEnrollmentExchangeResponseEnvelope, decodeInvitationArtifact, decodeAttachResponseEnvelope, decodeDroneRuntimeMetadataPatch, decodeEvictDroneResultEnvelope, decodeDeleteRoleResultEnvelope, decodeRoleRationaleResultEnvelope, decodeProtocolEnvelope, decodeProtocolErrorEnvelope, decodeProtocolTagPreflight, decodeReadLogResultEnvelope, decodeResolveRepositoryCubeResponseEnvelope, decodeReassignDroneResultEnvelope, decodeUpdateDroneRuntimeMetadataResponseEnvelope, decodeSseFrames, PROTOCOL_LIMIT_CEILINGS, PROTOCOL_HTTP_CONTRACT, PROTOCOL_VERSION, ROLE_IN_USE_DELETE_MESSAGE, utf8ByteLength, } from '../protocol/index.js';
 import { CREATE_CUBE_ASSOCIATION_CONFORMANCE, CREATE_CUBE_RETRY_CONFORMANCE, INVITATION_ARTIFACT_CONFORMANCE, ENROLLMENT_RETRY_CONFORMANCE, } from './index.js';
 export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'http.unauthenticated-liveness', area: 'http' },
@@ -20,6 +20,8 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
     { id: 'drones.reassign-invariants', area: 'drones' },
     { id: 'security.cross-cube-drone-management', area: 'security' },
     { id: 'drones.evict-terminal-signal', area: 'drones' },
+    { id: 'roles.delete-contract', area: 'roles' },
+    { id: 'roles.rationale-contract', area: 'roles' },
     { id: 'security.drone-session-rejection-causes', area: 'security' },
     { id: 'metadata.attach-report', area: 'metadata' },
     { id: 'metadata.self-heal-patch', area: 'metadata' },
@@ -40,6 +42,14 @@ function invariant(condition, message) {
 function protocolError(response) {
     try {
         return decodeProtocolErrorEnvelope(response.body).error.code;
+    }
+    catch {
+        return null;
+    }
+}
+function protocolErrorMessage(response) {
+    try {
+        return decodeProtocolErrorEnvelope(response.body).error.message;
     }
     catch {
         return null;
@@ -971,6 +981,203 @@ export async function runAdapterConformance(environment, options = {}) {
             fanout_reachable: false,
             old_bearer_status: 410,
             old_bearer_code: ErrorCode.DRONE_EVICTED,
+        };
+    });
+    let roleContractCube;
+    let roleContractPrincipal;
+    let roleContractCredential = '';
+    let roleContractReadCredential = '';
+    await record('roles.delete-contract', async () => {
+        roleContractPrincipal = await environment.admin.createPrincipal('role-contract-manager');
+        const roleContractReader = await environment.admin.createPrincipal('role-contract-reader');
+        roleContractCube = await environment.admin.createCube('role-contract-cube');
+        await environment.admin.grantCube(roleContractPrincipal, roleContractCube, 'manage');
+        await environment.admin.grantCube(roleContractReader, roleContractCube, 'read');
+        const managerInvitation = await environment.admin.issueSingleUseInvitation(roleContractPrincipal, 'client');
+        const readerInvitation = await environment.admin.issueSingleUseInvitation(roleContractReader, 'client');
+        roleContractCredential = `${'D'.repeat(42)}Q`;
+        roleContractReadCredential = `${'L'.repeat(42)}Q`;
+        expectStatus(await environment.operations.enroll(createProtocolEnvelope('role-contract-manager-enroll', {
+            invitation: managerInvitation,
+            retry_key: '00000000-0000-4000-8000-000000000351',
+            client_credential: roleContractCredential,
+        })), 201, 'Role-contract manager enrollment');
+        expectStatus(await environment.operations.enroll(createProtocolEnvelope('role-contract-reader-enroll', {
+            invitation: readerInvitation,
+            retry_key: '00000000-0000-4000-8000-000000000352',
+            client_credential: roleContractReadCredential,
+        })), 201, 'Role-contract reader enrollment');
+        const defaultRole = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Default Worker',
+            isDefault: true,
+        });
+        const mandatoryRole = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Mandatory Worker',
+            isMandatory: true,
+        });
+        const humanRole = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'queen',
+            isHumanSeat: true,
+            name: 'Human Seat',
+        });
+        const referencedRole = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Routed Reviewer',
+        });
+        await environment.admin.referenceRoleFromTaxonomy(roleContractCube, referencedRole);
+        const activeRole = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Active Worker',
+        });
+        await environment.admin.createDrone(roleContractPrincipal, roleContractCube, activeRole);
+        const refusals = [
+            [defaultRole, ErrorCode.DEFAULT_ROLE_REQUIRED, 'default role'],
+            [mandatoryRole, ErrorCode.ROLE_REQUIRED, 'mandatory role'],
+            [humanRole, ErrorCode.ROLE_REQUIRED, 'human-seat role'],
+            [referencedRole, ErrorCode.ROLE_REFERENCED, 'taxonomy-referenced role'],
+            [activeRole, ErrorCode.ROLE_IN_USE, 'active-drone role'],
+        ];
+        for (const [index, [role, code, label]] of refusals.entries()) {
+            const before = await environment.admin.inspectCubeManagementState(roleContractCube);
+            const response = await environment.operations.deleteRole(roleContractCredential, roleContractCube, role, createProtocolEnvelope(`delete-refusal-${index}`, {}));
+            expectError(response, 409, code, `Delete ${label}`);
+            invariant(same(await environment.admin.inspectCubeManagementState(roleContractCube), before), `Delete ${label} mutated cube state after refusal.`);
+            if (code === ErrorCode.ROLE_IN_USE) {
+                const message = protocolErrorMessage(response) ?? '';
+                invariant(message === ROLE_IN_USE_DELETE_MESSAGE, 'ROLE_IN_USE did not direct the caller to reassign or evict the drones first.');
+            }
+        }
+        const unknownRole = { id: '00000000-0000-4000-8000-000000000398' };
+        expectError(await environment.operations.deleteRole(roleContractCredential, roleContractCube, unknownRole, createProtocolEnvelope('delete-unknown-role', {})), 404, ErrorCode.NOT_FOUND, 'Delete unknown role');
+        const deletableRole = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Disposable Worker',
+        });
+        const beforeReadDenial = await environment.admin.inspectCubeManagementState(roleContractCube);
+        expectError(await environment.operations.deleteRole(roleContractReadCredential, roleContractCube, deletableRole, createProtocolEnvelope('delete-role-read-denied', {})), 403, ErrorCode.ACCESS_DENIED, 'Delete role with read authority');
+        invariant(same(await environment.admin.inspectCubeManagementState(roleContractCube), beforeReadDenial), 'Read-authority role deletion mutated cube state.');
+        const deleted = await environment.operations.deleteRole(roleContractCredential, roleContractCube, deletableRole, createProtocolEnvelope('delete-empty-role', {}));
+        expectStatus(deleted, 200, 'Delete unassigned role');
+        invariant(same(decodeDeleteRoleResultEnvelope(deleted.body).payload, {
+            role_id: deletableRole.id,
+            deleted: true,
+        }), 'Role deletion response did not identify the deleted role.');
+        const evictedRole = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Former Worker',
+        });
+        const evictedDrone = await environment.admin.createDrone(roleContractPrincipal, roleContractCube, evictedRole);
+        const evictedSession = await environment.admin.issueManagedDroneSession(evictedDrone);
+        const attributed = await environment.operations.append(evictedSession, roleContractCube, createProtocolEnvelope('role-delete-attribution', { message: 'attribution survives' }));
+        expectStatus(attributed, 201, 'Pre-delete attributed log');
+        const attributedEntry = decodeAppendLogResultEnvelope(attributed.body).payload.entry;
+        expectStatus(await environment.operations.evictDrone(roleContractCredential, roleContractCube, evictedDrone, createProtocolEnvelope('role-delete-evict', {})), 200, 'Pre-delete drone eviction');
+        expectStatus(await environment.operations.deleteRole(roleContractCredential, roleContractCube, evictedRole, createProtocolEnvelope('delete-evicted-role', {})), 200, 'Delete role held only by an evicted drone');
+        invariant((await environment.admin.inspectManagedDrone(evictedDrone)).role_id === defaultRole.id, 'Role deletion did not retarget the evicted drone to the surviving default role.');
+        const read = await environment.operations.read(roleContractCredential, roleContractCube, createProtocolEnvelope('read-role-delete-attribution', { cursor: null, limit: 500 }));
+        expectStatus(read, 200, 'Post-delete attributed log read');
+        invariant(decodeReadLogResultEnvelope(read.body).payload.entries.some((entry) => entry.id === attributedEntry.id && entry.drone_id === evictedDrone.id), 'Deleting the evicted drone role lost the drone attribution of an existing log entry.');
+        return {
+            success_status: 200,
+            hidden_status: 404,
+            refusal_codes: [
+                ErrorCode.ROLE_IN_USE,
+                ErrorCode.DEFAULT_ROLE_REQUIRED,
+                ErrorCode.ROLE_REQUIRED,
+                ErrorCode.ROLE_REFERENCED,
+            ],
+            in_use_message_actionable: true,
+            evicted_drone_retargeted: true,
+            activity_log_attribution_preserved: true,
+        };
+    });
+    await record('roles.rationale-contract', async () => {
+        const detailedDescription = [
+            'Implements assigned work.',
+            '',
+            'Workflow rationale:',
+            'This exact stored section body is returned.',
+            '',
+            'Boundaries:',
+            'Do not expand scope.',
+        ].join('\n');
+        const role = await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Rationale Builder',
+            detailedDescription,
+        });
+        const expectedSection = {
+            heading: 'Workflow rationale',
+            body: 'Workflow rationale:\nThis exact stored section body is returned.\n\n',
+        };
+        for (const [index, [selector, section]] of [
+            [role.id, 'Workflow rationale'],
+            ['rAtIoNaLe BuIlDeR', 'wOrKfLoW rAtIoNaLe'],
+        ].entries()) {
+            const response = await environment.operations.roleRationale(roleContractReadCredential, roleContractCube, createProtocolEnvelope(`rationale-lookup-${index}`, { role: selector, section }));
+            expectStatus(response, 200, 'Role rationale lookup');
+            const result = decodeRoleRationaleResultEnvelope(response.body).payload;
+            invariant(result.role_id === role.id &&
+                result.role_name === 'Rationale Builder' &&
+                same(result.section, expectedSection), 'Role rationale lookup did not return the canonical heading and exact stored section body.');
+        }
+        expectError(await environment.operations.roleRationale(roleContractReadCredential, roleContractCube, createProtocolEnvelope('rationale-unknown-role', {
+            role: 'Unknown Role',
+            section: 'Workflow rationale',
+        })), 404, ErrorCode.ROLE_NOT_FOUND, 'Unknown role rationale lookup');
+        const inaccessibleRole = await environment.admin.createRole(cubeB, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Foreign Rationale Role',
+            detailedDescription,
+        });
+        expectError(await environment.operations.roleRationale(roleContractReadCredential, roleContractCube, createProtocolEnvelope('rationale-inaccessible-role', {
+            role: inaccessibleRole.id,
+            section: 'Workflow rationale',
+        })), 404, ErrorCode.ROLE_NOT_FOUND, 'Inaccessible role rationale lookup');
+        expectError(await environment.operations.roleRationale(roleContractReadCredential, roleContractCube, createProtocolEnvelope('rationale-unknown-section', {
+            role: role.id,
+            section: 'Missing rationale',
+        })), 404, ErrorCode.ROLE_SECTION_NOT_FOUND, 'Unknown role section lookup');
+        await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'Ambiguous Role',
+            detailedDescription,
+        });
+        await environment.admin.createRole(roleContractCube, {
+            roleClass: 'worker',
+            isHumanSeat: false,
+            name: 'AMBIGUOUS ROLE',
+            detailedDescription,
+        });
+        expectError(await environment.operations.roleRationale(roleContractReadCredential, roleContractCube, createProtocolEnvelope('rationale-ambiguous-role', {
+            role: 'ambiguous role',
+            section: 'Workflow rationale',
+        })), 400, ErrorCode.INVALID_INPUT, 'Ambiguous role rationale lookup');
+        expectError(await environment.operations.roleRationale(roleContractReadCredential, roleContractCube, createProtocolEnvelope('rationale-invalid-selector', {
+            role: ' Rationale Builder',
+            section: 'Workflow rationale',
+        })), 400, ErrorCode.INVALID_INPUT, 'Invalid role rationale selector');
+        return {
+            uuid_lookup: true,
+            case_insensitive_name_lookup: true,
+            canonical_heading: true,
+            exact_body: true,
+            unknown_role_code: ErrorCode.ROLE_NOT_FOUND,
+            inaccessible_role_code: ErrorCode.ROLE_NOT_FOUND,
+            unknown_section_code: ErrorCode.ROLE_SECTION_NOT_FOUND,
+            ambiguous_role_code: ErrorCode.INVALID_INPUT,
+            invalid_selector_code: ErrorCode.INVALID_INPUT,
         };
     });
     await record('security.drone-session-rejection-causes', async () => {

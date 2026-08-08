@@ -5,6 +5,7 @@ import {
   decodeLogCursor,
   decodeProtocolEnvelope,
   decodeUuid,
+  ROLE_TEXT_MAX_BYTES,
   utf8ByteLength,
   type LogCursor,
   type ProtocolEnvelope,
@@ -16,6 +17,7 @@ import type {
   EnrichedStreamEntry,
   RoutingEcho,
 } from './types.js';
+import { isLabelLine, parseRoleSections } from '../role-section.js';
 
 export interface ReadLogRequest {
   cursor: LogCursor | null;
@@ -64,6 +66,34 @@ export interface EvictDroneResult {
   drone_id: string;
   evicted: true;
 }
+
+export type DeleteRoleRequest = Record<string, never>;
+
+export const ROLE_IN_USE_DELETE_MESSAGE =
+  'Reassign or evict every drone assigned to this role before deleting it.' as const;
+
+export interface DeleteRoleResult {
+  role_id: string;
+  deleted: true;
+}
+
+export interface RoleRationaleRequest {
+  role: string;
+  section: string;
+}
+
+export interface RoleRationaleResult {
+  role_id: string;
+  role_name: string;
+  section: {
+    heading: string;
+    body: string;
+  };
+}
+
+/** Maximum UTF-8 payload for one returned role-description section. */
+export const ROLE_RATIONALE_SECTION_BODY_MAX_BYTES =
+  ROLE_TEXT_MAX_BYTES;
 
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -169,6 +199,97 @@ export function decodeEvictDroneResultEnvelope(
   value: unknown,
 ): ProtocolEnvelope<EvictDroneResult> {
   return decodeProtocolEnvelope(value, decodeEvictDroneResult);
+}
+
+export function decodeDeleteRoleRequest(value: unknown): DeleteRoleRequest {
+  const input = object(value);
+  exact(input, [], []);
+  return {};
+}
+
+export function decodeDeleteRoleRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<DeleteRoleRequest> {
+  return decodeProtocolEnvelope(value, decodeDeleteRoleRequest);
+}
+
+export function decodeDeleteRoleResult(value: unknown): DeleteRoleResult {
+  const input = object(value);
+  exact(input, ['role_id', 'deleted'], ['role_id', 'deleted']);
+  if (input.deleted !== true) throw new ProtocolContractError('Invalid role deletion result.');
+  return { role_id: decodeUuid(input.role_id, ['role_id']), deleted: true };
+}
+
+export function decodeDeleteRoleResultEnvelope(
+  value: unknown,
+): ProtocolEnvelope<DeleteRoleResult> {
+  return decodeProtocolEnvelope(value, decodeDeleteRoleResult);
+}
+
+function plainRoleSectionHeading(value: unknown): string {
+  const heading = boundedString(value, 'section', 60);
+  if (
+    heading !== heading.trim() ||
+    /[\u0000-\u001f\u007f-\u009f]/.test(heading) ||
+    !isLabelLine(`${heading}:`)
+  ) {
+    throw new ProtocolContractError('Invalid coordination field "section".');
+  }
+  return heading;
+}
+
+export function decodeRoleRationaleRequest(value: unknown): RoleRationaleRequest {
+  const input = object(value);
+  exact(input, ['role', 'section'], ['role', 'section']);
+  const role = boundedString(input.role, 'role', 120);
+  if (role !== role.trim() || /[\u0000-\u001f\u007f-\u009f]/.test(role)) {
+    throw new ProtocolContractError('Invalid coordination field "role".');
+  }
+  return { role, section: plainRoleSectionHeading(input.section) };
+}
+
+export function decodeRoleRationaleRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<RoleRationaleRequest> {
+  return decodeProtocolEnvelope(value, decodeRoleRationaleRequest);
+}
+
+export function decodeRoleRationaleResult(value: unknown): RoleRationaleResult {
+  const input = object(value);
+  exact(input, ['role_id', 'role_name', 'section'], ['role_id', 'role_name', 'section']);
+  const section = object(input.section);
+  exact(section, ['heading', 'body'], ['heading', 'body']);
+  const heading = plainRoleSectionHeading(section.heading);
+  const body = boundedString(
+    section.body,
+    'section.body',
+    ROLE_RATIONALE_SECTION_BODY_MAX_BYTES,
+  );
+  const parsed = parseRoleSections(body);
+  if (
+    parsed.length !== 2 ||
+    parsed[0]?.kind !== 'preamble' ||
+    parsed[0].body !== '' ||
+    parsed[1]?.kind !== 'label' ||
+    parsed[1].heading !== heading ||
+    parsed[1].body !== body
+  ) {
+    throw new ProtocolContractError('Invalid coordination field "section.body".');
+  }
+  return {
+    role_id: decodeUuid(input.role_id, ['role_id']),
+    role_name: boundedString(input.role_name, 'role_name', 120),
+    section: {
+      heading,
+      body,
+    },
+  };
+}
+
+export function decodeRoleRationaleResultEnvelope(
+  value: unknown,
+): ProtocolEnvelope<RoleRationaleResult> {
+  return decodeProtocolEnvelope(value, decodeRoleRationaleResult);
 }
 
 export function decodeReadLogRequest(value: unknown): ReadLogRequest {

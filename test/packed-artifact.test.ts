@@ -231,7 +231,7 @@ describe('packed artifact', () => {
         { name: 'rejects an unknown template name', template: 'custom', accepts: false },
         { name: 'rejects a non-string template', template: null, accepts: false },
       ],
-      protocolVersion: '7',
+      protocolVersion: '8',
       deleteRequest: {},
       deleteResponse: {
         cube_id: '00000000-0000-4000-8000-000000000003',

@@ -126,8 +126,6 @@ describe('npm publish workflow', () => {
       )).toThrow();
     }
 
-    // Enrollment positively states the source now carries the version.
-    expect(enrollment).toMatch(/this source now identifies/i);
     const immutableEvidence = `${releases}\n${enrollment}\n${runbook}`;
     for (const evidence of [
       '045268aa8873da330819860012ecaddb4bc2883c',

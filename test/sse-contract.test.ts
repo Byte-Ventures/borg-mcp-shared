@@ -90,7 +90,7 @@ describe('SSE wire codec', () => {
     const event = {
       type: 'error' as const,
       error: {
-        protocol_version: '7' as const,
+        protocol_version: '8' as const,
         error: { code: ErrorCode.CUBE_DELETED, message: 'This cube was deleted.' },
       },
     };
@@ -102,10 +102,10 @@ describe('SSE wire codec', () => {
 
   it('rejects malformed or wrong-version terminal protocol errors', () => {
     expect(() => decodeSseFrames(
-      'event: error\ndata: {"protocol_version":"7","error":{"code":"CUBE_DELETED","message":"deleted","credential":"secret"}}\n\n',
+      'event: error\ndata: {"protocol_version":"8","error":{"code":"CUBE_DELETED","message":"deleted","credential":"secret"}}\n\n',
     )).toThrow(ProtocolContractError);
     expect(() => decodeSseFrames(
-      'event: error\ndata: {"protocol_version":"6","error":{"code":"CUBE_DELETED","message":"deleted"}}\n\n',
+      'event: error\ndata: {"protocol_version":"7","error":{"code":"CUBE_DELETED","message":"deleted"}}\n\n',
     )).toThrowError(expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }));
   });
 
