@@ -31,3 +31,8 @@ Never rerun or move that tag.
 `672423566ed75cf7704775cb480a75767e7c6851` peels to protected-main commit
 `f4870596ba79702f2e4eb3a6620802d5e538052d`; successful attempt-1 workflow run
 `30625736845` published it. Never rerun or move that tag.
+`borgmcp-shared@0.10.0` is published and immutable: annotated tag `v0.10.0`
+peels to protected-main commit `8e5bd088b8069951a687156c35cf68d44985ddc1`;
+successful attempt-1 workflow run `31255563527` published registry integrity
+`sha512-NYZJi6z0g/Txb6ge+5NgRPNRszVEi0eNmICxkoZq5bGkJWm5qEvNSt3ws90Xz8IOKuWcyHC9i6sAK6cbZxwYDw==`.
+Never rerun or move that tag.
