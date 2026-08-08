@@ -2,7 +2,6 @@ export var ErrorCode;
 (function (ErrorCode) {
     ErrorCode["AUTH_MISSING"] = "AUTH_MISSING";
     ErrorCode["AUTH_INVALID"] = "AUTH_INVALID";
-    ErrorCode["AUTH_EXPIRED"] = "AUTH_EXPIRED";
     ErrorCode["SUBSCRIPTION_REQUIRED"] = "SUBSCRIPTION_REQUIRED";
     ErrorCode["ACCESS_DENIED"] = "ACCESS_DENIED";
     ErrorCode["INVALID_INPUT"] = "INVALID_INPUT";

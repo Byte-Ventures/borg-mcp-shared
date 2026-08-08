@@ -70,7 +70,7 @@ export interface ConformanceDroneRuntimeState {
   readonly metadata_revision: number;
   readonly cube_id: string;
   readonly role_id: string;
-  readonly session_state: 'active' | 'revoked' | 'expired';
+  readonly session_state: 'active' | 'revoked';
   readonly evicted: boolean;
   readonly last_seen: string;
   readonly heartbeat_count: number;
@@ -215,7 +215,6 @@ export interface ConformanceAdmin {
   ): Promise<ConformanceDrone>;
   issueManagedDroneSession(drone: ConformanceDrone): Promise<string>;
   revokeManagedDroneSession(drone: ConformanceDrone): Promise<void>;
-  expireManagedDroneSession(drone: ConformanceDrone): Promise<void>;
   inspectManagedDrone(drone: ConformanceDrone): Promise<{
     readonly role_id: string;
     readonly evicted: boolean;
@@ -375,7 +374,6 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'drones.evict-terminal-signal', area: 'drones' },
   { id: 'roles.delete-contract', area: 'roles' },
   { id: 'roles.rationale-contract', area: 'roles' },
-  { id: 'security.drone-session-rejection-causes', area: 'security' },
   { id: 'metadata.attach-report', area: 'metadata' },
   { id: 'metadata.self-heal-patch', area: 'metadata' },
   { id: 'security.metadata-invalid-atomic', area: 'security' },
@@ -2387,36 +2385,6 @@ export async function runAdapterConformance(
     };
   });
 
-  await record('security.drone-session-rejection-causes', async () => {
-    const revokedDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
-    const expiredDrone = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
-    const revokedCredential = await environment.admin.issueManagedDroneSession(revokedDrone);
-    const expiredCredential = await environment.admin.issueManagedDroneSession(expiredDrone);
-    await environment.admin.revokeManagedDroneSession(revokedDrone);
-    await environment.admin.expireManagedDroneSession(expiredDrone);
-    for (const [label, credential, code] of [
-      ['revoked', revokedCredential, ErrorCode.SESSION_REVOKED],
-      ['expired', expiredCredential, ErrorCode.AUTH_EXPIRED],
-    ] as const) {
-      expectError(
-        await environment.operations.read(
-          credential,
-          cubeA,
-          createProtocolEnvelope(`${label}-seat-probe`, { cursor: null, limit: 1 }),
-        ),
-        401,
-        code,
-        `${label} seat probe`,
-      );
-    }
-    return {
-      revoked_status: 401,
-      expired_status: 401,
-      revoked_code: ErrorCode.SESSION_REVOKED,
-      expired_code: ErrorCode.AUTH_EXPIRED,
-    };
-  });
-
   const knownMetadata = {
     agent_kind: 'opencode' as const,
     reported_model: 'openai/gpt-5.6-sol',
@@ -2637,10 +2605,6 @@ export async function runAdapterConformance(
     const revokedSession = await environment.admin.issueManagedDroneSession(revoked);
     await environment.admin.revokeManagedDroneSession(revoked);
     rejectedStates.push(['revoked', revoked, revokedSession, 401, ErrorCode.SESSION_REVOKED]);
-    const expired = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
-    const expiredSession = await environment.admin.issueManagedDroneSession(expired);
-    await environment.admin.expireManagedDroneSession(expired);
-    rejectedStates.push(['expired', expired, expiredSession, 401, ErrorCode.AUTH_EXPIRED]);
     const evicted = await environment.admin.createDrone(principalA, cubeA, workerRoleA);
     const evictedSession = await environment.admin.issueManagedDroneSession(evicted);
     expectStatus(
@@ -2675,7 +2639,7 @@ export async function runAdapterConformance(
       own_seat_only: true,
       manager_denied: true,
       unknown_session_denied: true,
-      revoked_expired_evicted_denied: true,
+      revoked_evicted_denied: true,
     };
   });
 

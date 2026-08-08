@@ -108,8 +108,7 @@ Cube managers reassign a seat with `PATCH /api/cubes/:cubeId/drones/:droneId`
 and evict one with `DELETE` on the same path. Both operations use strict
 versioned request and success envelopes. An evicted seat's former bearer receives
 the terminal `410 DRONE_EVICTED` signal; revoked sessions return
-`401 SESSION_REVOKED`, while expired sessions return the only recoverable
-authentication outcome, `401 AUTH_EXPIRED`.
+`401 SESSION_REVOKED`.
 An authenticated drone session updates only its own advisory identity with
 `PATCH /api/cubes/:cubeId/drones/self/metadata`. The strict patch carries no
 target seat ID. Metadata never grants authority or changes role, wake, liveness,
