@@ -74,7 +74,7 @@ field at 512 UTF-8 bytes independently; response decoders retain longer
 historical values. The strict codec rejects legacy or non-canonical invitation
 forms before enrollment dispatch.
 
-The `borgmcp-shared@0.10.0` release candidate carries protocol v8. It adds
+`borgmcp-shared@0.10.0` is published and immutable and carries protocol v8. It adds
 manage-gated `DELETE /api/cubes/:cubeId/roles/:roleId` with integrity refusals
 for active, default, mandatory, human-seat, and taxonomy-referenced roles. It
 also adds the read-authorized `POST /api/cubes/:cubeId/role-rationale` lookup for
