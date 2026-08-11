@@ -296,6 +296,65 @@ describe('cube templates', () => {
     expect(coordinator.detailed_description).toContain('Never manufacture work');
   });
 
+  it('back-ports only the ratified live-role operating improvements', () => {
+    const roles = Object.fromEntries(
+      TEMPLATES['software-dev'].roles.map((role) => [role.name, role.detailed_description]),
+    );
+
+    for (const phrase of [
+      'Scope contract:',
+      'whether the slice is independently integrable',
+      'Drop an observation when it changes no decision',
+      'Route one due gate at a time',
+      'Never pre-route a later gate',
+    ]) {
+      expect(roles.Coordinator).toContain(phrase);
+    }
+
+    for (const phrase of [
+      'Verify exact artifact identity and inspect the complete change before review',
+      'generated-source consistency',
+      'load-bearing behavior of a replaced implementation',
+      'one consolidated, exhaustive REVIEW-APPROVED or REVIEW-FEEDBACK',
+      'Do not repeat a finding on the same revision without new evidence',
+      'withdraw the approval',
+    ]) {
+      expect(roles['Code Reviewer']).toContain(phrase);
+    }
+
+    for (const phrase of [
+      'require the dispatch to state N/A explicitly',
+      'smallest test matrix',
+      'relevant success and failure paths',
+      'compatibility, rollout order, and limitations',
+      'environment and every relevant unverified boundary',
+      'Do not represent a partial slice as the complete outcome',
+    ]) {
+      expect(roles['Release Quality']).toContain(phrase);
+    }
+
+    expect(roles['Product Design']).toContain('Inspect the actual implementation or artifact before making factual claims');
+    expect(roles['Product Design']).toContain('loading, empty, success, error, destructive, and recovery states');
+    expect(roles['Product Strategy']).toContain('one falsifiable recommendation');
+    expect(roles['Product Strategy']).toContain('alternatives, risks, and measurable acceptance criteria');
+
+    for (const phrase of [
+      'If a predecessor gate is not applicable, require the dispatch to state N/A explicitly',
+      'Non-security changes are N/A unless the dispatch names a concrete security invariant',
+      'Severity does not create scope or remediation authority',
+      'explicit target, repository boundary, time budget, and output expectation',
+    ]) {
+      expect(roles['Security Auditor']).toContain(phrase);
+    }
+
+    expect(TEMPLATES['software-dev'].cube_directive).toContain(
+      'When an outcome includes a separately published external surface',
+    );
+    expect(TEMPLATES['software-dev'].cube_directive).toContain(
+      'one owning role or seat for its implementation',
+    );
+  });
+
   it('gives Builders an ordered minimum-sufficient-change discipline', () => {
     const builder = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Builder')!;
     const text = builder.detailed_description;
