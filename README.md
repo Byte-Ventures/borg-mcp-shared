@@ -1,8 +1,8 @@
 # borgmcp-shared
 
 `borgmcp-shared` is the implementation-neutral contract package for Borg MCP.
-It contains protocol types, domain helpers, built-in cube templates, and
-portable conformance vectors used by Borg MCP clients and server implementations.
+It contains protocol types, domain helpers, built-in cube templates, and portable
+conformance vectors that Borg MCP client and server implementations can run.
 Its pure ESM helpers and generated TypeScript declarations run consistently
 across host environments with zero runtime dependencies.
 
@@ -122,8 +122,8 @@ ordinary ungranted enrollment, cube creation, pending enrollment, and retry cont
 ## Conformance
 
 Server and client implementations should run the vectors exported from
-`borgmcp-shared/conformance` against their adapters. The vectors and runner are
-readonly data rather than Vitest-specific helpers, so they work with any test
+`borgmcp-shared/conformance` against their adapters. The vectors are readonly
+data, and the runner is test-runner-independent code, so they work with any test
 runner supported by the implementation. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
