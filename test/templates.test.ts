@@ -181,6 +181,9 @@ describe('cube templates', () => {
     const executor = TEMPLATES['local-model'].roles.find((role) => role.name === 'Executor')!
       .detailed_description;
     expect(executor).toContain('Send SPEC-GAP and PACKET-DONE to the Shaper');
+    expect(executor).toContain('Receive EXECUTE PACKET, ACCEPT, and REJECT from the Shaper');
+    expect(executor).toContain('The Shaper shapes packets and accepts or rejects returned commits');
+    expect(executor).toContain('The Director owns decisions and independently verifies accepted work');
     expect(executor).toContain('exact commit SHA');
     expect(executor).not.toContain('with the diff and verbatim check output');
   });
@@ -193,8 +196,12 @@ describe('cube templates', () => {
     expect(director).not.toContain('Decide what must be verified by a capable reader and what the Shaper may convert');
     expect(director).toContain('Own the outcome and its boundaries');
     expect(director).toContain('explicitly authorize Shaper implementation');
+    expect(director).toContain('Receive BLOCKED from the Shaper');
+    expect(director).toContain('Receive REVIEW-READY from the Shaper');
     expect(shaper).toContain('The Shaper alone decides whether all five fields have literal values');
     expect(shaper).toContain('Director sends a DISPATCH that explicitly authorizes Shaper implementation');
+    expect(shaper).toContain('Receive DISPATCH, HOLD, and APPROVED from the Director');
+    expect(shaper).toContain('Receive PACKET-ECHO, SPEC-GAP, and PACKET-DONE from the Executor');
   });
 
   it('does not let local-model roles end a turn while assigned work remains', () => {
@@ -333,7 +340,12 @@ describe('cube templates', () => {
 
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
+    expect(shaper).toContain('inspect sibling callers');
+    expect(shaper).toContain('narrowest shared cause');
+    expect(shaper).toContain('symptom patches');
     expect(executor).toContain('Do not add an abstraction, helper, wrapper, or file the packet did not specify');
+    expect(executor).toContain('If Shape permits fewer lines, use fewer lines');
+    expect(executor).toContain('Prefer deletion over addition where the packet permits both');
     expect(executor).toContain('that is a SPEC-GAP');
   });
 
@@ -390,7 +402,11 @@ describe('cube templates', () => {
         if (entry.class === 'cube-wide') {
           expect(entry.routing).toBe('broadcast');
           expect(entry.prefixes).toEqual(
-            templateName === 'local-model' ? ['DECISION'] : ['DECISION', 'HALT'],
+            templateName === 'local-model'
+              ? ['DECISION']
+              : templateName === 'software-dev'
+                ? ['DECISION', 'HALT', 'MERGED']
+                : ['DECISION', 'HALT'],
           );
         } else {
           expect(entry.routing, `${template.name}/${entry.class}`).toBe('directed');
@@ -446,8 +462,11 @@ describe('cube templates', () => {
     type ExpectedRoute = { signals: string[]; recipient: string };
     const worksheet: Record<string, Record<string, ExpectedRoute[]>> = {
       'software-dev': {
-        Coordinator: [{ signals: ['START NOW', 'HOLD'], recipient: 'named implementer or reviewer' }],
-        Builder: [{ signals: ['STARTING', 'REVIEW-READY', 'BLOCKED'], recipient: 'Coordinator' }],
+        Coordinator: [
+          { signals: ['START NOW', 'RESUME NOW', 'REVIEW NOW', 'HOLD', 'PING'], recipient: 'named implementer or reviewer' },
+          { signals: ['DECISION', 'HALT', 'MERGED'], recipient: 'cube-wide' },
+        ],
+        Builder: [{ signals: ['STARTING', 'PROGRESS', 'PUSHING', 'DONE', 'REVIEW-READY', 'BLOCKED'], recipient: 'Coordinator' }],
         'Code Reviewer': [{ signals: ['REVIEW-APPROVED', 'REVIEW-FEEDBACK', 'BLOCKED'], recipient: 'Coordinator' }],
         'Release Quality': [{ signals: ['RQ-APPROVED', 'RQ-FEEDBACK', 'BLOCKED'], recipient: 'Coordinator' }],
         'Product Design': [{ signals: ['PD-APPROVED', 'PD-FEEDBACK', 'BLOCKED'], recipient: 'Coordinator' }],
@@ -455,8 +474,11 @@ describe('cube templates', () => {
         'Security Auditor': [{ signals: ['SECURITY-APPROVED', 'SECURITY-FEEDBACK', 'BLOCKED'], recipient: 'Coordinator' }],
       },
       starter: {
-        Coordinator: [{ signals: ['START NOW', 'HOLD'], recipient: 'named Worker or Reviewer' }],
-        Worker: [{ signals: ['STARTING', 'DONE', 'REVIEW-READY', 'BLOCKED'], recipient: 'Coordinator' }],
+        Coordinator: [
+          { signals: ['START NOW', 'RESUME NOW', 'REVIEW NOW', 'HOLD', 'PING'], recipient: 'named Worker or Reviewer' },
+          { signals: ['DECISION', 'HALT'], recipient: 'cube-wide' },
+        ],
+        Worker: [{ signals: ['STARTING', 'PROGRESS', 'DONE', 'REVIEW-READY', 'BLOCKED'], recipient: 'Coordinator' }],
         Reviewer: [{ signals: ['APPROVED', 'FEEDBACK', 'BLOCKED'], recipient: 'Coordinator' }],
       },
       'local-model': {
@@ -468,10 +490,38 @@ describe('cube templates', () => {
         Executor: [{ signals: ['PACKET-ECHO', 'SPEC-GAP', 'PACKET-DONE'], recipient: 'Shaper' }],
       },
     };
+    const declaredPrefixes: Record<string, string[]> = {
+      'software-dev': [
+        'STARTING', 'PROGRESS', 'ACK', 'PONG', 'PUSHING',
+        'DONE', 'REVIEW-READY',
+        'REVIEW-FEEDBACK', 'RQ-FEEDBACK', 'SECURITY-FEEDBACK', 'PD-FEEDBACK', 'PS-FEEDBACK',
+        'REVIEW-APPROVED', 'RQ-APPROVED', 'SECURITY-APPROVED', 'PD-APPROVED', 'PS-APPROVED',
+        'BLOCKED', 'START NOW', 'RESUME NOW', 'REVIEW NOW', 'HOLD', 'PING',
+        'QUESTION', 'ASK', 'ANSWER', 'HEADS-UP', 'PROPOSAL', 'DECISION', 'HALT', 'MERGED',
+      ],
+      starter: [
+        'STARTING', 'PROGRESS', 'ACK', 'PONG', 'DONE', 'REVIEW-READY', 'FEEDBACK',
+        'APPROVED', 'BLOCKED', 'START NOW', 'RESUME NOW', 'REVIEW NOW', 'HOLD', 'PING',
+        'QUESTION', 'ASK', 'ANSWER', 'HEADS-UP', 'DECISION', 'HALT',
+      ],
+      'local-model': [
+        'PACKET-ECHO', 'SPEC-GAP', 'PACKET-DONE', 'EXECUTE PACKET', 'ACCEPT', 'REJECT',
+        'BLOCKED', 'REVIEW-READY', 'DISPATCH', 'HOLD', 'APPROVED',
+        'QUESTION', 'ANSWER', 'HEADS-UP', 'DECISION',
+      ],
+    };
 
     for (const [templateName, roles] of Object.entries(worksheet)) {
       const template = TEMPLATES[templateName];
-      const prefixes = new Set(template.message_taxonomy?.flatMap((entry) => entry.prefixes ?? []));
+      const declared = template.message_taxonomy?.flatMap((entry) => entry.prefixes ?? []) ?? [];
+      const prefixes = new Set(declared);
+      expect(declared, `${templateName} complete declared taxonomy`).toEqual(
+        declaredPrefixes[templateName],
+      );
+      const combinedRoleText = template.roles.map((role) => role.detailed_description).join('\n');
+      for (const prefix of declaredPrefixes[templateName]) {
+        expect(combinedRoleText, `${templateName} assigns ${prefix} to a playbook`).toContain(prefix);
+      }
       for (const [roleName, routes] of Object.entries(roles)) {
         const text = template.roles.find((role) => role.name === roleName)!.detailed_description;
         expect(text, `${templateName}/${roleName} teaches structured routing`).toContain('`to:`');
