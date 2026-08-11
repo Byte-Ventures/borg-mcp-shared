@@ -13,8 +13,7 @@ The release lane has one build, test, package, and publication authority:
 1. verifies the public repository context, exact package version, annotated tag,
    tag commit, and ancestry on protected `main`;
 2. installs locked dependencies without lifecycle scripts and runs dependency
-   audit, type checks, the full test suite, one clean build, and generated-output
-   drift detection;
+   audit, one clean build, type checks, and the full test suite;
 3. creates one local tarball, enforces the packed-artifact policy, and installs
    that tarball into a clean consumer that imports every public export;
 4. rejects an existing immutable version or a package not owned solely by the
