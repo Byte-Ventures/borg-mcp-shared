@@ -62,3 +62,5 @@ Review remains the host-neutrality control: role text must avoid a specific repo
 - Automatic synchronization into existing cubes: rejected because it would clobber local policy and role edits. Existing cubes remain unchanged unless an operator applies a named edit.
 - Separate template versions or compatibility negotiation: rejected because package identity and exact matched consumer pins already provide the delivery boundary; another version axis would add ambiguity without preserving any supported behavior.
 - A new lifecycle validator or audit service: rejected because current behavioral tests, role-section round trips, protected review, and artifact gates already cover the enforceable invariants. Host-neutrality and promotion judgment remain review responsibilities.
+
+Boundary: this document describes current mechanisms and the supported promotion path; it does not itself authorize a release, a local cube mutation, or a consumer pin change.
