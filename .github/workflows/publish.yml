@@ -69,14 +69,14 @@ jobs:
       - name: Audit dependency tree
         run: npm audit --audit-level=high
 
+      - name: Build package output
+        run: npm run build
+
       - name: Check types
         run: npm run check
 
       - name: Run tests
         run: npm test
-
-      - name: Build package output
-        run: npm run build
 
       - name: Build exact release tarball
         id: pack

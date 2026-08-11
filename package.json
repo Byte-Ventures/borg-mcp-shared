@@ -64,7 +64,7 @@
     "verify:sbom": "node scripts/verify-release-sbom.mjs",
     "release:prepare": "node scripts/release-identity.mjs prepare",
     "verify:release-identity": "node scripts/release-identity.mjs verify",
-    "prepack": "npm run check && npm test && npm run build"
+    "prepack": "npm run build && npm run check && npm test"
   },
   "keywords": [
     "borgmcp",

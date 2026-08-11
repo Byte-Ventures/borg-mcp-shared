@@ -24,7 +24,7 @@
 
 - Run one test file while iterating: `npx vitest run test/<name>.test.ts`.
 - Run one named test while iterating: `npx vitest run test/<name>.test.ts -t '<test name>'`.
-- Before committing source or package-surface changes, run the CI sequence: `npm run check`, `npm test`, `npm run build`, and `npm pack --dry-run --ignore-scripts`. Build output must not appear in `git status`.
+- Before committing source or package-surface changes, run the CI sequence: `npm run build`, `npm run check`, `npm test`, and `npm pack --dry-run --ignore-scripts`. Build output must not appear in `git status`.
 - `npm run check` type-checks both source and TypeScript tests; there is no separate lint script.
 - CI supports Node.js 20 and 22. Release reproduction uses the exact Node/npm versions documented in `docs/releasing.md`.
 
