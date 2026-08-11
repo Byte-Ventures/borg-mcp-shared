@@ -36,3 +36,13 @@ peels to protected-main commit `8e5bd088b8069951a687156c35cf68d44985ddc1`;
 successful attempt-1 workflow run `31255563527` published registry integrity
 `sha512-NYZJi6z0g/Txb6ge+5NgRPNRszVEi0eNmICxkoZq5bGkJWm5qEvNSt3ws90Xz8IOKuWcyHC9i6sAK6cbZxwYDw==`.
 Never rerun or move that tag.
+`borgmcp-shared@0.11.0` was published on 2026-08-11 and is immutable:
+annotated tag `v0.11.0` peels to protected-main commit
+`c1df96a858ff7c587d42508d388aa517a0b8545c`. PR #119 added the template
+lifecycle document. PR #120 added local-model routing and ownership,
+two-direction taxonomy agreement, the workflow-discipline mechanism split,
+and minimalism completion. PR #121 added live-cube back-ports and the
+external-surface single-owner directive rule. Successful attempt-1 workflow
+run `31531549256` published registry integrity
+`sha512-I8mixCbSrLKyOAAyqEI/HZJ8cML2rz3r812Up8pr547OdAk9LxZevdCo7ojG42ZwrUmS5u7iKQPg7Vk1XvtX1g==`.
+Never rerun or move that tag.
