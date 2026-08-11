@@ -12,6 +12,7 @@ import { TEMPLATES } from '../src/templates.js';
 
 const SOFTWARE_DEV = TEMPLATES['software-dev'];
 const STARTER = TEMPLATES['starter'];
+const LOCAL_MODEL = TEMPLATES['local-model'];
 
 describe('isLabelLine', () => {
   it('accepts flush-left short colon-terminated labels', () => {
@@ -87,6 +88,11 @@ describe('parseRoleSections / serializeSections — round-trip', () => {
     })),
     ...STARTER.roles.map((r) => ({
       template: 'starter',
+      name: r.name,
+      text: r.detailed_description,
+    })),
+    ...LOCAL_MODEL.roles.map((r) => ({
+      template: 'local-model',
       name: r.name,
       text: r.detailed_description,
     })),
