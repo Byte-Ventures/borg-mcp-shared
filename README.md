@@ -12,7 +12,7 @@ across host environments with zero runtime dependencies.
 npm install borgmcp-shared
 ```
 
-The package is ESM-only and supports Node.js 20 or newer.
+The package is ESM-only and supports Node.js 22.12.0 or newer.
 
 ## Public API
 
@@ -53,9 +53,9 @@ The supported subpaths are:
 - `borgmcp-shared/drone-address`: stable short drone-address rendering.
 - `borgmcp-shared/runtime-metadata`: pure validation and canonical repository
   identity helpers for advisory local seat metadata.
+- `borgmcp-shared/package.json`: package metadata.
 
-Generated declaration files are included in every published package. Public
-functions and contracts include API documentation in their TypeScript sources.
+Generated declaration files are included in the published package.
 
 ## Handshake
 
@@ -99,11 +99,12 @@ authority: there is no capability negotiation, and client and server ship and
 update together as one clean-slate product. The attach request envelope still
 decodes its version before any payload as defense in depth.
 
-Every JSON coordination request and successful JSON response is carried inside
-`ProtocolEnvelope<T>`. Failures use `ProtocolErrorEnvelope`. The only bodyless
-exceptions are the `204` liveness and acknowledgement responses. Payload codecs
-are exported separately so adapters can validate the envelope first and then
-validate the operation-specific payload without accepting ambiguous fields.
+Versioned JSON coordination requests and successful responses are carried inside
+`ProtocolEnvelope<T>`. Failures use `ProtocolErrorEnvelope`. The credential-free
+protocol preflight uses its exact tag-only shape; `204` liveness and
+acknowledgement responses are bodyless. Payload codecs are exported separately
+so adapters can validate the envelope first and then validate the
+operation-specific payload without accepting ambiguous fields.
 Cube managers reassign a seat with `PATCH /api/cubes/:cubeId/drones/:droneId`
 and evict one with `DELETE` on the same path. Both operations use strict
 versioned request and success envelopes. An evicted seat's former bearer receives
@@ -144,9 +145,9 @@ historical values so existing registry entries remain compatible.
 Implement `ConformanceEnvironment` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,
 drives state transitions, and decides pass/fail; adapters do not submit expected
-results. Each server or client adapter runs this single portable suite against
-its local/self-hosted implementation. The package does not define a second
-authority, migration target, or fallback implementation.
+results. A server or client adapter can run the portable suite against its
+local/self-hosted implementation. The package does not define a second authority,
+migration target, or fallback implementation.
 
 The package's own suite covers built-in templates, role-section patching,
 broadcast high-water-mark ordering, drone-address formatting, runtime metadata
