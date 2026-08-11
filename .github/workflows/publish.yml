@@ -75,7 +75,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Rebuild tracked output
+      - name: Build package output
         run: npm run build
 
       - name: Build exact release tarball

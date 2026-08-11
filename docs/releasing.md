@@ -64,7 +64,7 @@ repository, workflow output, artifact, issue, or shell history.
 
 ## Release Procedure
 
-1. Merge the exact version, lockfile, generated output, and release documentation
+1. Merge the exact version, lockfile, source, and release documentation
    to protected `main` after the required exact-SHA Code Review, Security Review,
    and Release Quality gates.
 2. Verify repository controls with the configuration guard above. Confirm the
