@@ -155,6 +155,26 @@ describe('npm publish workflow', () => {
     expect(configurationGuard).not.toContain('ALLOW_UNCLAIMED_FIRST_PUBLISH');
   });
 
+  it('builds generated output before every dist-importing validation lane', async () => {
+    const ci = await readFile('.github/workflows/ci.yml', 'utf8');
+    const publish = await readFile('.github/workflows/publish.yml', 'utf8');
+    const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as {
+      scripts: { prepack: string };
+    };
+    const packageJobStart = ci.indexOf('  package:\n');
+    const nextJobStart = ci.indexOf('\n  release-identity:', packageJobStart);
+    const packageJob = ci.slice(packageJobStart, nextJobStart);
+
+    expect(packageJobStart).toBeGreaterThan(-1);
+    expect(nextJobStart).toBeGreaterThan(packageJobStart);
+    for (const lane of [packageJob, publish, packageJson.scripts.prepack]) {
+      const build = lane.indexOf('npm run build');
+      expect(build).toBeGreaterThan(-1);
+      expect(lane.indexOf('npm run check')).toBeGreaterThan(build);
+      expect(lane.indexOf('npm test')).toBeGreaterThan(build);
+    }
+  });
+
   it('keeps internal release state out of the README and release history', async () => {
     // SR f0969024: a version bump must retire the pre-bump framing. A stale claim
     // that the source "never claims to be <version>" or defers the bump to a

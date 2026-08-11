@@ -11,7 +11,7 @@
 
 - The project is pure ESM with TypeScript `module`/`moduleResolution` set to `NodeNext`. Use `.js` extensions in relative imports written in `.ts` files.
 - Edit `src/`, never `dist/` directly. `npm run build` deletes and regenerates `dist/`, including declarations, source maps, and JavaScript.
-- `dist/` is committed. After source changes, run `npm run build` and include the resulting `dist/` changes. CI rebuilds and fails on `git diff --exit-code -- dist`.
+- `dist/` is generated and gitignored. Releases and `prepack` rebuild it from source; never add it to commits.
 - The npm package uses a strict `files` allowlist, explicit exports, and `scripts/verify-packed-artifact.mjs`. Any change to packaged roots or entry points must update those constraints and their tests together.
 
 ## Protocol and conformance changes
@@ -24,7 +24,7 @@
 
 - Run one test file while iterating: `npx vitest run test/<name>.test.ts`.
 - Run one named test while iterating: `npx vitest run test/<name>.test.ts -t '<test name>'`.
-- Before committing source or package-surface changes, run the CI sequence: `npm run check`, `npm test`, `npm run build`, `git diff --exit-code -- dist`, and `npm pack --dry-run --ignore-scripts`.
+- Before committing source or package-surface changes, run the CI sequence: `npm run build`, `npm run check`, `npm test`, and `npm pack --dry-run --ignore-scripts`. Build output must not appear in `git status`.
 - `npm run check` type-checks both source and TypeScript tests; there is no separate lint script.
 - CI supports Node.js 20 and 22. Release reproduction uses the exact Node/npm versions documented in `docs/releasing.md`.
 

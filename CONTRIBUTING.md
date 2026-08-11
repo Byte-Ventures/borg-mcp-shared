@@ -19,9 +19,9 @@ Use Node.js 20 or newer, then run:
 
 ```sh
 npm install
-npm test
-npm run check
 npm run build
+npm run check
+npm test
 npm pack --dry-run
 ```
 

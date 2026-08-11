@@ -29,9 +29,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm run build
       - run: npm run check
       - run: npm test
-      - run: npm run build
 
   release-identity:
     if: github.event_name == 'pull_request'

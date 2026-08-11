@@ -20,7 +20,7 @@ const valid = {
   working_repo_origin: null,
 } as const;
 
-describe('committed runtime metadata distribution', () => {
+describe('built runtime metadata distribution', () => {
   it('rejects invalid enum and authority keys at the exported runtime boundary', () => {
     expect(() => validateRuntimeMetadata({ ...valid, agent_kind: 'EVIL' })).toThrow(
       RuntimeMetadataValidationError,
@@ -36,7 +36,7 @@ describe('committed runtime metadata distribution', () => {
     );
   });
 
-  it('rejects contradictory unreported response states in committed dist', () => {
+  it('rejects contradictory unreported response states in generated dist', () => {
     const allNull = {
       agent_kind: null,
       reported_model: null,
