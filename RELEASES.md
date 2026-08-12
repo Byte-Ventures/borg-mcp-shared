@@ -1,5 +1,9 @@
 # Release History
 
+Eight published versions from 0.2.2 through 0.6.2, excluding the isolated 0.4.0
+baseline, predate the canonical release-record convention. Historical incident
+prose below remains their record instead of reconstructed structured entries.
+
 `borgmcp-shared@0.4.0` is the published clean-slate v2 baseline and is
 immutable, but its artifact predates the local/self-hosted package cleanup. The
 immutable `v0.4.1` verification artifact exposed a platform-dependent SBOM audit

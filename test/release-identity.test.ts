@@ -8,7 +8,9 @@ import {
   createReleaseRecord,
   prepareRelease,
   verifyReleaseIdentity,
+  verifyReleaseProvenance,
   type ReleaseAuthorities,
+  type ReleaseRecord,
 } from '../scripts/release-identity.mjs';
 
 const directories: string[] = [];
@@ -112,6 +114,68 @@ describe('release identity recovery', () => {
 
     expect(() => verifyReleaseIdentity(fixture.root, base, candidate, fixture.authorities))
       .toThrow(/Release identity shape mismatch: test\/version-pin\.test\.ts/);
+  });
+
+  it('accepts only a final reconstructed true marker', async () => {
+    const fixture = await createFixture();
+    const record: ReleaseRecord = {
+      outcome: 'published',
+      version: '1.0.0',
+      tag: 'v1.0.0',
+      tag_object: git(fixture.root, 'rev-parse', 'v1.0.0^{tag}'),
+      commit: git(fixture.root, 'rev-parse', 'v1.0.0^{commit}'),
+      tree: git(fixture.root, 'rev-parse', 'v1.0.0^{commit}^{tree}'),
+      workflow_run_id: 100,
+      workflow_run_attempt: 1,
+      workflow_conclusion: 'success',
+      verify_job_id: null,
+      publish_job_id: null,
+      artifact_integrity: `sha512-${'A'.repeat(86)}==`,
+      reconstructed: true,
+    };
+
+    expect(verifyReleaseProvenance(fixture.root, record, fixture.authorities))
+      .toMatchObject({ version: '1.0.0', reconstructed: true });
+    expect(() => verifyReleaseProvenance(fixture.root, {
+      ...record,
+      reconstructed: false,
+    } as unknown as ReleaseRecord, fixture.authorities)).toThrow(/invalid or non-canonical shape/);
+    const { reconstructed, ...fields } = record;
+    expect(() => verifyReleaseProvenance(fixture.root, {
+      reconstructed,
+      ...fields,
+    } as ReleaseRecord, fixture.authorities)).toThrow(/invalid or non-canonical shape/);
+  });
+
+  it('rejects preparation when the immediately previous published version is unrecorded', async () => {
+    const fixture = await createFixture();
+    const skippedAuthorities = {
+      ...fixture.authorities,
+      publishedVersions: () => ['1.0.0', '1.0.1'],
+    };
+
+    await expect(prepareRelease(fixture.root, '1.2.0', {
+      workflowRunId: 200,
+      workflowRunAttempt: 1,
+      workflowConclusion: 'failure',
+    }, skippedAuthorities)).rejects.toThrow(
+      'Immediately previous published version is missing from release records: 1.0.1',
+    );
+
+    await prepareRelease(fixture.root, '1.2.0', {
+      workflowRunId: 200,
+      workflowRunAttempt: 1,
+      workflowConclusion: 'failure',
+    }, fixture.authorities);
+    git(fixture.root, 'add', '.');
+    git(fixture.root, 'commit', '-m', 'prepare release with skipped predecessor');
+    const candidate = git(fixture.root, 'rev-parse', 'HEAD');
+    expect(() => verifyReleaseIdentity(
+      fixture.root,
+      git(fixture.root, 'rev-parse', 'HEAD^'),
+      candidate,
+      skippedAuthorities,
+    )).toThrow('Immediately previous published version is missing from release records: 1.0.1');
   });
 });
 

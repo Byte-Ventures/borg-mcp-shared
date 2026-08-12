@@ -85,6 +85,13 @@ repository, workflow output, artifact, issue, or shell history.
    update consumers, synchronize the site, create a GitHub Release, or record a
    `published` outcome while it remains staged.
 
+Before release preparation or trusted identity verification can pass, the
+greatest stable npm version below the current package version must already have a
+`published` ledger entry. This prevents a later release from silently skipping
+the immediately previous publication. A final `"reconstructed": true` marker
+means the entry was recovered later from the same annotated-tag, Actions-run, and
+npm-integrity authorities; it does not weaken verification or change the outcome.
+
 ## Coupled Stage Approval
 
 For a coordinated shared, server, and client release, require all three tag
@@ -192,6 +199,13 @@ next release uses a new version and a new annotated tag.
 ## Immutable Historical Evidence
 
 These records remain evidence, not reusable release inputs:
+
+Eight published versions from 0.2.2 through 0.6.2, excluding the isolated 0.4.0
+baseline, are the pre-convention boundary. Their workflow runs ended in failure
+despite registry publication, which the canonical record schema cannot represent,
+so the incident prose remains their record rather than force-fitting them into
+`docs/release-records.json`. The 0.4.2 publication additionally came from a
+`workflow_dispatch` run on `main`; 0.4.0 is also excluded from reconstruction.
 
 - `v0.2.0` run `29353763609` and `v0.2.1` run `29355823822` failed before
   artifact creation or publication.
