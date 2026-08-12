@@ -89,10 +89,12 @@ repository, workflow output, artifact, issue, or shell history.
 
 For a coordinated shared, server, and client release, require all three tag
 workflows to succeed before approving any stage. Use authenticated `npm stage
-list` and `npm stage view` to record and verify each UUID, package, version,
-`latest` tag, source run, tag, commit, and artifact identity. If necessary,
-download and exercise the staged tarballs. Confirm public `latest` and the public
-version lists still describe the prior coherent set.
+list` and `npm stage view` to record and verify each UUID, package, version, and
+`latest` tag. Bind each source run, annotated tag, and commit separately from
+GitHub workflow and tag evidence. Before any approval, run `npm stage download
+<UUID>` for every package and verify its SHA-512 against the same-run artifact
+report. Confirm public `latest` and the public version lists still describe the
+prior coherent set.
 
 Approve the verified stages in one operator session with 2FA:
 
@@ -108,9 +110,9 @@ reduces that window to the approval sequence but does not eliminate it.
 After each approval, continue only while the remaining stage is still the exact
 verified candidate. Resolve an ambiguous approval through authenticated stage
 state and canonical public version/integrity state; never repeat it blindly.
-After all approvals, verify the three live versions and integrities, exercise a
-fresh coupled install, and only then announce, record, close, or synchronize the
-release.
+After all approvals, verify the three live versions, integrities, and registry
+provenance attestations, exercise a fresh coupled install, and only then
+announce, record, close, or synchronize the release.
 
 ## Coupled Publication Window
 
