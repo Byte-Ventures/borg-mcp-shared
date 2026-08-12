@@ -93,8 +93,9 @@ list` and `npm stage view` to record and verify each UUID, package, version, and
 `latest` tag. Bind each source run, annotated tag, and commit separately from
 GitHub workflow and tag evidence. Before any approval, run `npm stage download
 <UUID>` for every package and verify its SHA-512 against the same-run artifact
-report. Confirm public `latest` and the public version lists still describe the
-prior coherent set.
+report. Exercise the exact downloaded coupled set before approving any stage.
+Confirm public `latest` and the public version lists still describe the prior
+coherent set.
 
 Approve the verified stages in one operator session with 2FA:
 
