@@ -118,9 +118,22 @@ reduces that window to the approval sequence but does not eliminate it.
 After each approval, continue only while the remaining stage is still the exact
 verified candidate. Resolve an ambiguous approval through authenticated stage
 state and canonical public version/integrity state; never repeat it blindly.
-After all approvals, verify the three live versions, integrities, and registry
-provenance attestations, exercise a fresh coupled install, and only then
-announce, record, close, or synchronize the release.
+After all approvals:
+
+1. Verify the three live versions, integrities, and registry provenance
+   attestations, and exercise a fresh coupled install. Only then announce,
+   record, close, or synchronize the release.
+2. Create the three GitHub Releases in the same operator session, in shared,
+   server, then client order. For shared, pass the SHA-512 SRI computed from the
+   mandatory stage download during promotion:
+
+```sh
+GITHUB_TOKEN="$(gh auth token)" node scripts/create-github-release.mjs <version> --integrity <sha512-SRI>
+```
+
+This required value binds npm-live to the independently verified staged bytes.
+Unlike server and client, shared uploads no same-run artifact report; do not
+derive the expected integrity from npm or alter `publish.yml` to create one.
 
 ## Coupled Publication Window
 
