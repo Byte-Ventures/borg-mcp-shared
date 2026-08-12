@@ -38,11 +38,17 @@ jobs:
           set -euo pipefail
           test "${GITHUB_RUN_ATTEMPT}" = "1"
           test "${{ github.event.repository.private }}" = "false"
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          test -z "${NODE_AUTH_TOKEN:-}"
 
       - name: Set up exact Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.19.0
+
+      - name: Install exact npm
+        run: npm install --global npm@11.18.0
 
       - name: Verify release source and tag
         id: release
@@ -124,5 +130,5 @@ jobs:
           NODE
           )
 
-      - name: Publish exact verified tarball with provenance
-        run: npm publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org
+      - name: Stage exact verified tarball with Trusted Publishing provenance
+        run: npm stage publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org
