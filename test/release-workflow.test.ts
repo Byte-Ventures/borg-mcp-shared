@@ -82,6 +82,10 @@ describe('npm publish workflow', () => {
     expect(workflow).toContain('id-token: write');
     expect(workflow).toContain('contents: read');
     expect(workflow).toContain('test "${GITHUB_RUN_ATTEMPT}" = "1"');
+    expect(workflow).toContain('npm install --global npm@11.18.0');
+    expect(workflow).toContain('test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"');
+    expect(workflow).toContain('test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"');
+    expect(workflow).toContain('test -z "${NODE_AUTH_TOKEN:-}"');
 
     for (const command of [
       'npm ci --ignore-scripts',
@@ -110,18 +114,25 @@ describe('npm publish workflow', () => {
     ]) expect(workflow).toContain(specifier);
 
     const preflight = workflow.indexOf('- name: Reject existing version and wrong owner');
-    const publish = workflow.indexOf('- name: Publish exact verified tarball with provenance');
+    const exercise = workflow.indexOf('- name: Exercise exact tarball in a clean consumer');
+    const publish = workflow.indexOf('- name: Stage exact verified tarball with Trusted Publishing provenance');
     expect(preflight).toBeGreaterThan(-1);
     expect(preflight).toBeLessThan(publish);
+    expect(exercise).toBeGreaterThan(preflight);
+    expect(exercise).toBeLessThan(publish);
     expect(workflow).toContain('NPM_EXPECTED_OWNER: ${{ vars.NPM_EXPECTED_OWNER }}');
-    expect(workflow).toContain('npm publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org');
+    const stageCommand = 'npm stage publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org';
+    expect(workflow.split(stageCommand)).toHaveLength(2);
+    expect(workflow).not.toMatch(/^\s*npm publish\b/m);
+    expect(workflow).not.toMatch(/--tag(?:=|\s+)staging\b/);
+    expect(workflow).not.toMatch(/^\s*npm dist-tag\b/m);
+    expect(workflow).not.toContain('NPM_TOKEN');
     expect(workflow).not.toContain('verify-registry-release.mjs postpublish');
     expect(workflow).not.toContain('registry-verification');
     expect(workflow).not.toContain('npm audit signatures');
 
-    expect(workflow.match(/npm publish "\.\/release\//g)).toHaveLength(1);
-    expect(workflow).not.toMatch(/npm publish "release\//);
-    expect(workflow).not.toContain('NODE_AUTH_TOKEN');
+    expect(workflow.match(/npm stage publish "\.\/release\//g)).toHaveLength(1);
+    expect(workflow).not.toMatch(/npm stage publish "release\//);
     expect(workflow).not.toContain('publishConfig.registry');
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
     expect(workflow).not.toContain('origin/main');
@@ -144,7 +155,7 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('`minimal-package-release-assurance`');
     expect(runbook).toContain('one protected workflow job');
     expect(runbook).toContain('does not authorize a tag or publication');
-    expect(runbook).toContain('no post-publication registry readback');
+    expect(runbook).toContain('No workflow post-publication readback');
     expect(runbook).toContain('Coupled Publication Window');
     expect(runbook).toContain('matching coupled');
     expect(compatibility).toMatch(/publication window is a release\s+property/i);

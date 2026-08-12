@@ -18,10 +18,13 @@ The release lane has one build, test, package, and publication authority:
    that tarball into a clean consumer that imports every public export;
 4. rejects an existing immutable version or a package not owned solely by the
    configured npm owner before any registry mutation;
-5. publishes that exact local tarball through npm Trusted Publishing with
-   provenance. Successful completion of `npm publish` is the workflow's terminal
-   release boundary; no post-publication registry readback can fail the immutable
-   release after npm has accepted it.
+5. stages that exact local tarball through npm Trusted Publishing with
+   provenance. Successful completion of `npm stage publish` means npm accepted
+   the immutable stage; it does not mean the version is publicly available.
+
+The release becomes live only after the authorized operator approves the stage
+with 2FA and the canonical registry exposes the expected version and integrity.
+No workflow post-publication readback can fail a release after that boundary.
 
 npm and GitHub produce the registry signature and publish attestation as part of
 Trusted Publishing. The repository does not reconstruct or immediately read back
@@ -36,6 +39,7 @@ Keep these controls in place:
 
 1. `publish.yml` is the only npm Trusted Publisher workflow for organization
    `Byte-Ventures`, repository `borg-mcp-shared`, and environment `npm-publish`.
+   Its allowed actions enable `npm stage publish` and disable `npm publish`.
 2. The `npm-publish` environment requires the authorized sole operator
    `TheodorStorm`, permits that operator's self-review, prevents administrator
    bypass, and allows only protected `v*.*.*` tags.
@@ -77,16 +81,44 @@ repository, workflow output, artifact, issue, or shell history.
 5. Obtain the separately required environment approval, then approve that exact
    pending job. Approval does not permit a local rebuild or alternate artifact.
 6. Require the protected publish job to complete successfully before announcing
-   the version or updating consumers. Registry propagation and later consumer
-   availability are operational observations, not release-workflow gates.
+   that the stage is ready. Record its stage UUID; do not announce the version,
+   update consumers, synchronize the site, create a GitHub Release, or record a
+   `published` outcome while it remains staged.
+
+## Coupled Stage Approval
+
+For a coordinated shared, server, and client release, require all three tag
+workflows to succeed before approving any stage. Use authenticated `npm stage
+list` and `npm stage view` to record and verify each UUID, package, version,
+`latest` tag, source run, tag, commit, and artifact identity. If necessary,
+download and exercise the staged tarballs. Confirm public `latest` and the public
+version lists still describe the prior coherent set.
+
+Approve the verified stages in one operator session with 2FA:
+
+1. `npm stage approve <shared-stage-uuid>`
+2. `npm stage approve <server-stage-uuid>`
+3. `npm stage approve <client-stage-uuid>`
+
+The three approvals are not atomic. Shared-first does not change the exact
+shared pins of the live client and server. Server-second opens a bounded window
+in which `latest` client and server may not match; client-third closes it. Staging
+reduces that window to the approval sequence but does not eliminate it.
+
+After each approval, continue only while the remaining stage is still the exact
+verified candidate. Resolve an ambiguous approval through authenticated stage
+state and canonical public version/integrity state; never repeat it blindly.
+After all approvals, verify the three live versions and integrities, exercise a
+fresh coupled install, and only then announce, record, close, or synchronize the
+release.
 
 ## Coupled Publication Window
 
-The shared, server, and client packages are published independently. The current
-release workflows publish directly to npm's default `latest` dist-tag, so the
-least-bad order is shared first, server second, and client third. This keeps each
-consumer pointed at an immutable shared artifact, but it cannot make the three
-`latest` pointers atomic.
+The shared, server, and client packages are approved independently from private
+npm stages. Pending stages are not publicly installable and do not change
+`latest` or the public version list. Approval order is shared first, server
+second, and client third. This keeps each consumer pointed at an immutable shared
+artifact, but it cannot make the three approvals atomic.
 
 During that sequence, a user can install the newest server and newest client
 while they still carry different protocol tags. Their credential-free preflight
@@ -94,33 +126,47 @@ fails closed by design; this is a publication-window mismatch, not a negotiation
 or fallback case. The user remedy is to install the matching coupled shared,
 server, and client versions from the coordinated release rather than retrying
 `latest`. Do not describe this window as eliminated or promise an atomic
-multi-package publication until all three release workflows support that shape.
+multi-package publication until npm supports atomic multi-package approval.
 
-The workflow publishes only `./release/<tarball>`. It never publishes from the
+The workflow stages only `./release/<tarball>`. It never stages from the
 repository directory, a package name, a URL, a prior workflow artifact, or a
 locally rebuilt replacement.
 
 ## Stop And Recovery
 
-Stop before publication when source identity, tag ancestry, repository
+Stop before staging when source identity, tag ancestry, repository
 visibility, environment protection, expected owner, target-version absence,
 tests, build output, tarball policy, clean-consumer imports, or Trusted Publishing
 configuration cannot be verified.
 
-If a first-attempt tag run fails before npm accepts the version, preserve the tag
+Before any stage approval, approve none if any coupled stage or its evidence is
+missing or wrong. If the coupled candidate is abandoned, reject all three stages
+with 2FA. Treat every rejected or unusable tagged version as burned: never reuse,
+move, or rerun its tag; prepare newly reviewed versions.
+
+After shared approval but before server approval, stopping preserves live
+client/server compatibility, though the shared version is immutable and any
+replacement needs a new version. After server approval, prioritize the already
+verified client approval because the public mismatch window is open. If that
+client cannot be approved, preserve the failed evidence and prepare newly
+reviewed matching server/client recovery versions; do not reject, rerun, or
+silently substitute the tagged client.
+
+If a first-attempt tag run fails before npm accepts the stage, preserve the tag
 and run as immutable evidence. Fix the source and begin a separately reviewed and
 authorized version/tag plan. Never move, reuse, rerun, or force-update the failed
 tag.
 
-Once npm accepts the version, the immutable release has occurred. Never rerun,
-republish, overwrite, unpublish, or silently substitute a replacement because a
-later registry read is delayed or unavailable.
+Once npm accepts a stage, the tag run and candidate version are consumed under
+this project's attempt-1 rule. Once the operator approves it, the immutable live
+release has occurred. Never rerun, republish, overwrite, unpublish, or silently
+substitute a replacement because a later registry read is delayed or unavailable.
 
 ## Failed-Superseded Recovery
 
 The tag-triggered workflow is single-job and first-attempt-only. If attempt 1
 fails before the tarball is built, the tarball is verified, the clean consumer
-is exercised, or `npm publish` runs, preserve the failed tag and run as immutable
+is exercised, or `npm stage publish` runs, preserve the failed tag and run as immutable
 evidence. The failed version is not an install target and must not be rerun.
 
 Record the failure and prepare a newer version only from a clean tree:
@@ -134,7 +180,7 @@ npm run release:prepare -- <next-version> \
 
 The release identity verifier binds the record to the annotated tag, the exact
 workflow run and commit, the completed failed `publish` job, and the skipped
-tarball, clean-consumer, and publish steps. It independently checks the npm
+tarball, clean-consumer, and staging steps. It independently checks the npm
 version list for registry absence. An attempt-2 run, a failure after packaging
 or publication, an artifact integrity value on a failed record, or a version
 present in npm is rejected. The generated record is `failed-superseded`; the
