@@ -68,13 +68,17 @@ function compareVersions(left, right) {
 }
 
 function decodeRecord(record) {
-  const keys = [
+  const canonicalKeys = [
     'outcome', 'version', 'tag', 'tag_object', 'commit', 'tree',
     'workflow_run_id', 'workflow_run_attempt', 'workflow_conclusion',
     'verify_job_id', 'publish_job_id', 'artifact_integrity',
   ];
+  const reconstructedKeys = [...canonicalKeys, 'reconstructed'];
+  const keys = JSON.stringify(Object.keys(record ?? {}));
+  const canonical = keys === JSON.stringify(canonicalKeys);
+  const reconstructed = keys === JSON.stringify(reconstructedKeys) && record?.reconstructed === true;
   if (record === null || typeof record !== 'object' || Array.isArray(record) ||
-      JSON.stringify(Object.keys(record)) !== JSON.stringify(keys)) {
+      (!canonical && !reconstructed)) {
     fail('Release record has an invalid or non-canonical shape.');
   }
   const published = record.outcome === 'published' &&
@@ -286,10 +290,22 @@ function publishedAnchor(root, files, version, authorities) {
   return verifyReleaseProvenance(root, records[0], authorities);
 }
 
+function requirePreviousPublishedRecord(root, files, version, authorities) {
+  const previous = decodePublishedVersions(authorities.publishedVersions(root))
+    .filter((candidate) => stableVersion.test(candidate) && compareVersions(candidate, version) < 0)
+    .sort(compareVersions)
+    .at(-1);
+  if (previous === undefined) return;
+  const recorded = decodeRecords(files.get(RECORDS_PATH))
+    .some((candidate) => candidate.version === previous && candidate.outcome === 'published');
+  if (!recorded) fail(`Immediately previous published version is missing from release records: ${previous}`);
+}
+
 export async function prepareRelease(root, targetVersion, evidence, authorities = systemAuthorities) {
   if (git(root, ['status', '--porcelain']) !== '') fail('release:prepare requires a clean working tree.');
   const files = await workingFiles(root);
   const oldVersion = manifest(files).version;
+  requirePreviousPublishedRecord(root, files, oldVersion, authorities);
   const record = createReleaseRecord(root, {
     version: oldVersion,
     workflowRunId: evidence.workflowRunId,
@@ -324,6 +340,7 @@ export function verifyReleaseIdentity(root, base, candidate, authorities = syste
   const baseFiles = new Map(paths.map((path) => [path, readRef(base, path)]));
   const candidateFiles = new Map(paths.map((path) => [path, readRef(candidate, path)]));
   const oldVersion = manifest(baseFiles).version;
+  requirePreviousPublishedRecord(root, candidateFiles, oldVersion, authorities);
   const records = decodeRecords(candidateFiles.get(RECORDS_PATH));
   const record = records.at(-1);
   if (!record || record.version !== oldVersion) fail(`Candidate has no generated release record for ${oldVersion}.`);
