@@ -99,7 +99,10 @@ workflows to succeed before approving any stage. Use authenticated `npm stage
 list` and `npm stage view` to record and verify each UUID, package, version, and
 `latest` tag. Bind each source run, annotated tag, and commit separately from
 GitHub workflow and tag evidence. Before any approval, run `npm stage download
-<UUID>` for every package and verify its SHA-512 against the same-run artifact
+<UUID>` for every package. For server and client, verify the downloaded SHA-512
+against the same-run artifact report. For shared, independently compute and
+record the stage-download SHA-512 SRI, then carry that exact value into the
+required post-approval `--integrity` argument; shared has no same-run artifact
 report. Exercise the exact downloaded coupled set before approving any stage.
 Confirm public `latest` and the public version lists still describe the prior
 coherent set.

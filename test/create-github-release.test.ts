@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -50,6 +51,16 @@ function authorities(overrides = {}) {
   };
 }
 
+const successfulRun = {
+  id: 123,
+  path: '.github/workflows/publish.yml',
+  head_sha: commit,
+  head_branch: 'v1.2.3',
+  run_attempt: 1,
+  status: 'completed',
+  conclusion: 'success',
+};
+
 describe('GitHub Release operator', () => {
   it('accepts the release PR bound to the tagged merge commit', () => {
     expect(assertReleasePullRequest(
@@ -77,6 +88,60 @@ describe('GitHub Release operator', () => {
       [pullRequest], '1.2.3', commit,
       'Merge pull request #41 from Byte-Ventures/release/1.2.3',
     )).toThrow('local merge subject');
+  });
+
+  it('rejects a lightweight release tag', async () => {
+    const system = authorities({
+      git: (_root: string, args: string[]) => args[0] === 'cat-file' ? 'commit' : '',
+    });
+    await expect(createGithubRelease('1.2.3', integrity, {
+      token: 'test-token', authorities: system,
+    })).rejects.toThrow('not annotated');
+  });
+
+  it('rejects an annotated release tag with an empty message', async () => {
+    const system = authorities({
+      git: (_root: string, args: string[]) => {
+        if (args[0] === 'cat-file') return 'tag';
+        if (args[0] === 'rev-parse') return commit;
+        return '';
+      },
+    });
+    await expect(createGithubRelease('1.2.3', integrity, {
+      token: 'test-token', authorities: system,
+    })).rejects.toThrow('no message');
+  });
+
+  it.each([
+    ['wrong workflow path', { ...successfulRun, path: '.github/workflows/ci.yml' }],
+    ['wrong head SHA', { ...successfulRun, head_sha: 'b'.repeat(40) }],
+    ['wrong tag branch', { ...successfulRun, head_branch: 'v1.2.4' }],
+    ['later attempt', { ...successfulRun, run_attempt: 2 }],
+    ['incomplete run', { ...successfulRun, status: 'in_progress' }],
+    ['failed run', { ...successfulRun, conclusion: 'failure' }],
+  ])('rejects a release run with %s', async (_case, run) => {
+    const system = authorities({
+      githubApi: (_root: string, endpoint: string) => endpoint.includes('/pulls')
+        ? [pullRequest]
+        : { workflow_runs: [run] },
+    });
+    await expect(createGithubRelease('1.2.3', integrity, {
+      token: 'test-token', authorities: system,
+    })).rejects.toThrow('exactly one successful attempt-1');
+  });
+
+  it.each([
+    ['zero', []],
+    ['multiple', [successfulRun, { ...successfulRun, id: 124 }]],
+  ])('rejects %s matching release runs', async (_case, runs) => {
+    const system = authorities({
+      githubApi: (_root: string, endpoint: string) => endpoint.includes('/pulls')
+        ? [pullRequest]
+        : { workflow_runs: runs },
+    });
+    await expect(createGithubRelease('1.2.3', integrity, {
+      token: 'test-token', authorities: system,
+    })).rejects.toThrow('exactly one successful attempt-1');
   });
 
   it('assembles framed evidence and preserves the merged PR body verbatim', () => {
@@ -145,6 +210,21 @@ describe('GitHub Release operator', () => {
     const runbook = await readFile('docs/releasing.md', 'utf8');
     expect(runbook).toContain(
       'GITHUB_TOKEN="$(gh auth token)" node scripts/create-github-release.mjs <version> --integrity <sha512-SRI>',
+    );
+  });
+
+  it.each([
+    ['missing flag and integrity', ['1.2.3']],
+    ['missing integrity value', ['1.2.3', '--integrity']],
+    ['wrong flag', ['1.2.3', '--sri', integrity]],
+    ['extra argument', ['1.2.3', '--integrity', integrity, 'extra']],
+  ])('rejects CLI grammar with %s', (_case, args) => {
+    const result = spawnSync(process.execPath, ['scripts/create-github-release.mjs', ...args], {
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      'Usage: node scripts/create-github-release.mjs <version> --integrity <sha512-SRI>',
     );
   });
 });
