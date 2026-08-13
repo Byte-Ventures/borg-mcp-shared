@@ -1046,6 +1046,7 @@ describe('repository cube association codecs', () => {
   it.each([
     'REPOSITORY_ALREADY_ASSOCIATED',
     'CUBE_ALREADY_ASSOCIATED',
+    'POST_ID_CONFLICT',
   ] as const)('decodes the stable %s conflict class', (code) => {
     expect(decodeProtocolErrorEnvelope({
       protocol_version: '9',

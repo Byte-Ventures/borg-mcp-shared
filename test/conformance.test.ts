@@ -3,6 +3,7 @@ import {
   DRONE_ADDRESS_CONFORMANCE,
   APPEND_LOG_RESULT_CONFORMANCE,
   APPEND_LOG_REQUEST_CONFORMANCE,
+  APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
   CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
@@ -36,6 +37,17 @@ import {
 } from '../src/index.js';
 
 describe('public conformance vectors', () => {
+  it('pins every author-scoped append identity outcome', () => {
+    expect(APPEND_LOG_IDEMPOTENCY_CONFORMANCE).toEqual([
+      expect.objectContaining({ actor: 'same', mutation: 'none', expected: 'deduplicated' }),
+      expect.objectContaining({ actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'different', mutation: 'none', expected: 'created' }),
+    ]);
+  });
+
   it('pins exact append-log idempotency requests', () => {
     for (const vector of APPEND_LOG_REQUEST_CONFORMANCE) {
       if (vector.accepts) {

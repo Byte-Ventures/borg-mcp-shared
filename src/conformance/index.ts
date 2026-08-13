@@ -105,6 +105,23 @@ export interface AppendLogRequestConformanceVector {
   accepts: boolean;
 }
 
+export interface AppendLogIdempotencyConformanceVector {
+  name: string;
+  actor: 'same' | 'different';
+  mutation: 'none' | 'message' | 'visibility' | 'recipient_set' | 'resolved_class_routing';
+  expected: 'deduplicated' | 'POST_ID_CONFLICT' | 'created';
+}
+
+/** Author-scoped post identity and exact resolved-routing retry outcomes. */
+export const APPEND_LOG_IDEMPOTENCY_CONFORMANCE: readonly AppendLogIdempotencyConformanceVector[] = [
+  { name: 'deduplicates an exact same-author retry', actor: 'same', mutation: 'none', expected: 'deduplicated' },
+  { name: 'rejects a same-author message collision', actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' },
+  { name: 'rejects a same-author visibility collision', actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' },
+  { name: 'rejects a same-author recipient-set collision', actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' },
+  { name: 'rejects a same-author resolved class-routing collision', actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' },
+  { name: 'creates an independent cross-author post', actor: 'different', mutation: 'none', expected: 'created' },
+];
+
 const APPEND_LOG_REQUEST = {
   post_id: '00000000-0000-4000-8000-000000000205',
   message: 'REVIEW-READY: example',

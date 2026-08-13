@@ -37,6 +37,7 @@ import {
   type DroneRuntimeMetadata,
 } from '../protocol/index.js';
 import {
+  APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
   CREATE_CUBE_ASSOCIATION_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
   INVITATION_ARTIFACT_CONFORMANCE,
@@ -1444,27 +1445,62 @@ export async function runAdapterConformance(
 
   await record('log.append-idempotency', async () => {
     const principal = await environment.admin.createPrincipal('append-idempotency');
+    const otherPrincipal = await environment.admin.createPrincipal('append-idempotency-other');
     const cube = await environment.admin.createCube('append-idempotency');
     await environment.admin.grantCube(principal, cube);
+    await environment.admin.grantCube(otherPrincipal, cube);
     const credential = await environment.admin.issueDroneSession(principal);
+    const otherCredential = await environment.admin.issueDroneSession(otherPrincipal);
+    const role = await environment.admin.createRole(cube, {
+      roleClass: 'worker',
+      isHumanSeat: false,
+    });
+    const firstRecipient = await environment.admin.createDrone(principal, cube, role);
+    const secondRecipient = await environment.admin.createDrone(principal, cube, role);
     const postId = '00000000-0000-4000-8000-000000000313';
+    const initialPayload = {
+      post_id: postId,
+      message: 'once',
+      visibility: 'direct' as const,
+      recipientDroneIds: [firstRecipient.id],
+      class: 'review',
+      to: ['Coordinator'],
+    };
     const first = await environment.operations.append(
       credential,
       cube,
-      createProtocolEnvelope('append-idempotency-first', { post_id: postId, message: 'once' }),
+      createProtocolEnvelope('append-idempotency-first', initialPayload),
     );
     expectStatus(first, 201, 'Initial idempotent append');
     const firstResult = decodeAppendLogResultEnvelope(first.body).payload;
     invariant(!firstResult.deduplicated, 'Initial append was reported as deduplicated.');
-    const retry = await environment.operations.append(
-      credential,
-      cube,
-      createProtocolEnvelope('append-idempotency-retry', { post_id: postId, message: 'once' }),
-    );
-    expectStatus(retry, 201, 'Idempotent append retry');
-    const retryResult = decodeAppendLogResultEnvelope(retry.body).payload;
-    invariant(retryResult.deduplicated, 'Append retry was not reported as deduplicated.');
-    invariant(retryResult.entry.id === firstResult.entry.id, 'Append retry returned a different entry.');
+    for (const [index, vector] of APPEND_LOG_IDEMPOTENCY_CONFORMANCE.entries()) {
+      const payload = {
+        ...initialPayload,
+        ...(vector.mutation === 'message' ? { message: 'changed' } : {}),
+        ...(vector.mutation === 'visibility' ? { visibility: 'broadcast' as const } : {}),
+        ...(vector.mutation === 'recipient_set' ? { recipientDroneIds: [secondRecipient.id] } : {}),
+        ...(vector.mutation === 'resolved_class_routing' ? { class: 'security', to: ['Security Auditor'] } : {}),
+      };
+      const response = await environment.operations.append(
+        vector.actor === 'same' ? credential : otherCredential,
+        cube,
+        createProtocolEnvelope(`append-idempotency-${index}`, payload),
+      );
+      if (vector.expected === 'POST_ID_CONFLICT') {
+        expectError(response, 409, ErrorCode.POST_ID_CONFLICT, vector.name);
+        continue;
+      }
+      expectStatus(response, 201, vector.name);
+      const result = decodeAppendLogResultEnvelope(response.body).payload;
+      invariant(result.deduplicated === (vector.expected === 'deduplicated'), `${vector.name} returned the wrong deduplicated flag.`);
+      invariant(
+        vector.expected === 'deduplicated'
+          ? result.entry.id === firstResult.entry.id
+          : result.entry.id !== firstResult.entry.id,
+        `${vector.name} returned the wrong entry identity.`,
+      );
+    }
     const read = await environment.operations.read(
       credential,
       cube,
@@ -1472,10 +1508,10 @@ export async function runAdapterConformance(
     );
     expectStatus(read, 200, 'Idempotent append read');
     invariant(
-      decodeReadLogResultEnvelope(read.body).payload.entries.length === 1,
-      'Append retry persisted a duplicate entry.',
+      decodeReadLogResultEnvelope(read.body).payload.entries.length === 2,
+      'Append collision controls persisted the wrong number of entries.',
     );
-    return { persisted_entries: 1, stable_entry: true, deduplicated: true };
+    return { persisted_entries: 2, stable_entry: true, deduplicated: true, conflicts: 4, cross_author_created: true };
   });
 
   const entries: Array<{ id: string; created_at: string; message: string }> = [];

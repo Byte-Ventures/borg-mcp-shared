@@ -141,7 +141,14 @@ interface CubeState {
   directive: string;
   taxonomyMarker: string | null;
   entries: EnrichedStreamEntry[];
-  posts: Map<string, EnrichedStreamEntry>;
+  posts: Map<string, {
+    entry: EnrichedStreamEntry;
+    message: string;
+    visibility: 'broadcast' | 'direct';
+    recipientDroneIds: string[];
+    class: string | null;
+    to: string[];
+  }>;
   claims: ReadLogClaim[];
   decisions: Decision[];
   expired: Set<string>;
@@ -1127,14 +1134,32 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
       const cube = this.cube(cubeHandle.id);
-      const existing = cube.posts.get(envelope.payload.post_id);
+      const authorId = access.drone?.handle.id ?? access.principal.handle.id;
+      const recipients = [...(envelope.payload.recipientDroneIds ?? [])].sort();
+      const resolvedRouting = {
+        message: envelope.payload.message,
+        visibility: envelope.payload.visibility ?? 'broadcast',
+        recipientDroneIds: recipients,
+        class: envelope.payload.class ?? null,
+        to: [...(envelope.payload.to ?? [])].sort(),
+      };
+      const postKey = `${authorId}/${envelope.payload.post_id}`;
+      const existing = cube.posts.get(postKey);
       if (existing) {
+        if (!same(resolvedRouting, {
+          message: existing.message,
+          visibility: existing.visibility,
+          recipientDroneIds: existing.recipientDroneIds,
+          class: existing.class,
+          to: existing.to,
+        })) {
+          return this.error(409, ErrorCode.POST_ID_CONFLICT, envelope.request_id);
+        }
         return {
           status: 201,
-          body: createProtocolEnvelope(envelope.request_id, { entry: existing, deduplicated: true }),
+          body: createProtocolEnvelope(envelope.request_id, { entry: existing.entry, deduplicated: true }),
         };
       }
-      const recipients = envelope.payload.recipientDroneIds ?? [];
       if (recipients.some((id) => {
         const recipient = cube.drones.get(id);
         return recipient === undefined ||
@@ -1145,7 +1170,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const entry: EnrichedStreamEntry = {
         id: this.uuid(),
         cube_id: cubeHandle.id,
-        drone_id: access.drone?.handle.id ?? access.principal.handle.id,
+        drone_id: authorId,
         message: envelope.payload.message,
         visibility: envelope.payload.visibility ?? 'broadcast',
         created_at: this.timestamp(),
@@ -1154,7 +1179,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         recipient_drone_ids: recipients,
       };
       cube.entries.push(entry);
-      cube.posts.set(envelope.payload.post_id, entry);
+      cube.posts.set(postKey, { entry, ...resolvedRouting });
       const frame = encodeSseEvent({ type: 'log', cursor: this.cursor(entry), entry });
       for (const stream of this.streams) {
         if (stream.cubeId === cubeHandle.id && !this.principal(stream.principalId).revoked) {
