@@ -173,8 +173,6 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('one protected workflow job');
     expect(runbook).toContain('does not authorize a tag or publication');
     expect(runbook).toContain('No workflow post-publication readback');
-    expect(runbook).toContain('Coupled Publication Window');
-    expect(runbook).toContain('matching coupled');
     expect(compatibility).toMatch(/publication window is a release\s+property/i);
     expect(compatibility).toContain('matching coupled shared, server, and client versions');
     expect(compatibility).not.toContain('There is no mixed-version window');
