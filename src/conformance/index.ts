@@ -108,7 +108,7 @@ export interface AppendLogRequestConformanceVector {
 export interface AppendLogIdempotencyConformanceVector {
   name: string;
   actor: 'same' | 'different';
-  mutation: 'none' | 'message' | 'visibility' | 'recipient_set' | 'resolved_class_routing';
+  mutation: 'none' | 'message' | 'visibility' | 'recipient_set' | 'ignored_request_shape' | 'resolved_class_routing';
   expected: 'deduplicated' | 'POST_ID_CONFLICT' | 'created';
 }
 
@@ -118,6 +118,7 @@ export const APPEND_LOG_IDEMPOTENCY_CONFORMANCE: readonly AppendLogIdempotencyCo
   { name: 'rejects a same-author message collision', actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' },
   { name: 'rejects a same-author visibility collision', actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' },
   { name: 'rejects a same-author recipient-set collision', actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' },
+  { name: 'deduplicates ignored class selectors with identical resolved delivery', actor: 'same', mutation: 'ignored_request_shape', expected: 'deduplicated' },
   { name: 'rejects a same-author resolved class-routing collision', actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' },
   { name: 'creates an independent cross-author post', actor: 'different', mutation: 'none', expected: 'created' },
 ];

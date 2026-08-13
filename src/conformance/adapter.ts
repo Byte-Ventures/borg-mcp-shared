@@ -1475,12 +1475,34 @@ export async function runAdapterConformance(
     const firstResult = decodeAppendLogResultEnvelope(first.body).payload;
     invariant(!firstResult.deduplicated, 'Initial append was reported as deduplicated.');
     for (const [index, vector] of APPEND_LOG_IDEMPOTENCY_CONFORMANCE.entries()) {
-      const payload = {
+      const classRouting = vector.mutation === 'resolved_class_routing';
+      const vectorPostId = classRouting
+        ? '00000000-0000-4000-8000-000000000314'
+        : postId;
+      if (classRouting) {
+        const baseline = await environment.operations.append(
+          credential,
+          cube,
+          createProtocolEnvelope('append-idempotency-class-baseline', {
+            post_id: vectorPostId,
+            message: 'once',
+            class: 'review',
+            to: ['Coordinator'],
+          }),
+        );
+        expectStatus(baseline, 201, 'Resolved class-routing baseline');
+      }
+      const payload = classRouting ? {
+        post_id: vectorPostId,
+        message: 'once',
+        class: 'security',
+        to: ['Security Auditor'],
+      } : {
         ...initialPayload,
         ...(vector.mutation === 'message' ? { message: 'changed' } : {}),
         ...(vector.mutation === 'visibility' ? { visibility: 'broadcast' as const } : {}),
         ...(vector.mutation === 'recipient_set' ? { recipientDroneIds: [secondRecipient.id] } : {}),
-        ...(vector.mutation === 'resolved_class_routing' ? { class: 'security', to: ['Security Auditor'] } : {}),
+        ...(vector.mutation === 'ignored_request_shape' ? { class: 'security', to: ['Security Auditor'] } : {}),
       };
       const response = await environment.operations.append(
         vector.actor === 'same' ? credential : otherCredential,
@@ -1508,10 +1530,10 @@ export async function runAdapterConformance(
     );
     expectStatus(read, 200, 'Idempotent append read');
     invariant(
-      decodeReadLogResultEnvelope(read.body).payload.entries.length === 2,
+      decodeReadLogResultEnvelope(read.body).payload.entries.length === 3,
       'Append collision controls persisted the wrong number of entries.',
     );
-    return { persisted_entries: 2, stable_entry: true, deduplicated: true, conflicts: 4, cross_author_created: true };
+    return { persisted_entries: 3, stable_entry: true, deduplicated: true, conflicts: 4, cross_author_created: true };
   });
 
   const entries: Array<{ id: string; created_at: string; message: string }> = [];

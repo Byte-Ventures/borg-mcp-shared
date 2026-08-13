@@ -147,7 +147,6 @@ interface CubeState {
     visibility: 'broadcast' | 'direct';
     recipientDroneIds: string[];
     class: string | null;
-    to: string[];
   }>;
   claims: ReadLogClaim[];
   decisions: Decision[];
@@ -1136,12 +1135,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const cube = this.cube(cubeHandle.id);
       const authorId = access.drone?.handle.id ?? access.principal.handle.id;
       const recipients = [...(envelope.payload.recipientDroneIds ?? [])].sort();
+      const usesExplicitDelivery = envelope.payload.visibility !== undefined ||
+        envelope.payload.recipientDroneIds !== undefined;
+      const resolvedClass = usesExplicitDelivery ? null : envelope.payload.class ?? null;
+      const resolvedRecipients = usesExplicitDelivery
+        ? recipients
+        : [];
       const resolvedRouting = {
         message: envelope.payload.message,
         visibility: envelope.payload.visibility ?? 'broadcast',
-        recipientDroneIds: recipients,
-        class: envelope.payload.class ?? null,
-        to: [...(envelope.payload.to ?? [])].sort(),
+        recipientDroneIds: resolvedRecipients,
+        class: resolvedClass,
       };
       const postKey = `${authorId}/${envelope.payload.post_id}`;
       const existing = cube.posts.get(postKey);
@@ -1151,7 +1155,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           visibility: existing.visibility,
           recipientDroneIds: existing.recipientDroneIds,
           class: existing.class,
-          to: existing.to,
         })) {
           return this.error(409, ErrorCode.POST_ID_CONFLICT, envelope.request_id);
         }
@@ -1176,7 +1179,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         created_at: this.timestamp(),
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
-        recipient_drone_ids: recipients,
+        recipient_drone_ids: resolvedRecipients,
       };
       cube.entries.push(entry);
       cube.posts.set(postKey, { entry, ...resolvedRouting });
