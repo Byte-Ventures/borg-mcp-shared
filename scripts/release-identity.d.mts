@@ -5,6 +5,8 @@ export interface ReleaseEvidence {
   readonly artifactIntegrity?: string;
 }
 
+export const FAILED_RELEASE_STAGING_STEP: 'Stage exact verified tarball with Trusted Publishing provenance';
+
 export interface ReleaseRecord {
   readonly outcome: 'published' | 'failed-superseded';
   readonly version: string;
