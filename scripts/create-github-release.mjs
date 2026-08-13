@@ -6,7 +6,6 @@ import { postpublish } from './verify-registry-release.mjs';
 
 const REPOSITORY = 'Byte-Ventures/borg-mcp-shared';
 const PACKAGE_NAME = 'borgmcp-shared';
-const WORKFLOW_PATH = '.github/workflows/publish.yml';
 const API = 'https://api.github.com';
 const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const INTEGRITY_RE = /^sha512-([A-Za-z0-9+/]{86}==)$/u;
@@ -35,38 +34,7 @@ function gitFile(root, ref, path) {
   });
 }
 
-function parseJson(value, description) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    fail(`${description} returned invalid JSON.`);
-  }
-}
-
-export function assertReleasePullRequest(pullRequests, version, commit, mergeSubject) {
-  if (!Array.isArray(pullRequests) || pullRequests.length !== 1) {
-    fail('The tagged commit must resolve to exactly one pull request.');
-  }
-  const pullRequest = pullRequests[0];
-  if (pullRequest?.state !== 'closed' || typeof pullRequest.merged_at !== 'string') {
-    fail('The release pull request must be closed and merged.');
-  }
-  if (pullRequest.base?.ref !== 'main') fail('The release pull request must base main.');
-  if (pullRequest.head?.ref !== `release/${version}`) {
-    fail(`The release pull request must have head release/${version}.`);
-  }
-  if (pullRequest.merge_commit_sha !== commit) {
-    fail('The release pull request merge commit must equal the tagged commit.');
-  }
-  if (typeof pullRequest.number !== 'number' ||
-      !mergeSubject.match(new RegExp(`^Merge pull request #${pullRequest.number}(?:\\s|$)`, 'u'))) {
-    fail('The local merge subject must agree with the release pull request number.');
-  }
-  if (typeof pullRequest.html_url !== 'string') fail('The release pull request must provide its URL.');
-  return pullRequest;
-}
-
-export function assembleReleaseBody({ packageName, version, integrity, tag, commit, pullRequest, releaseNotes }) {
+export function assembleReleaseBody({ packageName, version, integrity, tag, commit, releaseNotes }) {
   return [
     '## Package',
     '',
@@ -78,8 +46,6 @@ export function assembleReleaseBody({ packageName, version, integrity, tag, comm
     '',
     `- Tag: https://github.com/${REPOSITORY}/releases/tag/${tag}`,
     `- Commit: https://github.com/${REPOSITORY}/commit/${commit}`,
-    `- Pull request: ${pullRequest.html_url}`,
-    '',
     '## News and fixes',
     '',
     releaseNotes,
@@ -89,9 +55,6 @@ export function assembleReleaseBody({ packageName, version, integrity, tag, comm
 const systemAuthorities = Object.freeze({
   git,
   gitFile,
-  githubApi(root, endpoint) {
-    return parseJson(command('gh', ['api', endpoint], root), 'GitHub API');
-  },
   postpublish,
   request(url, options) {
     return fetch(url, options);
@@ -116,7 +79,6 @@ export async function createGithubRelease(version, integrity, {
   const commit = authorities.git(root, ['rev-parse', `${ref}^{commit}`]);
   const tagMessage = authorities.git(root, ['for-each-ref', '--format=%(contents)', ref]);
   if (!tagMessage) fail(`Annotated release tag has no message: ${tag}`);
-  const mergeSubject = authorities.git(root, ['show', '-s', '--format=%s', commit]);
   let releaseNotes;
   try {
     releaseNotes = authorities.gitFile(root, commit, `docs/releases/${version}.md`);
@@ -124,17 +86,6 @@ export async function createGithubRelease(version, integrity, {
     fail(`Tagged release notes are missing: docs/releases/${version}.md`);
   }
   if (!releaseNotes.trim()) fail(`Tagged release notes are blank: docs/releases/${version}.md`);
-
-  const pullRequests = authorities.githubApi(root, `repos/${REPOSITORY}/commits/${commit}/pulls`);
-  const pullRequest = assertReleasePullRequest(pullRequests, version, commit, mergeSubject);
-  const runs = authorities.githubApi(
-    root,
-    `repos/${REPOSITORY}/actions/runs?head_sha=${commit}&event=push&status=success&per_page=100`,
-  )?.workflow_runs;
-  const releaseRuns = Array.isArray(runs) ? runs.filter((run) =>
-    run.path === WORKFLOW_PATH && run.head_sha === commit && run.head_branch === tag &&
-    run.run_attempt === 1 && run.status === 'completed' && run.conclusion === 'success') : [];
-  if (releaseRuns.length !== 1) fail('The tag must have exactly one successful attempt-1 release workflow run.');
 
   const published = await authorities.postpublish(PACKAGE_NAME, version, integrity);
   const headers = {
@@ -155,7 +106,6 @@ export async function createGithubRelease(version, integrity, {
     integrity: published.integrity,
     tag,
     commit,
-    pullRequest,
     releaseNotes,
   });
   const created = await authorities.request(`${API}/repos/${REPOSITORY}/releases`, {

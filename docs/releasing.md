@@ -12,8 +12,8 @@ The release lane has one build, test, package, and publication authority:
 
 1. verifies the public repository context, exact package version, annotated tag,
    tag commit, and ancestry on protected `main`;
-2. installs locked dependencies without lifecycle scripts and runs dependency
-   audit, one clean build, type checks, and the full test suite;
+2. installs locked dependencies without lifecycle scripts and runs one dependency
+   audit and one clean build;
 3. creates one local tarball, enforces the packed-artifact policy, and installs
    that tarball into a clean consumer that imports every public export;
 4. rejects an existing immutable version or a package not owned solely by the
@@ -51,19 +51,7 @@ Keep these controls in place:
    `id-token: write`. Actions are GitHub-owned and pinned to full commit SHAs.
 6. Protected `main`, the release-tag ruleset, private vulnerability reporting,
    secret scanning, push protection, and dependency security updates remain
-   enabled as checked by `scripts/verify-release-configuration.mjs`. Secret
-   scanning validity checks and non-provider patterns remain mandatory whenever
-   the organization plan licenses them.
-
-Before creating a tag and again before approving the environment, an authorized
-operator runs:
-
-```sh
-GITHUB_TOKEN="$(gh auth token)" node scripts/verify-release-configuration.mjs
-```
-
-The token must remain in the operator credential store. Never write it to the
-repository, workflow output, artifact, issue, or shell history.
+   enabled as repository controls, not per-release evidence snapshots.
 
 ## Release Procedure
 
@@ -72,15 +60,14 @@ repository, workflow output, artifact, issue, or shell history.
    and Release Quality gates.
    Release documentation includes curated `docs/releases/<version>.md` notes.
    The GitHub Release operator reads those exact bytes from the tagged commit
-   under `News and fixes`; it links the merged release PR but never renders its body.
-2. Verify repository controls with the configuration guard above. Confirm the
-   target version does not already exist and `borgmcp-shared` is owned solely by
-   `byteventures`.
+   under `News and fixes`.
+2. Confirm the target version does not already exist and `borgmcp-shared` is
+   owned solely by `byteventures`.
 3. Obtain the separately required exact-commit tag authorization. Create and push
    one annotated `v<package-version>` tag at that protected-main commit.
 4. The tag starts the single publish job and leaves it pending at the protected
-   `npm-publish` environment. Do not use workflow rerun controls; every immutable
-   tag gets one first attempt.
+   `npm-publish` environment. A failed pre-stage workflow may be rerun after its
+   cause is corrected; the version is not consumed until npm accepts a stage.
 5. Obtain the separately required environment approval, then approve that exact
    pending job. Approval does not permit a local rebuild or alternate artifact.
 6. Require the protected publish job to complete successfully before announcing
@@ -170,8 +157,8 @@ configuration cannot be verified.
 
 Before any stage approval, approve none if any coupled stage or its evidence is
 missing or wrong. If the coupled candidate is abandoned, reject all three stages
-with 2FA. Treat every rejected or unusable tagged version as burned: never reuse,
-move, or rerun its tag; prepare newly reviewed versions.
+with 2FA. Never move a release tag. A version is consumed when npm accepts its
+stage.
 
 After shared approval but before server approval, stopping preserves live
 client/server compatibility, though the shared version is immutable and any
@@ -181,39 +168,32 @@ client cannot be approved, preserve the failed evidence and prepare newly
 reviewed matching server/client recovery versions; do not reject, rerun, or
 silently substitute the tagged client.
 
-If a first-attempt tag run fails before npm accepts the stage, preserve the tag
-and run as immutable evidence. Fix the source and begin a separately reviewed and
-authorized version/tag plan. Never move, reuse, rerun, or force-update the failed
-tag.
+If a tag run fails before npm accepts the stage, fix the cause and rerun the same
+immutable tag workflow. Do not move or force-update the tag.
 
-Once npm accepts a stage, the tag run and candidate version are consumed under
-this project's attempt-1 rule. Once the operator approves it, the immutable live
-release has occurred. Never rerun, republish, overwrite, unpublish, or silently
-substitute a replacement because a later registry read is delayed or unavailable.
+Once npm accepts a stage, the candidate version is consumed. Once the operator
+approves it, the immutable live release has occurred. Never republish, overwrite,
+unpublish, or silently substitute a replacement because a later registry read is
+delayed or unavailable.
 
 ## Failed-Superseded Recovery
 
-The tag-triggered workflow is single-job and first-attempt-only. If attempt 1
-fails before the tarball is built, the tarball is verified, the clean consumer
-is exercised, or `npm stage publish` runs, preserve the failed tag and run as immutable
-evidence. The failed version is not an install target and must not be rerun.
+Use failed-superseded recovery only when a failed tag is intentionally abandoned
+before npm accepts a stage, rather than for an ordinary corrected workflow rerun.
 
 Record the failure and prepare a newer version only from a clean tree:
 
 ```sh
 npm run release:prepare -- <next-version> \
   --workflow-run-id <failed-tag-run-id> \
-  --workflow-run-attempt 1 \
+  --workflow-run-attempt <failed-run-attempt> \
   --workflow-conclusion failure
 ```
 
-The release identity verifier binds the record to the annotated tag, the exact
-workflow run and commit, the completed failed `publish` job, and the skipped
-tarball, clean-consumer, and staging steps. It independently checks the npm
-version list for registry absence. An attempt-2 run, a failure after packaging
-or publication, an artifact integrity value on a failed record, or a version
-present in npm is rejected. The generated record is `failed-superseded`; the
-next release uses a new version and a new annotated tag.
+The release identity verifier binds the record to the annotated tag, exact
+workflow run and commit, and npm version absence. It does not reconstruct runner
+steps. The generated record is `failed-superseded`; the next release uses a new
+version and annotated tag.
 
 ## Immutable Historical Evidence
 

@@ -1,18 +1,6 @@
-export interface ReleasePullRequest {
-  readonly number: number;
-  readonly state: string;
-  readonly merged_at: string | null;
-  readonly base: { readonly ref: string };
-  readonly head: { readonly ref: string };
-  readonly merge_commit_sha: string;
-  readonly html_url: string;
-  readonly body?: string;
-}
-
 export interface GithubReleaseAuthorities {
   readonly git: (root: string, args: string[]) => string;
   readonly gitFile: (root: string, ref: string, path: string) => string;
-  readonly githubApi: (root: string, endpoint: string) => unknown;
   readonly postpublish: (name: string, version: string, integrity: string) => Promise<{
     name: string;
     version: string;
@@ -22,20 +10,12 @@ export interface GithubReleaseAuthorities {
   readonly request: (url: string, options: RequestInit) => Promise<Response>;
 }
 
-export function assertReleasePullRequest(
-  pullRequests: readonly ReleasePullRequest[],
-  version: string,
-  commit: string,
-  mergeSubject: string,
-): ReleasePullRequest;
-
 export function assembleReleaseBody(input: Readonly<{
   packageName: string;
   version: string;
   integrity: string;
   tag: string;
   commit: string;
-  pullRequest: ReleasePullRequest;
   releaseNotes: string;
 }>): string;
 
