@@ -27,6 +27,14 @@ function git(root, args) {
   return command('git', args, root);
 }
 
+function gitFile(root, ref, path) {
+  return execFileSync('git', ['show', `${ref}:${path}`], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
 function parseJson(value, description) {
   try {
     return JSON.parse(value);
@@ -54,13 +62,11 @@ export function assertReleasePullRequest(pullRequests, version, commit, mergeSub
       !mergeSubject.match(new RegExp(`^Merge pull request #${pullRequest.number}(?:\\s|$)`, 'u'))) {
     fail('The local merge subject must agree with the release pull request number.');
   }
-  if (typeof pullRequest.html_url !== 'string' || typeof pullRequest.body !== 'string') {
-    fail('The release pull request must provide its URL and merged body.');
-  }
+  if (typeof pullRequest.html_url !== 'string') fail('The release pull request must provide its URL.');
   return pullRequest;
 }
 
-export function assembleReleaseBody({ packageName, version, integrity, tag, commit, pullRequest }) {
+export function assembleReleaseBody({ packageName, version, integrity, tag, commit, pullRequest, releaseNotes }) {
   return [
     '## Package',
     '',
@@ -74,14 +80,15 @@ export function assembleReleaseBody({ packageName, version, integrity, tag, comm
     `- Commit: https://github.com/${REPOSITORY}/commit/${commit}`,
     `- Pull request: ${pullRequest.html_url}`,
     '',
-    '## Release PR body (as merged)',
+    '## News and fixes',
     '',
-    pullRequest.body,
+    releaseNotes,
   ].join('\n');
 }
 
 const systemAuthorities = Object.freeze({
   git,
+  gitFile,
   githubApi(root, endpoint) {
     return parseJson(command('gh', ['api', endpoint], root), 'GitHub API');
   },
@@ -110,6 +117,13 @@ export async function createGithubRelease(version, integrity, {
   const tagMessage = authorities.git(root, ['for-each-ref', '--format=%(contents)', ref]);
   if (!tagMessage) fail(`Annotated release tag has no message: ${tag}`);
   const mergeSubject = authorities.git(root, ['show', '-s', '--format=%s', commit]);
+  let releaseNotes;
+  try {
+    releaseNotes = authorities.gitFile(root, commit, `docs/releases/${version}.md`);
+  } catch {
+    fail(`Tagged release notes are missing: docs/releases/${version}.md`);
+  }
+  if (!releaseNotes.trim()) fail(`Tagged release notes are blank: docs/releases/${version}.md`);
 
   const pullRequests = authorities.githubApi(root, `repos/${REPOSITORY}/commits/${commit}/pulls`);
   const pullRequest = assertReleasePullRequest(pullRequests, version, commit, mergeSubject);
@@ -142,6 +156,7 @@ export async function createGithubRelease(version, integrity, {
     tag,
     commit,
     pullRequest,
+    releaseNotes,
   });
   const created = await authorities.request(`${API}/repos/${REPOSITORY}/releases`, {
     method: 'POST',

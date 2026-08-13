@@ -6,11 +6,12 @@ export interface ReleasePullRequest {
   readonly head: { readonly ref: string };
   readonly merge_commit_sha: string;
   readonly html_url: string;
-  readonly body: string;
+  readonly body?: string;
 }
 
 export interface GithubReleaseAuthorities {
   readonly git: (root: string, args: string[]) => string;
+  readonly gitFile: (root: string, ref: string, path: string) => string;
   readonly githubApi: (root: string, endpoint: string) => unknown;
   readonly postpublish: (name: string, version: string, integrity: string) => Promise<{
     name: string;
@@ -35,6 +36,7 @@ export function assembleReleaseBody(input: Readonly<{
   tag: string;
   commit: string;
   pullRequest: ReleasePullRequest;
+  releaseNotes: string;
 }>): string;
 
 export function createGithubRelease(
