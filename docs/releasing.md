@@ -70,6 +70,9 @@ repository, workflow output, artifact, issue, or shell history.
 1. Merge the exact version, lockfile, source, and release documentation
    to protected `main` after the required exact-SHA Code Review, Security Review,
    and Release Quality gates.
+   Release documentation includes curated `docs/releases/<version>.md` notes.
+   The GitHub Release operator reads those exact bytes from the tagged commit
+   under `News and fixes`; it links the merged release PR but never renders its body.
 2. Verify repository controls with the configuration guard above. Confirm the
    target version does not already exist and `borgmcp-shared` is owned solely by
    `byteventures`.
