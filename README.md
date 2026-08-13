@@ -104,7 +104,10 @@ Versioned JSON coordination requests and successful responses are carried inside
 protocol preflight uses its exact tag-only shape; `204` liveness and
 acknowledgement responses are bodyless. Payload codecs are exported separately
 so adapters can validate the envelope first and then validate the
-operation-specific payload without accepting ambiguous fields.
+operation-specific payload without accepting ambiguous fields. Append-log
+requests require a canonical UUID `post_id`; exact retries return the same entry
+and report `deduplicated: true`. Attach responses include the nullable
+`initial_log_cursor` that anchors subsequent log replay.
 Cube managers reassign a seat with `PATCH /api/cubes/:cubeId/drones/:droneId`
 and evict one with `DELETE` on the same path. Both operations use strict
 versioned request and success envelopes. An evicted seat's former bearer receives

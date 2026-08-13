@@ -11,7 +11,7 @@ import {
   encodeInvitationArtifact,
   type InvitationArtifact,
 } from '../protocol/contract.js';
-import type { EnrichedStreamEntry } from '../protocol/types.js';
+import type { AppendLogRequest, EnrichedStreamEntry } from '../protocol/types.js';
 import { ROLE_IN_USE_DELETE_MESSAGE } from '../protocol/coordination.js';
 
 export * from './adapter.js';
@@ -99,17 +99,36 @@ export interface AppendLogResultConformanceVector {
   accepts: boolean;
 }
 
+export interface AppendLogRequestConformanceVector {
+  name: string;
+  request: unknown;
+  accepts: boolean;
+}
+
+const APPEND_LOG_REQUEST = {
+  post_id: '00000000-0000-4000-8000-000000000205',
+  message: 'REVIEW-READY: example',
+} satisfies AppendLogRequest;
+
+export const APPEND_LOG_REQUEST_CONFORMANCE: readonly AppendLogRequestConformanceVector[] = [
+  { name: 'accepts a canonical post UUID', request: APPEND_LOG_REQUEST, accepts: true },
+  { name: 'rejects an omitted post UUID', request: { message: APPEND_LOG_REQUEST.message }, accepts: false },
+  { name: 'rejects an invalid post UUID', request: { ...APPEND_LOG_REQUEST, post_id: 'not-a-uuid' }, accepts: false },
+  { name: 'rejects unknown request fields', request: { ...APPEND_LOG_REQUEST, extra: true }, accepts: false },
+];
+
 /** Runtime response vectors keep the append-log decoder aligned with its public type. */
 export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceVector[] = [
   {
     name: 'accepts a response without optional routing metadata',
-    response: { entry: APPEND_LOG_ENTRY },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false },
     accepts: true,
   },
   {
     name: 'accepts exact routing metadata and unreachable recipients',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       routing: APPEND_LOG_ROUTING,
       unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer' }],
     },
@@ -117,27 +136,37 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
   },
   {
     name: 'accepts a null routing echo and an empty unreachable-recipient list',
-    response: { entry: APPEND_LOG_ENTRY, routing: null, unreachableRecipients: [] },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: true, routing: null, unreachableRecipients: [] },
     accepts: true,
   },
   {
+    name: 'rejects an omitted deduplication result',
+    response: { entry: APPEND_LOG_ENTRY },
+    accepts: false,
+  },
+  {
+    name: 'rejects a non-boolean deduplication result',
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: 'false' },
+    accepts: false,
+  },
+  {
     name: 'rejects unknown top-level response fields',
-    response: { entry: APPEND_LOG_ENTRY, routing: APPEND_LOG_ROUTING, extra: true },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: APPEND_LOG_ROUTING, extra: true },
     accepts: false,
   },
   {
     name: 'rejects a non-object routing echo',
-    response: { entry: APPEND_LOG_ENTRY, routing: 'review' },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: 'review' },
     accepts: false,
   },
   {
     name: 'rejects missing routing fields',
-    response: { entry: APPEND_LOG_ENTRY, routing: { class: 'review' } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { class: 'review' } },
     accepts: false,
   },
   {
     name: 'rejects unknown routing fields',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, extra: true } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, extra: true } },
     accepts: false,
   },
   {
@@ -750,11 +779,48 @@ const ATTACH_RESPONSE = {
     runtime_metadata_reported: false,
   },
   session: { id: '40000000-0000-4000-8000-000000000001' },
+  initial_log_cursor: null,
 } satisfies AttachResponse;
 
 /** Wire vectors for the v3 non-expiring attach-session response. */
 export const ATTACH_SESSION_CONFORMANCE: readonly AttachSessionConformanceVector[] = [
   { name: 'accepts exact non-expiring session id', response: ATTACH_RESPONSE, accepts: true },
+  {
+    name: 'accepts a canonical initial log cursor',
+    response: {
+      ...ATTACH_RESPONSE,
+      initial_log_cursor: {
+        id: '50000000-0000-4000-8000-000000000001',
+        created_at: '2026-07-14T10:00:00.000Z',
+      },
+    },
+    accepts: true,
+  },
+  {
+    name: 'rejects an omitted initial log cursor',
+    response: (({ initial_log_cursor: _, ...response }) => response)(ATTACH_RESPONSE),
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid initial log cursor UUID',
+    response: {
+      ...ATTACH_RESPONSE,
+      initial_log_cursor: { id: 'not-a-uuid', created_at: '2026-07-14T10:00:00.000Z' },
+    },
+    accepts: false,
+  },
+  {
+    name: 'rejects unknown initial log cursor fields',
+    response: {
+      ...ATTACH_RESPONSE,
+      initial_log_cursor: {
+        id: '50000000-0000-4000-8000-000000000001',
+        created_at: '2026-07-14T10:00:00.000Z',
+        extra: true,
+      },
+    },
+    accepts: false,
+  },
   {
     name: 'rejects retired expires_at field',
     response: {

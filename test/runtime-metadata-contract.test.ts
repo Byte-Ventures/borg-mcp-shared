@@ -151,6 +151,7 @@ describe('runtime metadata contract', () => {
         runtime_metadata_reported: true,
       },
       session: { id: '40000000-0000-4000-8000-000000000001' },
+      initial_log_cursor: null,
     } as const;
     expect(decodeAttachResponse(response).drone.runtime_metadata).toEqual(knownMetadata);
   });

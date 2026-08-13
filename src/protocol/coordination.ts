@@ -376,8 +376,14 @@ function decodeUnreachableRecipient(
 
 export function decodeAppendLogResult(value: unknown): AppendLogResult {
   const input = object(value);
-  exact(input, ['entry', 'routing', 'unreachableRecipients'], ['entry']);
-  const output: AppendLogResult = { entry: decodeEnrichedStreamEntry(input.entry) };
+  exact(input, ['entry', 'deduplicated', 'routing', 'unreachableRecipients'], ['entry', 'deduplicated']);
+  if (typeof input.deduplicated !== 'boolean') {
+    throw new ProtocolContractError('Invalid append-log deduplicated flag.');
+  }
+  const output: AppendLogResult = {
+    entry: decodeEnrichedStreamEntry(input.entry),
+    deduplicated: input.deduplicated,
+  };
   if (input.routing !== undefined) {
     output.routing = input.routing === null ? null : decodeRoutingEcho(input.routing);
   }

@@ -141,6 +141,7 @@ interface CubeState {
   directive: string;
   taxonomyMarker: string | null;
   entries: EnrichedStreamEntry[];
+  posts: Map<string, EnrichedStreamEntry>;
   claims: ReadLogClaim[];
   decisions: Decision[];
   expired: Set<string>;
@@ -303,7 +304,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cubes.set(handle.id, {
         handle, name: null, workingRepoName: null, repository: null, template: null,
         directive: '', taxonomyMarker: null,
-        entries: [], claims: [], decisions: [], expired: new Set(),
+        entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
         roles: new Map(), drones: new Map(),
       });
       void name;
@@ -642,7 +643,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '8',
+                protocol_version: '9',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -662,7 +663,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '8',
+                protocol_version: '9',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -678,7 +679,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           this.cubes.set(handle.id, {
             handle, name: null, workingRepoName: null, repository: null, template: null,
             directive: '', taxonomyMarker: null,
-            entries: [], claims: [], decisions: [], expired: new Set(),
+            entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
             roles: new Map(), drones: new Map(),
           });
         }
@@ -708,6 +709,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           directive: '',
           taxonomyMarker: null,
           entries: [],
+          posts: new Map(),
           claims: [],
           decisions: [],
           expired: new Set(),
@@ -761,7 +763,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '8',
+              protocol_version: '9',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -815,6 +817,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         directive: '',
         taxonomyMarker: null,
         entries: [],
+        posts: new Map(),
         claims: [],
         decisions: [],
         expired: new Set(),
@@ -1061,6 +1064,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             runtime_metadata_reported: drone.metadataReported,
           },
           session: { id: this.uuid() },
+          initial_log_cursor: cube.entries.length === 0
+            ? null
+            : this.cursor(cube.entries[cube.entries.length - 1]),
         }),
       };
     },
@@ -1083,7 +1089,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '8', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '9', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1121,6 +1127,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
       const cube = this.cube(cubeHandle.id);
+      const existing = cube.posts.get(envelope.payload.post_id);
+      if (existing) {
+        return {
+          status: 201,
+          body: createProtocolEnvelope(envelope.request_id, { entry: existing, deduplicated: true }),
+        };
+      }
       const recipients = envelope.payload.recipientDroneIds ?? [];
       if (recipients.some((id) => {
         const recipient = cube.drones.get(id);
@@ -1141,13 +1154,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         recipient_drone_ids: recipients,
       };
       cube.entries.push(entry);
+      cube.posts.set(envelope.payload.post_id, entry);
       const frame = encodeSseEvent({ type: 'log', cursor: this.cursor(entry), entry });
       for (const stream of this.streams) {
         if (stream.cubeId === cubeHandle.id && !this.principal(stream.principalId).revoked) {
           stream.queue.push(frame);
         }
       }
-      return { status: 201, body: createProtocolEnvelope(envelope.request_id, { entry }) };
+      return {
+        status: 201,
+        body: createProtocolEnvelope(envelope.request_id, { entry, deduplicated: false }),
+      };
     },
     appendRaw: async (
       credential: string,
@@ -1167,7 +1184,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (this.fault === 'interpret-injection-input') {
         const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
         if (envelope.payload.message.includes('DROP TABLE')) {
-          request = createProtocolEnvelope(envelope.request_id, { message: 'interpreted-input' });
+          request = createProtocolEnvelope(envelope.request_id, {
+            post_id: envelope.payload.post_id,
+            message: 'interpreted-input',
+          });
         }
       }
       return this.operations.append(credential, cubeHandle, request);
@@ -1745,7 +1765,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '8',
+        protocol_version: '9',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message },
       },
