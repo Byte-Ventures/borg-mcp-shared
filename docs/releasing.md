@@ -40,8 +40,7 @@ Keep these controls in place:
 1. `publish.yml` is the only npm Trusted Publisher workflow for organization
    `Byte-Ventures`, repository `borg-mcp-shared`, and environment `npm-publish`.
    Its allowed actions enable `npm stage publish` and disable `npm publish`.
-2. The `npm-publish` environment requires the authorized sole operator
-   `TheodorStorm`, permits that operator's self-review, prevents administrator
+2. The `npm-publish` environment has no required reviewer, prevents administrator
    bypass, and allows only protected `v*.*.*` tags.
 3. `NPM_EXPECTED_OWNER` is `byteventures`. It comes from the live npm package
    maintainer record, not package metadata.
@@ -55,25 +54,25 @@ Keep these controls in place:
 
 ## Release Procedure
 
-1. Merge the exact version, lockfile, source, and release documentation
-   to protected `main` after the required exact-SHA Code Review, Security Review,
-   and Release Quality gates.
+1. Merge the exact version, lockfile, source, and release documentation to
+   protected `main` after exact-SHA CI and one Code Review.
    Release documentation includes curated `docs/releases/<version>.md` notes.
    The GitHub Release operator reads those exact bytes from the tagged commit
    under `News and fixes`.
 2. Confirm the target version does not already exist and `borgmcp-shared` is
    owned solely by `byteventures`.
-3. Obtain the separately required exact-commit tag authorization. Create and push
-   one annotated `v<package-version>` tag at that protected-main commit.
-4. The tag starts the single publish job and leaves it pending at the protected
-   `npm-publish` environment. A failed pre-stage workflow may be rerun after its
-   cause is corrected; the version is not consumed until npm accepts a stage.
-5. Obtain the separately required environment approval, then approve that exact
-   pending job. Approval does not permit a local rebuild or alternate artifact.
-6. Require the protected publish job to complete successfully before announcing
-   that the stage is ready. Record its stage UUID; do not announce the version,
-   update consumers, synchronize the site, create a GitHub Release, or record a
-   `published` outcome while it remains staged.
+3. Create and push one annotated `v<package-version>` tag at that protected-main
+   commit. The tag-restricted workflow runs automatically and stages the verified
+   tarball. A failed pre-stage workflow may be rerun after its cause is corrected;
+   the version is not consumed until npm accepts a stage.
+4. Inspect the npm stage's UUID, package, version, integrity, and `latest` tag.
+   Approving that exact stage with 2FA is the sole human publication boundary.
+5. Verify the live version and integrity, then create the GitHub Release from the
+   tagged notes:
+
+```sh
+GITHUB_TOKEN="$(gh auth token)" node scripts/create-github-release.mjs <version> --integrity <sha512-SRI>
+```
 
 Before release preparation or trusted identity verification can pass, the
 greatest stable npm version below the current package version must already have a
@@ -82,91 +81,17 @@ the immediately previous publication. A final `"reconstructed": true` marker
 means the entry was recovered later from the same annotated-tag, Actions-run, and
 npm-integrity authorities; it does not weaken verification or change the outcome.
 
-## Coupled Stage Approval
-
-For a coordinated shared, server, and client release, require all three tag
-workflows to succeed before approving any stage. Use authenticated `npm stage
-list` and `npm stage view` to record and verify each UUID, package, version, and
-`latest` tag. Bind each source run, annotated tag, and commit separately from
-GitHub workflow and tag evidence. Before any approval, run `npm stage download
-<UUID>` for every package. For server and client, verify the downloaded SHA-512
-against the same-run artifact report. For shared, independently compute and
-record the stage-download SHA-512 SRI, then carry that exact value into the
-required post-approval `--integrity` argument; shared has no same-run artifact
-report. Exercise the exact downloaded coupled set before approving any stage.
-Confirm public `latest` and the public version lists still describe the prior
-coherent set.
-
-Approve the verified stages in one operator session with 2FA:
-
-1. `npm stage approve <shared-stage-uuid>`
-2. `npm stage approve <server-stage-uuid>`
-3. `npm stage approve <client-stage-uuid>`
-
-The three approvals are not atomic. Shared-first does not change the exact
-shared pins of the live client and server. Server-second opens a bounded window
-in which `latest` client and server may not match; client-third closes it. Staging
-reduces that window to the approval sequence but does not eliminate it.
-
-After each approval, continue only while the remaining stage is still the exact
-verified candidate. Resolve an ambiguous approval through authenticated stage
-state and canonical public version/integrity state; never repeat it blindly.
-After all approvals:
-
-1. Verify the three live versions, integrities, and registry provenance
-   attestations, and exercise a fresh coupled install. Only then announce,
-   record, close, or synchronize the release.
-2. Create the three GitHub Releases in the same operator session, in shared,
-   server, then client order. For shared, pass the SHA-512 SRI computed from the
-   mandatory stage download during promotion:
-
-```sh
-GITHUB_TOKEN="$(gh auth token)" node scripts/create-github-release.mjs <version> --integrity <sha512-SRI>
-```
-
-This required value binds npm-live to the independently verified staged bytes.
-Unlike server and client, shared uploads no same-run artifact report; do not
-derive the expected integrity from npm or alter `publish.yml` to create one.
-
-## Coupled Publication Window
-
-The shared, server, and client packages are approved independently from private
-npm stages. Pending stages are not publicly installable and do not change
-`latest` or the public version list. Approval order is shared first, server
-second, and client third. This keeps each consumer pointed at an immutable shared
-artifact, but it cannot make the three approvals atomic.
-
-During that sequence, a user can install the newest server and newest client
-while they still carry different protocol tags. Their credential-free preflight
-fails closed by design; this is a publication-window mismatch, not a negotiation
-or fallback case. The user remedy is to install the matching coupled shared,
-server, and client versions from the coordinated release rather than retrying
-`latest`. Do not describe this window as eliminated or promise an atomic
-multi-package publication until npm supports atomic multi-package approval.
-
 The workflow stages only `./release/<tarball>`. It never stages from the
 repository directory, a package name, a URL, a prior workflow artifact, or a
 locally rebuilt replacement.
 
 ## Stop And Recovery
 
-Stop before staging when source identity, tag ancestry, repository
-visibility, environment protection, expected owner, target-version absence,
-tests, build output, tarball policy, clean-consumer imports, or Trusted Publishing
-configuration cannot be verified.
-
-Before any stage approval, approve none if any coupled stage or its evidence is
-missing or wrong. If the coupled candidate is abandoned, reject all three stages
-with 2FA. Never move a release tag. A version is consumed when npm accepts its
-stage.
-
-After shared approval but before server approval, stopping preserves live
-client/server compatibility, though the shared version is immutable and any
-replacement needs a new version. After server approval, prioritize the already
-verified client approval because the public mismatch window is open. If that
-client cannot be approved, preserve the failed evidence and prepare newly
-reviewed matching server/client recovery versions; do not reject, rerun, or
-silently substitute the tagged client.
+Stop before staging when source identity, tag ancestry, expected owner,
+target-version absence, build output, tarball policy, clean-consumer imports, or
+Trusted Publishing configuration cannot be verified. Do not approve a stage
+whose package, version, integrity, or tag differs from the inspected candidate.
+Never move a release tag. A version is consumed when npm accepts its stage.
 
 If a tag run fails before npm accepts the stage, fix the cause and rerun the same
 immutable tag workflow. Do not move or force-update the tag.
