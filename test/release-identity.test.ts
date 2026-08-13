@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  FAILED_RELEASE_STAGING_STEP,
   createReleaseRecord,
   prepareRelease,
   verifyReleaseIdentity,
@@ -18,7 +19,7 @@ const skippedSteps = [
   'Build exact release tarball',
   'Reject existing version and wrong owner',
   'Exercise exact tarball in a clean consumer',
-  'Publish exact verified tarball with provenance',
+  FAILED_RELEASE_STAGING_STEP,
 ];
 
 afterEach(async () => {
@@ -26,6 +27,11 @@ afterEach(async () => {
 });
 
 describe('release identity recovery', () => {
+  it('binds failed-release evidence to the protected staging step', async () => {
+    const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
+    expect(workflow.match(new RegExp(`^      - name: ${FAILED_RELEASE_STAGING_STEP}$`, 'gm'))).toHaveLength(1);
+  });
+
   it('records only an attempt-1 pre-publication failure', async () => {
     const fixture = await createFixture();
     const record = createReleaseRecord(fixture.root, {

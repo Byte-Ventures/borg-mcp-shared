@@ -11,6 +11,7 @@ const RECORDS_PATH = 'docs/release-records.json';
 const PACKAGE_PATH = 'package.json';
 const LOCK_PATH = 'package-lock.json';
 const ATTEMPT = 1;
+export const FAILED_RELEASE_STAGING_STEP = 'Stage exact verified tarball with Trusted Publishing provenance';
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const registryVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const sha = /^[0-9a-f]{40}$/u;
@@ -177,7 +178,7 @@ function failedPhaseEvidence(root, record, authorities) {
     'Build exact release tarball',
     'Reject existing version and wrong owner',
     'Exercise exact tarball in a clean consumer',
-    'Publish exact verified tarball with provenance',
+    FAILED_RELEASE_STAGING_STEP,
   ];
   for (const name of skipped) {
     const matches = job.steps.filter((step) => step?.name === name);
