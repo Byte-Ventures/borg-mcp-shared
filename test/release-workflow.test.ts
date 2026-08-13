@@ -93,7 +93,6 @@ describe('npm publish workflow', () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
     const compatibility = await readFile('docs/compatibility.md', 'utf8');
-    const configurationGuard = await readFile('scripts/verify-release-configuration.mjs', 'utf8');
 
     expect(workflow).toContain("tags: ['v*.*.*']");
     expect(workflow).not.toContain('workflow_dispatch:');
@@ -101,7 +100,7 @@ describe('npm publish workflow', () => {
     expect(workflow).toContain('environment:\n      name: npm-publish');
     expect(workflow).toContain('id-token: write');
     expect(workflow).toContain('contents: read');
-    expect(workflow).toContain('test "${GITHUB_RUN_ATTEMPT}" = "1"');
+    expect(workflow).not.toContain('GITHUB_RUN_ATTEMPT');
     expect(workflow).toContain('npm install --global npm@11.18.0');
     expect(workflow).toContain('test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"');
     expect(workflow).toContain('test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"');
@@ -110,8 +109,6 @@ describe('npm publish workflow', () => {
     for (const command of [
       'npm ci --ignore-scripts',
       'npm audit --audit-level=high',
-      'npm run check',
-      'npm test',
       'npm run build',
       'npm pack --ignore-scripts',
     ]) {
@@ -176,18 +173,17 @@ describe('npm publish workflow', () => {
     expect(runbook).toContain('one protected workflow job');
     expect(runbook).toContain('does not authorize a tag or publication');
     expect(runbook).toContain('No workflow post-publication readback');
-    expect(runbook).toContain('Coupled Publication Window');
-    expect(runbook).toContain('matching coupled');
     expect(compatibility).toMatch(/publication window is a release\s+property/i);
     expect(compatibility).toContain('matching coupled shared, server, and client versions');
     expect(compatibility).not.toContain('There is no mixed-version window');
     expect(runbook).not.toContain('ARTIFACT_SR_');
     expect(runbook).not.toContain('Security must download and audit that exact workflow artifact');
-    expect(configurationGuard).not.toContain('ALLOW_UNCLAIMED_FIRST_PUBLISH');
-    const nodeVersions = ci.match(/node-version: \[([^\]]+)\]/)?.[1].split(', ');
-    expect(configurationGuard.match(/'package \([^']+\):15368'/g)?.sort()).toEqual(
-      nodeVersions?.map((version) => `'package (${version}):15368'`).sort(),
-    );
+    expect(ci).toContain('push:\n    branches: [main]');
+    expect(ci).toContain('node-version: 22.12.0');
+    expect(ci).toContain('node-version: 24.19.0');
+    for (const command of ['npm audit --audit-level=high', 'npm run build', 'npm run check', 'npm pack --dry-run --ignore-scripts']) {
+      expect(ci.split(command)).toHaveLength(2);
+    }
   });
 
   it('builds generated output before every dist-importing validation lane', async () => {
@@ -202,12 +198,13 @@ describe('npm publish workflow', () => {
 
     expect(packageJobStart).toBeGreaterThan(-1);
     expect(nextJobStart).toBeGreaterThan(packageJobStart);
-    for (const lane of [packageJob, publish, packageJson.scripts.prepack]) {
+    for (const lane of [packageJob, packageJson.scripts.prepack]) {
       const build = lane.indexOf('npm run build');
       expect(build).toBeGreaterThan(-1);
       expect(lane.indexOf('npm run check')).toBeGreaterThan(build);
       expect(lane.indexOf('npm test')).toBeGreaterThan(build);
     }
+    expect(publish.indexOf('npm run build')).toBeGreaterThan(-1);
   });
 
   it('keeps internal release state out of the README and release history', async () => {
@@ -245,13 +242,6 @@ describe('npm publish workflow', () => {
       '29984423571',
       'sha512-XUJq+FjY/cbarU9V1dIWnhNYcqyURTiGb6KyIzg99gy5hk/fEs5ee/8X/qvp7pw1Rshqt2J6I3TVbwJdlde2tA==',
     ]) expect(immutableEvidence).toContain(evidence);
-  });
-
-  it.each(['2', '3'])('rejects workflow rerun attempt %s', (attempt) => {
-    expect(() => execFileSync('bash', ['-eu', '-c', 'test "${GITHUB_RUN_ATTEMPT}" = "1"'], {
-      env: { ...process.env, GITHUB_RUN_ATTEMPT: attempt },
-      stdio: 'ignore',
-    })).toThrow();
   });
 
   it('passes a generated tarball to npm as an explicit local file', async () => {

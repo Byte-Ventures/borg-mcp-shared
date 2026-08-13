@@ -5,8 +5,6 @@ export interface ReleaseEvidence {
   readonly artifactIntegrity?: string;
 }
 
-export const FAILED_RELEASE_STAGING_STEP: 'Stage exact verified tarball with Trusted Publishing provenance';
-
 export interface ReleaseRecord {
   readonly outcome: 'published' | 'failed-superseded';
   readonly version: string;
@@ -25,7 +23,6 @@ export interface ReleaseRecord {
 
 export interface ReleaseAuthorities {
   readonly githubRun(root: string, runId: number, attempt: number): Record<string, unknown>;
-  readonly githubRunJobs(root: string, runId: number, attempt: number): Record<string, unknown>;
   readonly artifactIntegrity(root: string, version: string): unknown;
   readonly publishedVersions(root: string): unknown;
 }

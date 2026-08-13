@@ -5,22 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   assembleReleaseBody,
-  assertReleasePullRequest,
   createGithubRelease,
 } from '../scripts/create-github-release.mjs';
 
 const commit = 'a'.repeat(40);
 const integrity = `sha512-${createHash('sha512').update('release').digest('base64')}`;
-const pullRequest = {
-  number: 42,
-  state: 'closed',
-  merged_at: '2026-08-12T00:00:00Z',
-  base: { ref: 'main' },
-  head: { ref: 'release/1.2.3' },
-  merge_commit_sha: commit,
-  html_url: 'https://github.com/Byte-Ventures/borg-mcp-shared/pull/42',
-  body: 'PR-BODY-SENTINEL must never reach release notes.',
-};
 const releaseNotes = 'Protocol v9 release notes from the tagged commit.';
 
 function authorities(overrides = {}) {
@@ -29,24 +18,13 @@ function authorities(overrides = {}) {
       if (args[0] === 'cat-file') return 'tag';
       if (args[0] === 'rev-parse') return commit;
       if (args[0] === 'for-each-ref') return 'borgmcp-shared 1.2.3';
-      return 'Merge pull request #42 from Byte-Ventures/release/1.2.3';
+      return '';
     },
     gitFile: (_root: string, ref: string, path: string) => {
       expect(ref).toBe(commit);
       expect(path).toBe('docs/releases/1.2.3.md');
       return releaseNotes;
     },
-    githubApi: (_root: string, endpoint: string) => endpoint.includes('/pulls')
-      ? [pullRequest]
-      : { workflow_runs: [{
-          id: 123,
-          path: '.github/workflows/publish.yml',
-          head_sha: commit,
-          head_branch: 'v1.2.3',
-          run_attempt: 1,
-          status: 'completed',
-          conclusion: 'success',
-        }] },
     postpublish: vi.fn(async () => ({
       name: 'borgmcp-shared', version: '1.2.3', integrity, registryState: 'verified',
     })),
@@ -57,53 +35,7 @@ function authorities(overrides = {}) {
   };
 }
 
-const successfulRun = {
-  id: 123,
-  path: '.github/workflows/publish.yml',
-  head_sha: commit,
-  head_branch: 'v1.2.3',
-  run_attempt: 1,
-  status: 'completed',
-  conclusion: 'success',
-};
-
 describe('GitHub Release operator', () => {
-  it('accepts the release PR bound to the tagged merge commit', () => {
-    expect(assertReleasePullRequest(
-      [pullRequest], '1.2.3', commit,
-      'Merge pull request #42 from Byte-Ventures/release/1.2.3',
-    )).toBe(pullRequest);
-  });
-
-  it('does not require the release PR body', () => {
-    const { body: _, ...withoutBody } = pullRequest;
-    expect(assertReleasePullRequest(
-      [withoutBody], '1.2.3', commit,
-      'Merge pull request #42 from Byte-Ventures/release/1.2.3',
-    )).toBe(withoutBody);
-  });
-
-  it.each([
-    ['multiple PRs', [pullRequest, { ...pullRequest, number: 43 }], 'exactly one'],
-    ['open PR', [{ ...pullRequest, state: 'open' }], 'closed and merged'],
-    ['unmerged PR', [{ ...pullRequest, merged_at: null }], 'closed and merged'],
-    ['wrong base', [{ ...pullRequest, base: { ref: 'develop' } }], 'base main'],
-    ['wrong head', [{ ...pullRequest, head: { ref: 'release/1.2.4' } }], 'head release/1.2.3'],
-    ['wrong merge commit', [{ ...pullRequest, merge_commit_sha: 'b'.repeat(40) }], 'tagged commit'],
-  ])('rejects %s', (_case, pullRequests, message) => {
-    expect(() => assertReleasePullRequest(
-      pullRequests, '1.2.3', commit,
-      'Merge pull request #42 from Byte-Ventures/release/1.2.3',
-    )).toThrow(message);
-  });
-
-  it('rejects a local merge subject that names another PR', () => {
-    expect(() => assertReleasePullRequest(
-      [pullRequest], '1.2.3', commit,
-      'Merge pull request #41 from Byte-Ventures/release/1.2.3',
-    )).toThrow('local merge subject');
-  });
-
   it('rejects a lightweight release tag', async () => {
     const system = authorities({
       git: (_root: string, args: string[]) => args[0] === 'cat-file' ? 'commit' : '',
@@ -126,42 +58,10 @@ describe('GitHub Release operator', () => {
     })).rejects.toThrow('no message');
   });
 
-  it.each([
-    ['wrong workflow path', { ...successfulRun, path: '.github/workflows/ci.yml' }],
-    ['wrong head SHA', { ...successfulRun, head_sha: 'b'.repeat(40) }],
-    ['wrong tag branch', { ...successfulRun, head_branch: 'v1.2.4' }],
-    ['later attempt', { ...successfulRun, run_attempt: 2 }],
-    ['incomplete run', { ...successfulRun, status: 'in_progress' }],
-    ['failed run', { ...successfulRun, conclusion: 'failure' }],
-  ])('rejects a release run with %s', async (_case, run) => {
-    const system = authorities({
-      githubApi: (_root: string, endpoint: string) => endpoint.includes('/pulls')
-        ? [pullRequest]
-        : { workflow_runs: [run] },
-    });
-    await expect(createGithubRelease('1.2.3', integrity, {
-      token: 'test-token', authorities: system,
-    })).rejects.toThrow('exactly one successful attempt-1');
-  });
-
-  it.each([
-    ['zero', []],
-    ['multiple', [successfulRun, { ...successfulRun, id: 124 }]],
-  ])('rejects %s matching release runs', async (_case, runs) => {
-    const system = authorities({
-      githubApi: (_root: string, endpoint: string) => endpoint.includes('/pulls')
-        ? [pullRequest]
-        : { workflow_runs: runs },
-    });
-    await expect(createGithubRelease('1.2.3', integrity, {
-      token: 'test-token', authorities: system,
-    })).rejects.toThrow('exactly one successful attempt-1');
-  });
-
-  it('assembles framed evidence with exact tagged notes and excludes the PR body', () => {
+  it('assembles release facts with exact tagged notes', () => {
     expect(assembleReleaseBody({
       packageName: 'borgmcp-shared', version: '1.2.3', integrity,
-      tag: 'v1.2.3', commit, pullRequest, releaseNotes,
+      tag: 'v1.2.3', commit, releaseNotes,
     })).toBe([
       '## Package',
       '',
@@ -173,16 +73,10 @@ describe('GitHub Release operator', () => {
       '',
       '- Tag: https://github.com/Byte-Ventures/borg-mcp-shared/releases/tag/v1.2.3',
       `- Commit: https://github.com/Byte-Ventures/borg-mcp-shared/commit/${commit}`,
-      '- Pull request: https://github.com/Byte-Ventures/borg-mcp-shared/pull/42',
-      '',
       '## News and fixes',
       '',
       releaseNotes,
     ].join('\n'));
-    expect(assembleReleaseBody({
-      packageName: 'borgmcp-shared', version: '1.2.3', integrity,
-      tag: 'v1.2.3', commit, pullRequest, releaseNotes,
-    })).not.toContain('PR-BODY-SENTINEL');
   });
 
   it.each([

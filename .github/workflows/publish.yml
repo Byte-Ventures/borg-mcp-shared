@@ -36,7 +36,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "${GITHUB_RUN_ATTEMPT}" = "1"
           test "${{ github.event.repository.private }}" = "false"
           test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
           test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
@@ -77,12 +76,6 @@ jobs:
 
       - name: Build package output
         run: npm run build
-
-      - name: Check types
-        run: npm run check
-
-      - name: Run tests
-        run: npm test
 
       - name: Build exact release tarball
         id: pack
