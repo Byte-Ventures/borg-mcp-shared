@@ -12,6 +12,25 @@ function assertHistoricalReleaseRecord(releases: string): void {
 }
 
 describe('npm publish workflow', () => {
+  it('audits the locked dependency tree before ordinary CI build and tag authorization', async () => {
+    const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
+    const lock = JSON.parse(await readFile('package-lock.json', 'utf8')) as {
+      packages: Record<string, { version?: string }>;
+    };
+    const packageJob = workflow.match(/^  package:\n([\s\S]*?)(?=^  [a-z][\w-]*:\n)/m)?.[1];
+    expect(packageJob).toBeDefined();
+    const executableSteps: string[] = packageJob?.match(/^      - run: .+$/gm) ?? [];
+    const install = executableSteps.indexOf('      - run: npm ci');
+    const audit = executableSteps.indexOf('      - run: npm audit --audit-level=high');
+    const build = executableSteps.indexOf('      - run: npm run build');
+
+    expect(install).toBeGreaterThan(-1);
+    expect(audit).toBeGreaterThan(install);
+    expect(build).toBeGreaterThan(audit);
+    expect(executableSteps.filter((step) => step === '      - run: npm audit --audit-level=high')).toHaveLength(1);
+    expect(lock.packages['node_modules/nanoid']?.version).toBe('3.3.18');
+  });
+
   it('classifies release identity PRs with the trusted base verifier', async () => {
     const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
 
