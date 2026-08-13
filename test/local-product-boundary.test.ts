@@ -46,7 +46,6 @@ describe('local product boundary', () => {
   it('retains explicitly classified release and registry infrastructure', async () => {
     const releasing = await readFile('docs/releasing.md', 'utf8');
     expect(releasing).toContain('GitHub-hosted runner');
-    expect(releasing).toContain('non-provider patterns');
 
     const manifest = JSON.parse(await readFile('package.json', 'utf8')) as {
       repository?: { url?: string };

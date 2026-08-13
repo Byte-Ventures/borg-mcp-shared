@@ -105,6 +105,29 @@ describe('release identity recovery', () => {
       .toThrow(/Version-pin assertion is stale/);
   });
 
+  it.each([
+    ['prerelease', '1.2.0-rc.1', /stable x\.y\.z/],
+    ['lower', '1.0.1', /must be newer than 1\.1\.0/],
+  ])('rejects a %s candidate version', async (_case, version, message) => {
+    const fixture = await createFixture();
+    const base = git(fixture.root, 'rev-parse', 'HEAD');
+    await prepareRelease(fixture.root, '1.2.0', {
+      workflowRunId: 200,
+      workflowRunAttempt: 1,
+      workflowConclusion: 'failure',
+    }, fixture.authorities);
+    for (const path of ['package.json', 'package-lock.json', 'test/version-pin.test.ts']) {
+      const file = join(fixture.root, path);
+      await writeFile(file, (await readFile(file, 'utf8')).replaceAll('1.2.0', version));
+    }
+    git(fixture.root, 'add', '.');
+    git(fixture.root, 'commit', '-m', `prepare ${version}`);
+
+    expect(() => verifyReleaseIdentity(
+      fixture.root, base, git(fixture.root, 'rev-parse', 'HEAD'), fixture.authorities,
+    )).toThrow(message);
+  });
+
   it('accepts only a final reconstructed true marker', async () => {
     const fixture = await createFixture();
     const record: ReleaseRecord = {

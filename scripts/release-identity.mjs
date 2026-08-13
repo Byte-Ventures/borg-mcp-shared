@@ -314,7 +314,10 @@ export function verifyReleaseIdentity(root, base, candidate, authorities = syste
       fail('Release provenance commit is not an ancestor of the release identity base.');
     }
   }
-  const newVersion = manifest(candidateFiles).version;
+  const newVersion = requireVersion(manifest(candidateFiles).version, 'Candidate version');
+  if (compareVersions(newVersion, oldVersion) <= 0) {
+    fail(`Candidate version ${newVersion} must be newer than ${oldVersion}.`);
+  }
   const candidateManifest = manifest(candidateFiles);
   const candidateLock = json(candidateFiles.get(LOCK_PATH), LOCK_PATH);
   if (candidateLock.name !== PACKAGE_NAME || candidateLock.version !== newVersion ||
