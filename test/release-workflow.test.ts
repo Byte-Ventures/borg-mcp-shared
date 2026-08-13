@@ -89,6 +89,7 @@ describe('npm publish workflow', () => {
   });
 
   it('uses one protected build, package, and publish authority', async () => {
+    const ci = await readFile('.github/workflows/ci.yml', 'utf8');
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
     const runbook = await readFile('docs/releasing.md', 'utf8');
     const compatibility = await readFile('docs/compatibility.md', 'utf8');
@@ -183,6 +184,10 @@ describe('npm publish workflow', () => {
     expect(runbook).not.toContain('ARTIFACT_SR_');
     expect(runbook).not.toContain('Security must download and audit that exact workflow artifact');
     expect(configurationGuard).not.toContain('ALLOW_UNCLAIMED_FIRST_PUBLISH');
+    const nodeVersions = ci.match(/node-version: \[([^\]]+)\]/)?.[1].split(', ');
+    expect(configurationGuard.match(/'package \([^']+\):15368'/g)?.sort()).toEqual(
+      nodeVersions?.map((version) => `'package (${version}):15368'`).sort(),
+    );
   });
 
   it('builds generated output before every dist-importing validation lane', async () => {

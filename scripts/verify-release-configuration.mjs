@@ -119,7 +119,7 @@ const checkKeys = (checks?.required_status_checks ?? []).map(
 );
 if (checks?.strict_required_status_checks_policy !== true ||
     checks.do_not_enforce_on_create !== false ||
-    !sameValues(checkKeys, ['package (20):15368', 'package (22):15368'])) {
+    !sameValues(checkKeys, ['package (22.12.0):15368', 'package (24.19.0):15368'])) {
   throw new Error('Main required checks must be the two GitHub Actions package jobs.');
 }
 const actions = await github(`/repos/${REPOSITORY}/actions/permissions`);
