@@ -43,6 +43,7 @@ describe('public conformance vectors', () => {
       expect.objectContaining({ actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' }),
       expect.objectContaining({ actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' }),
       expect.objectContaining({ actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'ignored_request_shape', expected: 'deduplicated' }),
       expect.objectContaining({ actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' }),
       expect.objectContaining({ actor: 'different', mutation: 'none', expected: 'created' }),
     ]);
