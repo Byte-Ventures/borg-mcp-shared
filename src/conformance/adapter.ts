@@ -209,6 +209,11 @@ export interface ConformanceAdmin {
     readonly isMandatory?: boolean;
   }): Promise<ConformanceRole>;
   referenceRoleFromTaxonomy(cube: ConformanceCube, role: ConformanceRole): Promise<void>;
+  configureMessageClassRouting(
+    cube: ConformanceCube,
+    className: string,
+    recipientDroneIds: readonly string[],
+  ): Promise<void>;
   createDrone(
     principal: ConformancePrincipal,
     cube: ConformanceCube,
@@ -1457,6 +1462,8 @@ export async function runAdapterConformance(
     });
     const firstRecipient = await environment.admin.createDrone(principal, cube, role);
     const secondRecipient = await environment.admin.createDrone(principal, cube, role);
+    await environment.admin.configureMessageClassRouting(cube, 'conformance-review', [firstRecipient.id]);
+    await environment.admin.configureMessageClassRouting(cube, 'conformance-security', [firstRecipient.id]);
     const postId = '00000000-0000-4000-8000-000000000313';
     const initialPayload = {
       post_id: postId,
@@ -1486,8 +1493,7 @@ export async function runAdapterConformance(
           createProtocolEnvelope('append-idempotency-class-baseline', {
             post_id: vectorPostId,
             message: 'once',
-            class: 'review',
-            to: ['Coordinator'],
+            class: 'conformance-review',
           }),
         );
         expectStatus(baseline, 201, 'Resolved class-routing baseline');
@@ -1495,8 +1501,7 @@ export async function runAdapterConformance(
       const payload = classRouting ? {
         post_id: vectorPostId,
         message: 'once',
-        class: 'security',
-        to: ['Security Auditor'],
+        class: 'conformance-security',
       } : {
         ...initialPayload,
         ...(vector.mutation === 'message' ? { message: 'changed' } : {}),

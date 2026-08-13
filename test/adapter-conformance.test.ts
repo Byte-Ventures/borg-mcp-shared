@@ -55,6 +55,7 @@ function same(left: unknown, right: unknown): boolean {
 
 type Fault =
   | 'cross-cube-leak'
+  | 'skip-message-class-configuration'
   | 'ignore-stream-cursor'
   | 'drop-transition-write'
   | 'keep-stream-after-revoke'
@@ -140,6 +141,7 @@ interface CubeState {
   template: CubeTemplate | null;
   directive: string;
   taxonomyMarker: string | null;
+  messageClassRouting: Map<string, string[]>;
   entries: EnrichedStreamEntry[];
   posts: Map<string, {
     entry: EnrichedStreamEntry;
@@ -310,6 +312,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cubes.set(handle.id, {
         handle, name: null, workingRepoName: null, repository: null, template: null,
         directive: '', taxonomyMarker: null,
+        messageClassRouting: new Map(),
         entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
         roles: new Map(), drones: new Map(),
       });
@@ -351,6 +354,18 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const state = this.cube(cube.id).roles.get(role.id);
       if (!state) throw new Error('Cannot reference a foreign role from taxonomy.');
       state.taxonomyReferenced = true;
+    },
+    configureMessageClassRouting: async (
+      cube: ConformanceCube,
+      className: string,
+      recipientDroneIds: readonly string[],
+    ): Promise<void> => {
+      if (this.fault === 'skip-message-class-configuration') return;
+      const state = this.cube(cube.id);
+      if (recipientDroneIds.some((id) => !state.drones.has(id))) {
+        throw new Error('Cannot route a message class to an unknown drone.');
+      }
+      state.messageClassRouting.set(className, [...recipientDroneIds].sort());
     },
     createDrone: async (
       principal: ConformancePrincipal,
@@ -685,6 +700,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           this.cubes.set(handle.id, {
             handle, name: null, workingRepoName: null, repository: null, template: null,
             directive: '', taxonomyMarker: null,
+            messageClassRouting: new Map(),
             entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
             roles: new Map(), drones: new Map(),
           });
@@ -714,6 +730,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           template: null,
           directive: '',
           taxonomyMarker: null,
+          messageClassRouting: new Map(),
           entries: [],
           posts: new Map(),
           claims: [],
@@ -822,6 +839,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         template: envelope.payload.template,
         directive: '',
         taxonomyMarker: null,
+        messageClassRouting: new Map(),
         entries: [],
         posts: new Map(),
         claims: [],
@@ -1138,9 +1156,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const usesExplicitDelivery = envelope.payload.visibility !== undefined ||
         envelope.payload.recipientDroneIds !== undefined;
       const resolvedClass = usesExplicitDelivery ? null : envelope.payload.class ?? null;
+      if (!usesExplicitDelivery && resolvedClass !== null && !cube.messageClassRouting.has(resolvedClass)) {
+        return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
       const resolvedRecipients = usesExplicitDelivery
         ? recipients
-        : [];
+        : resolvedClass === null ? [] : cube.messageClassRouting.get(resolvedClass) ?? [];
       const resolvedRouting = {
         message: envelope.payload.message,
         visibility: envelope.payload.visibility ?? 'broadcast',
@@ -1839,6 +1860,17 @@ describe('executable adapter conformance', () => {
     expect(deletion?.error).toContain(
       'Never-authorized post-delete DELETE returned HTTP 410; expected 404',
     );
+  });
+
+  it('rejects a reference adapter without configured message classes', async () => {
+    const report = await runAdapterConformance(
+      new MemoryConformanceEnvironment('skip-message-class-configuration'),
+      fastTimeouts,
+    );
+    expect(report.results).toContainEqual(expect.objectContaining({
+      id: 'log.append-idempotency',
+      ok: false,
+    }));
   });
 
   it.each([
