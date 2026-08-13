@@ -81,6 +81,7 @@ describe('built runtime metadata distribution', () => {
         runtime_metadata_reported: false,
       },
       session: { id: '40000000-0000-4000-8000-000000000001' },
+      initial_log_cursor: null,
     })).toThrow();
 
     expect(validateRuntimeMetadataReportState(allNull, false).runtime_metadata_reported).toBe(false);

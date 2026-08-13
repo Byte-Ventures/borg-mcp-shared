@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DRONE_ADDRESS_CONFORMANCE,
   APPEND_LOG_RESULT_CONFORMANCE,
+  APPEND_LOG_REQUEST_CONFORMANCE,
+  APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
   CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
@@ -25,6 +27,7 @@ import {
   decodeResolveRepositoryCubeRequest,
   decodeAssociateRepositoryCubeRequest,
   decodeAppendLogResult,
+  decodeAppendLogRequest,
   decodeAttachResponse,
   formatDroneAddressToken,
   parseRoleSections,
@@ -34,6 +37,27 @@ import {
 } from '../src/index.js';
 
 describe('public conformance vectors', () => {
+  it('pins every author-scoped append identity outcome', () => {
+    expect(APPEND_LOG_IDEMPOTENCY_CONFORMANCE).toEqual([
+      expect.objectContaining({ actor: 'same', mutation: 'none', expected: 'deduplicated' }),
+      expect.objectContaining({ actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'different', mutation: 'none', expected: 'created' }),
+    ]);
+  });
+
+  it('pins exact append-log idempotency requests', () => {
+    for (const vector of APPEND_LOG_REQUEST_CONFORMANCE) {
+      if (vector.accepts) {
+        expect(() => decodeAppendLogRequest(vector.request), vector.name).not.toThrow();
+      } else {
+        expect(() => decodeAppendLogRequest(vector.request), vector.name).toThrow();
+      }
+    }
+  });
+
   it('pins accepted and rejected append-log routing metadata', () => {
     for (const vector of APPEND_LOG_RESULT_CONFORMANCE) {
       if (vector.accepts) {
@@ -41,7 +65,7 @@ describe('public conformance vectors', () => {
       } else {
         const response = vector.response as { entry: unknown };
         expect(
-          () => decodeAppendLogResult({ entry: response.entry }),
+          () => decodeAppendLogResult({ entry: response.entry, deduplicated: false }),
           `${vector.name} permissive control`,
         ).not.toThrow();
         expect(() => decodeAppendLogResult(vector.response), vector.name).toThrow();
@@ -123,7 +147,7 @@ describe('public conformance vectors', () => {
     }
   });
 
-  it('pins the complete protocol-v8 cube-template acceptance set', () => {
+  it('pins the complete protocol-v9 cube-template acceptance set', () => {
     for (const vector of CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE) {
       const request = {
         retry_key: '00000000-0000-4000-8000-000000000120',

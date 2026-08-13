@@ -580,7 +580,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'This client requires protocol v8. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
+      'This client requires protocol v9. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -997,10 +997,11 @@ export function decodeAppendLogRequest(value: unknown): import('./types.js').App
   const input = record(value);
   exactKeys(
     input,
-    ['message', 'visibility', 'recipientDroneIds', 'class', 'to'],
-    ['message'],
+    ['post_id', 'message', 'visibility', 'recipientDroneIds', 'class', 'to'],
+    ['post_id', 'message'],
   );
   const output: import('./types.js').AppendLogRequest = {
+    post_id: decodeUuid(input.post_id, ['post_id']),
     message: boundedString(input.message, 1, 10_240, ['message']),
   };
   if (input.visibility !== undefined) {
@@ -1259,6 +1260,7 @@ export interface AttachResponse {
   role: AttachRole;
   drone: AttachDrone;
   session: AttachSession;
+  initial_log_cursor: LogCursor | null;
 }
 
 function decodeAttachCube(value: unknown, path: readonly (string | number)[]): AttachCube {
@@ -1393,12 +1395,13 @@ export function decodeAttachRequestEnvelope(
  */
 export function decodeAttachResponse(value: unknown): AttachResponse {
   const input = record(value);
-  exactKeys(input, ['result', 'cube', 'role', 'drone', 'session'], [
+  exactKeys(input, ['result', 'cube', 'role', 'drone', 'session', 'initial_log_cursor'], [
     'result',
     'cube',
     'role',
     'drone',
     'session',
+    'initial_log_cursor',
   ]);
   if (input.result !== 'created' && input.result !== 'reused') {
     fail('Expected result "created" or "reused".', ['result']);
@@ -1409,6 +1412,9 @@ export function decodeAttachResponse(value: unknown): AttachResponse {
     role: decodeAttachRole(input.role, ['role']),
     drone: decodeAttachDrone(input.drone, ['drone']),
     session: decodeAttachSession(input.session, ['session']),
+    initial_log_cursor: input.initial_log_cursor === null
+      ? null
+      : decodeLogCursor(input.initial_log_cursor, ['initial_log_cursor']),
   };
 }
 

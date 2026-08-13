@@ -11,7 +11,7 @@ import {
   encodeInvitationArtifact,
   type InvitationArtifact,
 } from '../protocol/contract.js';
-import type { EnrichedStreamEntry } from '../protocol/types.js';
+import type { AppendLogRequest, EnrichedStreamEntry } from '../protocol/types.js';
 import { ROLE_IN_USE_DELETE_MESSAGE } from '../protocol/coordination.js';
 
 export * from './adapter.js';
@@ -99,17 +99,53 @@ export interface AppendLogResultConformanceVector {
   accepts: boolean;
 }
 
+export interface AppendLogRequestConformanceVector {
+  name: string;
+  request: unknown;
+  accepts: boolean;
+}
+
+export interface AppendLogIdempotencyConformanceVector {
+  name: string;
+  actor: 'same' | 'different';
+  mutation: 'none' | 'message' | 'visibility' | 'recipient_set' | 'resolved_class_routing';
+  expected: 'deduplicated' | 'POST_ID_CONFLICT' | 'created';
+}
+
+/** Author-scoped post identity and exact resolved-routing retry outcomes. */
+export const APPEND_LOG_IDEMPOTENCY_CONFORMANCE: readonly AppendLogIdempotencyConformanceVector[] = [
+  { name: 'deduplicates an exact same-author retry', actor: 'same', mutation: 'none', expected: 'deduplicated' },
+  { name: 'rejects a same-author message collision', actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' },
+  { name: 'rejects a same-author visibility collision', actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' },
+  { name: 'rejects a same-author recipient-set collision', actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' },
+  { name: 'rejects a same-author resolved class-routing collision', actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' },
+  { name: 'creates an independent cross-author post', actor: 'different', mutation: 'none', expected: 'created' },
+];
+
+const APPEND_LOG_REQUEST = {
+  post_id: '00000000-0000-4000-8000-000000000205',
+  message: 'REVIEW-READY: example',
+} satisfies AppendLogRequest;
+
+export const APPEND_LOG_REQUEST_CONFORMANCE: readonly AppendLogRequestConformanceVector[] = [
+  { name: 'accepts a canonical post UUID', request: APPEND_LOG_REQUEST, accepts: true },
+  { name: 'rejects an omitted post UUID', request: { message: APPEND_LOG_REQUEST.message }, accepts: false },
+  { name: 'rejects an invalid post UUID', request: { ...APPEND_LOG_REQUEST, post_id: 'not-a-uuid' }, accepts: false },
+  { name: 'rejects unknown request fields', request: { ...APPEND_LOG_REQUEST, extra: true }, accepts: false },
+];
+
 /** Runtime response vectors keep the append-log decoder aligned with its public type. */
 export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceVector[] = [
   {
     name: 'accepts a response without optional routing metadata',
-    response: { entry: APPEND_LOG_ENTRY },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false },
     accepts: true,
   },
   {
     name: 'accepts exact routing metadata and unreachable recipients',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       routing: APPEND_LOG_ROUTING,
       unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer' }],
     },
@@ -117,73 +153,84 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
   },
   {
     name: 'accepts a null routing echo and an empty unreachable-recipient list',
-    response: { entry: APPEND_LOG_ENTRY, routing: null, unreachableRecipients: [] },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: true, routing: null, unreachableRecipients: [] },
     accepts: true,
   },
   {
+    name: 'rejects an omitted deduplication result',
+    response: { entry: APPEND_LOG_ENTRY },
+    accepts: false,
+  },
+  {
+    name: 'rejects a non-boolean deduplication result',
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: 'false' },
+    accepts: false,
+  },
+  {
     name: 'rejects unknown top-level response fields',
-    response: { entry: APPEND_LOG_ENTRY, routing: APPEND_LOG_ROUTING, extra: true },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: APPEND_LOG_ROUTING, extra: true },
     accepts: false,
   },
   {
     name: 'rejects a non-object routing echo',
-    response: { entry: APPEND_LOG_ENTRY, routing: 'review' },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: 'review' },
     accepts: false,
   },
   {
     name: 'rejects missing routing fields',
-    response: { entry: APPEND_LOG_ENTRY, routing: { class: 'review' } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { class: 'review' } },
     accepts: false,
   },
   {
     name: 'rejects unknown routing fields',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, extra: true } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, extra: true } },
     accepts: false,
   },
   {
     name: 'rejects an invalid routing class',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, class: 7 } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, class: 7 } },
     accepts: false,
   },
   {
     name: 'rejects an invalid routing recipient collection',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, recipients: 'reviewer' } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, recipients: 'reviewer' } },
     accepts: false,
   },
   {
     name: 'rejects invalid routing recipient members',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, recipients: [7] } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, recipients: [7] } },
     accepts: false,
   },
   {
     name: 'rejects an invalid routing fell-open flag',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, fellOpen: 'false' } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, fellOpen: 'false' } },
     accepts: false,
   },
   {
     name: 'rejects an invalid routing message',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, message: 7 } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, message: 7 } },
     accepts: false,
   },
   {
     name: 'rejects a non-array unreachable-recipient list',
-    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: {} },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, unreachableRecipients: {} },
     accepts: false,
   },
   {
     name: 'rejects a non-object unreachable recipient',
-    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: ['missing-reviewer'] },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, unreachableRecipients: ['missing-reviewer'] },
     accepts: false,
   },
   {
     name: 'rejects missing unreachable-recipient fields',
-    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: [{ id: 'missing-reviewer' }] },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, unreachableRecipients: [{ id: 'missing-reviewer' }] },
     accepts: false,
   },
   {
     name: 'rejects unknown unreachable-recipient fields',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer', extra: true }],
     },
     accepts: false,
@@ -192,6 +239,7 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
     name: 'rejects an invalid unreachable-recipient id',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       unreachableRecipients: [{ id: 7, label: 'Missing Reviewer' }],
     },
     accepts: false,
@@ -200,6 +248,7 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
     name: 'rejects an invalid unreachable-recipient label',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       unreachableRecipients: [{ id: 'missing-reviewer', label: null }],
     },
     accepts: false,
@@ -750,11 +799,48 @@ const ATTACH_RESPONSE = {
     runtime_metadata_reported: false,
   },
   session: { id: '40000000-0000-4000-8000-000000000001' },
+  initial_log_cursor: null,
 } satisfies AttachResponse;
 
 /** Wire vectors for the v3 non-expiring attach-session response. */
 export const ATTACH_SESSION_CONFORMANCE: readonly AttachSessionConformanceVector[] = [
   { name: 'accepts exact non-expiring session id', response: ATTACH_RESPONSE, accepts: true },
+  {
+    name: 'accepts a canonical initial log cursor',
+    response: {
+      ...ATTACH_RESPONSE,
+      initial_log_cursor: {
+        id: '50000000-0000-4000-8000-000000000001',
+        created_at: '2026-07-14T10:00:00.000Z',
+      },
+    },
+    accepts: true,
+  },
+  {
+    name: 'rejects an omitted initial log cursor',
+    response: (({ initial_log_cursor: _, ...response }) => response)(ATTACH_RESPONSE),
+    accepts: false,
+  },
+  {
+    name: 'rejects an invalid initial log cursor UUID',
+    response: {
+      ...ATTACH_RESPONSE,
+      initial_log_cursor: { id: 'not-a-uuid', created_at: '2026-07-14T10:00:00.000Z' },
+    },
+    accepts: false,
+  },
+  {
+    name: 'rejects unknown initial log cursor fields',
+    response: {
+      ...ATTACH_RESPONSE,
+      initial_log_cursor: {
+        id: '50000000-0000-4000-8000-000000000001',
+        created_at: '2026-07-14T10:00:00.000Z',
+        extra: true,
+      },
+    },
+    accepts: false,
+  },
   {
     name: 'rejects retired expires_at field',
     response: {

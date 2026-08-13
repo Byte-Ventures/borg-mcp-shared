@@ -171,6 +171,7 @@ export interface RoutingEcho {
 }
 
 export interface AppendLogRequest {
+  post_id: string;
   message: string;
   visibility?: LogVisibility;
   recipientDroneIds?: string[];
@@ -180,6 +181,7 @@ export interface AppendLogRequest {
 
 export interface AppendLogResponse {
   entry: ActivityLogEntry;
+  deduplicated: boolean;
   routing?: RoutingEcho | null;
   unreachableRecipients?: Array<{ id: string; label: string }>;
 }

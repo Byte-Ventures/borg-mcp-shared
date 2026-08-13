@@ -37,6 +37,7 @@ import {
   type DroneRuntimeMetadata,
 } from '../protocol/index.js';
 import {
+  APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
   CREATE_CUBE_ASSOCIATION_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
   INVITATION_ARTIFACT_CONFORMANCE,
@@ -361,6 +362,7 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'security.adapter-boundary-injection', area: 'security' },
   { id: 'security.oversize-request', area: 'security' },
   { id: 'security.cross-cube-isolation', area: 'security' },
+  { id: 'log.append-idempotency', area: 'log' },
   { id: 'log.read-cursor-tuple', area: 'cursor' },
   { id: 'sse.replay-live-transition', area: 'sse' },
   { id: 'cursor.explicit-expiry', area: 'cursor' },
@@ -1323,7 +1325,10 @@ export async function runAdapterConformance(
   await record('security.adapter-boundary-injection', async () => {
     const injectedMessage = "'); DROP TABLE log_entries; --\r\ndata: forged-sse-frame";
     const injectedBody = JSON.stringify(
-      createProtocolEnvelope('inject-b1', { message: injectedMessage }),
+      createProtocolEnvelope('inject-b1', {
+        post_id: '00000000-0000-4000-8000-000000000301',
+        message: injectedMessage,
+      }),
     );
     invariant(
       utf8ByteLength(injectedBody) <= PROTOCOL_LIMIT_CEILINGS.max_request_bytes &&
@@ -1342,7 +1347,10 @@ export async function runAdapterConformance(
     const sentinel = await environment.operations.append(
       credentialB,
       cubeB,
-      createProtocolEnvelope('inject-b2', { message: 'post-injection-sentinel' }),
+      createProtocolEnvelope('inject-b2', {
+        post_id: '00000000-0000-4000-8000-000000000302',
+        message: 'post-injection-sentinel',
+      }),
     );
     expectStatus(sentinel, 201, 'Post-injection sentinel append');
     const read = await environment.operations.read(
@@ -1389,7 +1397,10 @@ export async function runAdapterConformance(
 
   await record('security.oversize-request', async () => {
     const baseBody = JSON.stringify(
-      createProtocolEnvelope('oversize-a1', { message: 'must-not-persist' }),
+      createProtocolEnvelope('oversize-a1', {
+        post_id: '00000000-0000-4000-8000-000000000303',
+        message: 'must-not-persist',
+      }),
     );
     const oversizedBody = baseBody + ' '.repeat(
       Math.max(0, PROTOCOL_LIMIT_CEILINGS.max_request_bytes - utf8ByteLength(baseBody) + 1),
@@ -1417,7 +1428,10 @@ export async function runAdapterConformance(
     const secretAppend = await environment.operations.append(
       credentialB,
       cubeB,
-      createProtocolEnvelope('append-b1', { message: 'principal-b-secret' }),
+      createProtocolEnvelope('append-b1', {
+        post_id: '00000000-0000-4000-8000-000000000304',
+        message: 'principal-b-secret',
+      }),
     );
     expectStatus(secretAppend, 201, 'Principal B append');
     const denied = await environment.operations.read(
@@ -1429,6 +1443,77 @@ export async function runAdapterConformance(
     return { status: 404, code: ErrorCode.NOT_FOUND };
   });
 
+  await record('log.append-idempotency', async () => {
+    const principal = await environment.admin.createPrincipal('append-idempotency');
+    const otherPrincipal = await environment.admin.createPrincipal('append-idempotency-other');
+    const cube = await environment.admin.createCube('append-idempotency');
+    await environment.admin.grantCube(principal, cube);
+    await environment.admin.grantCube(otherPrincipal, cube);
+    const credential = await environment.admin.issueDroneSession(principal);
+    const otherCredential = await environment.admin.issueDroneSession(otherPrincipal);
+    const role = await environment.admin.createRole(cube, {
+      roleClass: 'worker',
+      isHumanSeat: false,
+    });
+    const firstRecipient = await environment.admin.createDrone(principal, cube, role);
+    const secondRecipient = await environment.admin.createDrone(principal, cube, role);
+    const postId = '00000000-0000-4000-8000-000000000313';
+    const initialPayload = {
+      post_id: postId,
+      message: 'once',
+      visibility: 'direct' as const,
+      recipientDroneIds: [firstRecipient.id],
+      class: 'review',
+      to: ['Coordinator'],
+    };
+    const first = await environment.operations.append(
+      credential,
+      cube,
+      createProtocolEnvelope('append-idempotency-first', initialPayload),
+    );
+    expectStatus(first, 201, 'Initial idempotent append');
+    const firstResult = decodeAppendLogResultEnvelope(first.body).payload;
+    invariant(!firstResult.deduplicated, 'Initial append was reported as deduplicated.');
+    for (const [index, vector] of APPEND_LOG_IDEMPOTENCY_CONFORMANCE.entries()) {
+      const payload = {
+        ...initialPayload,
+        ...(vector.mutation === 'message' ? { message: 'changed' } : {}),
+        ...(vector.mutation === 'visibility' ? { visibility: 'broadcast' as const } : {}),
+        ...(vector.mutation === 'recipient_set' ? { recipientDroneIds: [secondRecipient.id] } : {}),
+        ...(vector.mutation === 'resolved_class_routing' ? { class: 'security', to: ['Security Auditor'] } : {}),
+      };
+      const response = await environment.operations.append(
+        vector.actor === 'same' ? credential : otherCredential,
+        cube,
+        createProtocolEnvelope(`append-idempotency-${index}`, payload),
+      );
+      if (vector.expected === 'POST_ID_CONFLICT') {
+        expectError(response, 409, ErrorCode.POST_ID_CONFLICT, vector.name);
+        continue;
+      }
+      expectStatus(response, 201, vector.name);
+      const result = decodeAppendLogResultEnvelope(response.body).payload;
+      invariant(result.deduplicated === (vector.expected === 'deduplicated'), `${vector.name} returned the wrong deduplicated flag.`);
+      invariant(
+        vector.expected === 'deduplicated'
+          ? result.entry.id === firstResult.entry.id
+          : result.entry.id !== firstResult.entry.id,
+        `${vector.name} returned the wrong entry identity.`,
+      );
+    }
+    const read = await environment.operations.read(
+      credential,
+      cube,
+      createProtocolEnvelope('append-idempotency-read', { cursor: null, limit: 10 }),
+    );
+    expectStatus(read, 200, 'Idempotent append read');
+    invariant(
+      decodeReadLogResultEnvelope(read.body).payload.entries.length === 2,
+      'Append collision controls persisted the wrong number of entries.',
+    );
+    return { persisted_entries: 2, stable_entry: true, deduplicated: true, conflicts: 4, cross_author_created: true };
+  });
+
   const entries: Array<{ id: string; created_at: string; message: string }> = [];
   let readCursor: LogCursor | null = null;
   await record('log.read-cursor-tuple', async () => {
@@ -1436,7 +1521,10 @@ export async function runAdapterConformance(
       const response = await environment.operations.append(
         credentialA,
         cubeA,
-        createProtocolEnvelope(`append-a${index + 1}`, { message }),
+        createProtocolEnvelope(`append-a${index + 1}`, {
+          post_id: `00000000-0000-4000-8000-${String(305 + index).padStart(12, '0')}`,
+          message,
+        }),
       );
       expectStatus(response, 201, `Append ${message}`);
       const entry = decodeAppendLogResultEnvelope(response.body).payload.entry;
@@ -1470,7 +1558,10 @@ export async function runAdapterConformance(
       const appendDelta = environment.operations.append(
         credentialA,
         cubeA,
-        createProtocolEnvelope('append-a4', { message: 'delta' }),
+        createProtocolEnvelope('append-a4', {
+          post_id: '00000000-0000-4000-8000-000000000308',
+          message: 'delta',
+        }),
       );
       expectStatus(await appendDelta, 201, 'Transition append');
     } finally {
@@ -1494,7 +1585,10 @@ export async function runAdapterConformance(
       const epsilonResponse = await environment.operations.append(
         credentialA,
         cubeA,
-        createProtocolEnvelope('append-a5', { message: 'epsilon' }),
+        createProtocolEnvelope('append-a5', {
+          post_id: '00000000-0000-4000-8000-000000000309',
+          message: 'epsilon',
+        }),
       );
       expectStatus(epsilonResponse, 201, 'Live append');
       const epsilon = logEvent(await within(noDuplicate, 'Live epsilon event', streamDeadlineMs), 'Live append');
@@ -2014,6 +2108,7 @@ export async function runAdapterConformance(
         cubeA,
         createProtocolEnvelope('evict-direct-target', {
           message: 'must-not-fan-out',
+          post_id: '00000000-0000-4000-8000-000000000310',
           visibility: 'direct',
           recipientDroneIds: [evictedDrone.id],
         }),
@@ -2203,7 +2298,10 @@ export async function runAdapterConformance(
     const attributed = await environment.operations.append(
       evictedSession,
       roleContractCube,
-      createProtocolEnvelope('role-delete-attribution', { message: 'attribution survives' }),
+      createProtocolEnvelope('role-delete-attribution', {
+        post_id: '00000000-0000-4000-8000-000000000311',
+        message: 'attribution survives',
+      }),
     );
     expectStatus(attributed, 201, 'Pre-delete attributed log');
     const attributedEntry = decodeAppendLogResultEnvelope(attributed.body).payload.entry;
@@ -2867,7 +2965,10 @@ export async function runAdapterConformance(
     const append = await environment.operations.append(
       creator.credential,
       cube,
-      createProtocolEnvelope('delete-log', { message: 'deleted with cube' }),
+      createProtocolEnvelope('delete-log', {
+        post_id: '00000000-0000-4000-8000-000000000312',
+        message: 'deleted with cube',
+      }),
     );
     expectStatus(append, 201, 'Deletion fixture log');
     const entry = decodeAppendLogResultEnvelope(append.body).payload.entry;
