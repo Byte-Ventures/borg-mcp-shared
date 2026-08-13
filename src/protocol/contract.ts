@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.12.1' as const;
+export const SHARED_PACKAGE_VERSION = '0.12.2' as const;
 /** Maximum UTF-8 payload for each newly recorded decision text field. */
 export const DECISION_TEXT_MAX_BYTES = 512 as const;
 /** Maximum UTF-8 size of role detailed-description text and any returned section slice. */
