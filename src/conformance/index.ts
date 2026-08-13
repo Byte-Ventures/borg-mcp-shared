@@ -171,48 +171,49 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
   },
   {
     name: 'rejects an invalid routing class',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, class: 7 } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, class: 7 } },
     accepts: false,
   },
   {
     name: 'rejects an invalid routing recipient collection',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, recipients: 'reviewer' } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, recipients: 'reviewer' } },
     accepts: false,
   },
   {
     name: 'rejects invalid routing recipient members',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, recipients: [7] } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, recipients: [7] } },
     accepts: false,
   },
   {
     name: 'rejects an invalid routing fell-open flag',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, fellOpen: 'false' } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, fellOpen: 'false' } },
     accepts: false,
   },
   {
     name: 'rejects an invalid routing message',
-    response: { entry: APPEND_LOG_ENTRY, routing: { ...APPEND_LOG_ROUTING, message: 7 } },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, message: 7 } },
     accepts: false,
   },
   {
     name: 'rejects a non-array unreachable-recipient list',
-    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: {} },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, unreachableRecipients: {} },
     accepts: false,
   },
   {
     name: 'rejects a non-object unreachable recipient',
-    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: ['missing-reviewer'] },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, unreachableRecipients: ['missing-reviewer'] },
     accepts: false,
   },
   {
     name: 'rejects missing unreachable-recipient fields',
-    response: { entry: APPEND_LOG_ENTRY, unreachableRecipients: [{ id: 'missing-reviewer' }] },
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, unreachableRecipients: [{ id: 'missing-reviewer' }] },
     accepts: false,
   },
   {
     name: 'rejects unknown unreachable-recipient fields',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer', extra: true }],
     },
     accepts: false,
@@ -221,6 +222,7 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
     name: 'rejects an invalid unreachable-recipient id',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       unreachableRecipients: [{ id: 7, label: 'Missing Reviewer' }],
     },
     accepts: false,
@@ -229,6 +231,7 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
     name: 'rejects an invalid unreachable-recipient label',
     response: {
       entry: APPEND_LOG_ENTRY,
+      deduplicated: false,
       unreachableRecipients: [{ id: 'missing-reviewer', label: null }],
     },
     accepts: false,
