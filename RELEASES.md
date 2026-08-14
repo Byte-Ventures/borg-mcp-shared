@@ -50,3 +50,19 @@ external-surface single-owner directive rule. Successful attempt-1 workflow
 run `31531549256` published registry integrity
 `sha512-I8mixCbSrLKyOAAyqEI/HZJ8cML2rz3r812Up8pr547OdAk9LxZevdCo7ojG42ZwrUmS5u7iKQPg7Vk1XvtX1g==`.
 Never rerun or move that tag.
+
+`borgmcp-shared@0.12.3` is published and immutable. Annotated tag object
+`e410256092974dcef9619415ebdf74acde3e4484` peels to protected-main commit
+`9bfa43ced2af772d7a60f7be7828baaa146b4fd4`; successful tag workflow run
+`31779837930` staged the exact candidate. Subsequent authorized npm stage
+approval made the release live with registry integrity
+`sha512-3GPQ1U7tBxg8Jp1Uac31CKKXQjMv4UNPhs5P6N83CyDXGJvkI88yowVJZGlLuo30eEk6jhERZ9AQWOjHst/sFA==`.
+The tagged commit omitted `docs/releases/0.12.3.md`, so the normal GitHub Release
+operator correctly refused to claim tagged notes. The GitHub Release at
+https://github.com/Byte-Ventures/borg-mcp-shared/releases/tag/v0.12.3 uses an
+explicit post-publication reconstruction from issue #138, merged PR #139, and
+the exact `v0.12.2..v0.12.3` diff: the software-development template gained
+proportionate Coordinator review gates, focused Builder verification and status
+rules, and the tag-restricted npm staging boundary while preserving its seven
+roles and routing contract. No post-hoc file is represented as tagged notes.
+Never rerun or move that tag.
