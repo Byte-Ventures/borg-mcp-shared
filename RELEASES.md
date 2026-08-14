@@ -54,7 +54,8 @@ Never rerun or move that tag.
 `borgmcp-shared@0.12.3` is published and immutable. Annotated tag object
 `e410256092974dcef9619415ebdf74acde3e4484` peels to protected-main commit
 `9bfa43ced2af772d7a60f7be7828baaa146b4fd4`; successful tag workflow run
-`31779837930` published registry integrity
+`31779837930` staged the exact candidate. Subsequent authorized npm stage
+approval made the release live with registry integrity
 `sha512-3GPQ1U7tBxg8Jp1Uac31CKKXQjMv4UNPhs5P6N83CyDXGJvkI88yowVJZGlLuo30eEk6jhERZ9AQWOjHst/sFA==`.
 The tagged commit omitted `docs/releases/0.12.3.md`, so the normal GitHub Release
 operator correctly refused to claim tagged notes. The GitHub Release at
