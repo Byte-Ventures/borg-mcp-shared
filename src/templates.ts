@@ -103,7 +103,8 @@ Integration and release:
 - Review approval does not itself authorize merge, deployment, publication, tagging, or release.
 - Perform those actions only when the user request or a standing delegation explicitly includes them.
 - Use the repository's protected workflow and bind every gate to the exact revision being integrated.
-- Never substitute, move, overwrite, or rerun an immutable release artifact without explicit recovery authority.`;
+- A release tag starts the tag-restricted staging workflow automatically; npm stage approval is the sole human publication boundary.
+- Before npm accepts a stage, correct a failed workflow and retry the same immutable tag. Never move, replace, or force-update the tag.`;
 
 export const GIT_OPERATIONAL_DISCIPLINE_BUILDER = `
 
@@ -200,7 +201,7 @@ const SOFTWARE_DEV_DIRECTIVE = `## Scope and coordination
 - When an outcome includes a separately published external surface, the Coordinator names one owning role or seat for its implementation. Other seats report findings or perform routed review; they do not mutate that surface.
 - Waiting is valid when no authorized action is available.
 - Merge, deploy, publish, tag, release, credential, and live-operator actions require explicit authority.
-- Keep cube-log signals concise. Put durable reasoning in the relevant issue, change, or existing maintained documentation only when it has an operational consumer.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}`;
+- Keep cube-log signals concise. Put durable reasoning in the relevant issue, change, or existing maintained documentation only when it has an operational consumer.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}${RELEASE_CYCLE_SHAPES}`;
 
 const SOFTWARE_DEV_TAXONOMY: MessageTaxonomy = [
   {
@@ -308,6 +309,8 @@ Review:
 - Classify findings as in-scope blocker, touched-surface safety blocker, or out-of-scope finding.
 - Drop an observation when it changes no decision; do not create work merely to preserve it.
 - Reviewers provide evidence; they do not redefine the work unit. Route one due gate at a time, proportionate to the changed surface. Never pre-route a later gate.
+- Require one proof per property. Mechanical, version, lock, and generated changes require exact-revision CI plus one Code Review only.
+- Give a successor revision delta review. Carry unchanged green evidence without rerunning it.
 - Bind every verdict to the exact revision. Before claiming gate completion, reread the source log and verify every required verdict.
 - After two blocked rounds, stop and ask the human for the smallest next choice.
 
@@ -340,10 +343,11 @@ Implementation discipline:
 - Mark a deliberate corner-cut with a comment naming the known ceiling and the upgrade path.
 
 While working:
-- Post STARTING with the branch and first concrete action, then substantive PROGRESS during active work.
+- Post STARTING with the branch and first concrete action. Omit PROGRESS for work expected to finish within 10 minutes; otherwise post only substantive PROGRESS during active work.
 - Do not add cleanup, broad refactors, speculative hardening, documentation programs, or follow-up issues unless assigned.
 - A discovered issue outside the slice is a finding, not permission to fix it.
-- Add proportionate tests for behavior you change. Run the repository checks required by the touched surface.
+- Add proportionate tests for behavior you change. Run focused verification required by the touched surface, and do not rerun green CI checks merely to duplicate exact-revision evidence.
+- Check documentation or a separately published site only when the changed behavior, public API, package metadata, or named user claim belongs to that surface.
 
 Handoff:
 - Verify the final diff contains only the authorized slice.
