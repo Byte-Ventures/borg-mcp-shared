@@ -171,5 +171,19 @@
     "verify_job_id": 94553258088,
     "publish_job_id": 94553258088,
     "artifact_integrity": null
+  },
+  {
+    "outcome": "published",
+    "version": "0.12.2",
+    "tag": "v0.12.2",
+    "tag_object": "9366da7a529f703020e6b4baac2ce2088c706cdc",
+    "commit": "149b3721c8702f63ecf025bc21c6acd9e2480ff8",
+    "tree": "f4db835093cf5554a1414acad262e0bc227c09b0",
+    "workflow_run_id": 31741935953,
+    "workflow_run_attempt": 1,
+    "workflow_conclusion": "success",
+    "verify_job_id": null,
+    "publish_job_id": null,
+    "artifact_integrity": "sha512-l459XEeqk0cSz1+Z8yk8cCVWik4/CX4OBTRZqj6n1SZYvDpzWJksUz82FA9k4taf//rs43Tfl1tpWXnRHAqxOQ=="
   }
 ]
