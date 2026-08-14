@@ -71,7 +71,34 @@ describe('release identity recovery', () => {
     expect(JSON.parse(await readFile(join(fixture.root, 'docs/release-records.json'), 'utf8'))).toHaveLength(2);
   });
 
-  it('verifies release identity facts after additional reviewed changes', async () => {
+  it.each([
+    ['missing', null, /Release notes are missing/],
+    ['blank', '   \n', /Release notes are blank/],
+  ])('rejects %s target notes before mutating release identity', async (_case, notes, message) => {
+    const fixture = await createFixture();
+    const notesPath = join(fixture.root, 'docs/releases/1.2.0.md');
+    if (notes === null) await rm(notesPath);
+    else await writeFile(notesPath, notes);
+    git(fixture.root, 'add', '.');
+    git(fixture.root, 'commit', '-m', `${_case} target notes`);
+    const paths = [
+      'package.json',
+      'package-lock.json',
+      'docs/release-records.json',
+      'test/version-pin.test.ts',
+    ];
+    const before = await Promise.all(paths.map((path) => readFile(join(fixture.root, path), 'utf8')));
+
+    await expect(prepareRelease(fixture.root, '1.2.0', {
+      workflowRunId: 200,
+      workflowRunAttempt: 1,
+      workflowConclusion: 'failure',
+    }, fixture.authorities)).rejects.toThrow(message);
+    await expect(Promise.all(paths.map((path) => readFile(join(fixture.root, path), 'utf8'))))
+      .resolves.toEqual(before);
+  });
+
+  it('verifies release identity facts and nonblank candidate notes after additional reviewed changes', async () => {
     const fixture = await createFixture();
     const base = git(fixture.root, 'rev-parse', 'HEAD');
     await prepareRelease(fixture.root, '1.2.0', {
@@ -85,7 +112,38 @@ describe('release identity recovery', () => {
     const candidate = git(fixture.root, 'rev-parse', 'HEAD');
 
     expect(verifyReleaseIdentity(fixture.root, base, candidate, fixture.authorities))
-      .toMatchObject({ base, candidate, oldVersion: '1.1.0', newVersion: '1.2.0' });
+      .toMatchObject({
+        base,
+        candidate,
+        oldVersion: '1.1.0',
+        newVersion: '1.2.0',
+        paths: expect.arrayContaining(['docs/releases/1.2.0.md']),
+      });
+  });
+
+  it.each([
+    ['missing', null, /Release notes are missing/],
+    ['blank', '   \n', /Release notes are blank/],
+  ])('rejects a candidate with %s release notes', async (_case, notes, message) => {
+    const fixture = await createFixture();
+    const base = git(fixture.root, 'rev-parse', 'HEAD');
+    await prepareRelease(fixture.root, '1.2.0', {
+      workflowRunId: 200,
+      workflowRunAttempt: 1,
+      workflowConclusion: 'failure',
+    }, fixture.authorities);
+    const notesPath = join(fixture.root, 'docs/releases/1.2.0.md');
+    if (notes === null) await rm(notesPath);
+    else await writeFile(notesPath, notes);
+    git(fixture.root, 'add', '.');
+    git(fixture.root, 'commit', '-m', `prepare release with ${_case} notes`);
+
+    expect(() => verifyReleaseIdentity(
+      fixture.root,
+      base,
+      git(fixture.root, 'rev-parse', 'HEAD'),
+      fixture.authorities,
+    )).toThrow(message);
   });
 
   it('rejects a stale version pin', async () => {
@@ -199,13 +257,14 @@ async function createFixture(): Promise<{
   directories.push(root);
   await mkdir(join(root, 'scripts'), { recursive: true });
   await mkdir(join(root, 'test'), { recursive: true });
-  await mkdir(join(root, 'docs'), { recursive: true });
+  await mkdir(join(root, 'docs/releases'), { recursive: true });
   await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'borgmcp-shared', version: '1.1.0' }, null, 2) + '\n');
   await writeFile(join(root, 'package-lock.json'), JSON.stringify({
     name: 'borgmcp-shared', version: '1.1.0', lockfileVersion: 3, packages: { '': { name: 'borgmcp-shared', version: '1.1.0' } },
   }, null, 2) + '\n');
   await writeFile(join(root, 'scripts/release-identity-allowlist.json'), JSON.stringify({ versionPins: ['test/version-pin.test.ts'] }, null, 2) + '\n');
   await writeFile(join(root, 'test/version-pin.test.ts'), "expect('1.1.0').toBe('1.1.0');\n");
+  await writeFile(join(root, 'docs/releases/1.2.0.md'), 'Release notes for 1.2.0.\n');
   await writeFile(join(root, 'docs/release-records.json'), JSON.stringify([{
     outcome: 'published', version: '1.0.0', tag: 'v1.0.0', tag_object: '', commit: '', tree: '',
     workflow_run_id: 100, workflow_run_attempt: 1, workflow_conclusion: 'success',

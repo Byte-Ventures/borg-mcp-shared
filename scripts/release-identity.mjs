@@ -222,6 +222,18 @@ function transformVersion(raw, oldVersion, newVersion, path) {
   return result;
 }
 
+function requireReleaseNotes(root, ref, version) {
+  const path = `docs/releases/${version}.md`;
+  let notes;
+  try {
+    notes = git(root, ['show', `${ref}:${path}`]);
+  } catch {
+    fail(`Release notes are missing: ${path}`);
+  }
+  if (!notes.trim()) fail(`Release notes are blank: ${path}`);
+  return path;
+}
+
 export function buildReleaseTransform(files, oldVersion, newVersion, record) {
   requireVersion(oldVersion, 'Base version');
   requireVersion(newVersion, 'Target version');
@@ -264,6 +276,8 @@ function requirePreviousPublishedRecord(root, files, version, authorities) {
 
 export async function prepareRelease(root, targetVersion, evidence, authorities = systemAuthorities) {
   if (git(root, ['status', '--porcelain']) !== '') fail('release:prepare requires a clean working tree.');
+  requireVersion(targetVersion, 'Target version');
+  requireReleaseNotes(root, 'HEAD', targetVersion);
   const files = await workingFiles(root);
   const oldVersion = manifest(files).version;
   requirePreviousPublishedRecord(root, files, oldVersion, authorities);
@@ -318,6 +332,7 @@ export function verifyReleaseIdentity(root, base, candidate, authorities = syste
   if (compareVersions(newVersion, oldVersion) <= 0) {
     fail(`Candidate version ${newVersion} must be newer than ${oldVersion}.`);
   }
+  const notesPath = requireReleaseNotes(root, candidate, newVersion);
   const candidateManifest = manifest(candidateFiles);
   const candidateLock = json(candidateFiles.get(LOCK_PATH), LOCK_PATH);
   if (candidateLock.name !== PACKAGE_NAME || candidateLock.version !== newVersion ||
@@ -327,7 +342,7 @@ export function verifyReleaseIdentity(root, base, candidate, authorities = syste
     if (!raw.includes(newVersion) || raw.includes(oldVersion)) fail(`Version-pin assertion is stale: ${path}`);
   }
   if (candidateManifest.version !== newVersion) fail('Candidate package version is invalid.');
-  return Object.freeze({ base, candidate, oldVersion, newVersion, paths: [PACKAGE_PATH, LOCK_PATH, RECORDS_PATH, ...allowlist.versionPins].sort() });
+  return Object.freeze({ base, candidate, oldVersion, newVersion, paths: [PACKAGE_PATH, LOCK_PATH, RECORDS_PATH, notesPath, ...allowlist.versionPins].sort() });
 }
 
 function parsePrepare(args) {
