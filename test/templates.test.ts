@@ -307,6 +307,10 @@ describe('cube templates', () => {
       'Drop an observation when it changes no decision',
       'Route one due gate at a time',
       'Never pre-route a later gate',
+      'Require one proof per property',
+      'Mechanical, version, lock, and generated changes require exact-revision CI plus one Code Review only',
+      'Give a successor revision delta review',
+      'Carry unchanged green evidence without rerunning it',
     ]) {
       expect(roles.Coordinator).toContain(phrase);
     }
@@ -353,6 +357,33 @@ describe('cube templates', () => {
     expect(TEMPLATES['software-dev'].cube_directive).toContain(
       'one owning role or seat for its implementation',
     );
+  });
+
+  it('gives Builders focused verification and proportionate reporting boundaries', () => {
+    const builder = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Builder')!
+      .detailed_description;
+
+    for (const phrase of [
+      'Omit PROGRESS for work expected to finish within 10 minutes',
+      'Run focused verification required by the touched surface',
+      'do not rerun green CI checks merely to duplicate exact-revision evidence',
+      'Check documentation or a separately published site only when the changed behavior, public API, package metadata, or named user claim belongs to that surface',
+    ]) {
+      expect(builder).toContain(phrase);
+    }
+  });
+
+  it('uses automatic tag staging with one human publication boundary', () => {
+    const directive = TEMPLATES['software-dev'].cube_directive!;
+
+    expect(directive).toContain(
+      'A release tag starts the tag-restricted staging workflow automatically',
+    );
+    expect(directive).toContain('npm stage approval is the sole human publication boundary');
+    expect(directive).toContain(
+      'Before npm accepts a stage, correct a failed workflow and retry the same immutable tag',
+    );
+    expect(directive).toContain('Never move, replace, or force-update the tag');
   });
 
   it('gives Builders an ordered minimum-sufficient-change discipline', () => {
