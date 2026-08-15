@@ -1103,7 +1103,7 @@ describe('coordination request codecs', () => {
       ProtocolContractError,
     );
     expect(() => decodeAppendLogRequest({ post_id, message: '' })).toThrow(ProtocolContractError);
-    expect(() => decodeAppendLogRequest({ post_id, message: '😀'.repeat(3000) })).toThrow(
+    expect(() => decodeAppendLogRequest({ post_id, message: '😀'.repeat(17_000) })).toThrow(
       ProtocolContractError,
     );
     expect(() => decodeAppendLogRequest({ post_id, message: 'hello', credential: 'secret' })).toThrow(
@@ -1137,6 +1137,23 @@ describe('coordination request codecs', () => {
     expect(() => decodeAppendLogResult({ entry: appendLogEntry, deduplicated: 'false' })).toThrow(
       ProtocolContractError,
     );
+  });
+
+  it('accepts validated non-default log advisory thresholds', () => {
+    expect(decodeAppendLogRequest({
+      post_id: '50000000-0000-4000-8000-000000000001',
+      message: 'x'.repeat(4097),
+    }).message).toHaveLength(4097);
+    expect(decodeAppendLogResult({
+      entry: appendLogEntry,
+      deduplicated: false,
+      advisory: { code: 'STORE_AS_DOCUMENT', threshold_bytes: 2048 },
+    }).advisory?.threshold_bytes).toBe(2048);
+    expect(() => decodeAppendLogResult({
+      entry: appendLogEntry,
+      deduplicated: false,
+      advisory: { code: 'STORE_AS_DOCUMENT', threshold_bytes: 0 },
+    })).toThrow(ProtocolContractError);
   });
 
   it('rejects every unknown-field class in the append-log response', () => {

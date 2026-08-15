@@ -54,6 +54,7 @@ describe('SSE wire codec', () => {
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
         recipient_drone_ids: [],
+        documents: [{ id: 'doc_full_id', title: 'Evidence', size_bytes: 8, state: 'active' }],
       },
     });
 
@@ -62,7 +63,28 @@ describe('SSE wire codec', () => {
     expect(decodeSseFrames(encoded)[0]).toMatchObject({
       type: 'log',
       cursor: cursorA,
+      entry: { documents: [{ id: 'doc_full_id', title: 'Evidence', size_bytes: 8, state: 'active' }] },
     });
+  });
+
+  it('rejects duplicate or oversized citation collections on reads and streams', () => {
+    const entry = {
+      id: cursorA.id,
+      cube_id: '10000000-0000-4000-8000-000000000001',
+      drone_id: '20000000-0000-4000-8000-000000000001',
+      message: 'hello',
+      visibility: 'broadcast' as const,
+      created_at: cursorA.created_at,
+      drone_label: 'one-of-one-builder',
+      role_name: 'Builder',
+      recipient_drone_ids: [],
+    };
+    const citation = { id: 'doc_full_id', title: 'Evidence', size_bytes: 8, state: 'active' as const };
+    expect(() => encodeSseEvent({ type: 'log', cursor: cursorA, entry: { ...entry, documents: [citation, citation] } }))
+      .toThrow('unique');
+    expect(() => encodeSseEvent({
+      type: 'log', cursor: cursorA, entry: { ...entry, documents: Array.from({ length: 101 }, (_, index) => ({ ...citation, id: `doc_${index}` })) },
+    })).toThrow('1-100');
   });
 
   it('never emits resume ids for ack or claim events', () => {

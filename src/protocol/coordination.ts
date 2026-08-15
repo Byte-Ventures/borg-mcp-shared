@@ -1,5 +1,5 @@
 import {
-  LOG_ENTRY_ADVISORY_BYTES,
+  PROTOCOL_LIMIT_CEILINGS,
   ProtocolContractError,
   compareLogCursor,
   decodeCanonicalTimestamp,
@@ -397,10 +397,15 @@ export function decodeAppendLogResult(value: unknown): AppendLogResult {
   if (input.advisory !== undefined) {
     const advisory = object(input.advisory);
     exact(advisory, ['code', 'threshold_bytes'], ['code', 'threshold_bytes']);
-    if (advisory.code !== 'STORE_AS_DOCUMENT' || advisory.threshold_bytes !== LOG_ENTRY_ADVISORY_BYTES) {
+    if (advisory.code !== 'STORE_AS_DOCUMENT') {
       throw new ProtocolContractError('Invalid append-log document advisory.');
     }
-    output.advisory = { code: 'STORE_AS_DOCUMENT', threshold_bytes: LOG_ENTRY_ADVISORY_BYTES };
+    const threshold = positiveInteger(
+      advisory.threshold_bytes,
+      'advisory.threshold_bytes',
+      PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes,
+    );
+    output.advisory = { code: 'STORE_AS_DOCUMENT', threshold_bytes: threshold };
   }
   return output;
 }

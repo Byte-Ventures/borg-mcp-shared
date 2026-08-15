@@ -18,7 +18,10 @@ export const SHARED_PACKAGE_VERSION = '0.12.3' as const;
 export const DECISION_TEXT_MAX_BYTES = 512 as const;
 /** Maximum UTF-8 size of role detailed-description text and any returned section slice. */
 export const ROLE_TEXT_MAX_BYTES = 51_200 as const;
-export const LOG_ENTRY_ADVISORY_BYTES = 1024 as const;
+export const DEFAULT_LOG_ENTRY_ADVISORY_BYTES = 1024 as const;
+export const DEFAULT_MAX_LOG_ENTRY_BYTES = 4096 as const;
+export const LOG_ENTRY_ADVISORY_ENV = 'BORG_SERVER_LOG_ENTRY_ADVISORY_BYTES' as const;
+export const MAX_LOG_ENTRY_ENV = 'BORG_SERVER_MAX_LOG_ENTRY_BYTES' as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
@@ -111,7 +114,7 @@ export const PROTOCOL_HTTP_CONTRACT = {
 
 export const PROTOCOL_LIMIT_CEILINGS = {
   max_request_bytes: 10 * 1024 * 1024,
-  max_log_message_bytes: 4096,
+  max_log_message_bytes: 65_536,
   max_read_page_size: 500,
   max_replay_page_size: 1000,
 } as const;

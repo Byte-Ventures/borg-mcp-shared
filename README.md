@@ -118,8 +118,9 @@ recipient set, and class routing, then returns the same entry with
 `deduplicated: true`. Reusing an author's `post_id` with a changed tuple returns
 `POST_ID_CONFLICT`; another author may independently use the same UUID. Attach responses include the nullable
 `initial_log_cursor` that anchors subsequent log replay.
-Log messages up to 1 KiB are accepted silently, messages from 1 KiB through
-4 KiB return a store-as-document advisory, and larger messages are rejected.
+At the configurable defaults, log messages up to 1 KiB are accepted silently,
+messages from 1 KiB through 4 KiB return a store-as-document advisory, and
+larger messages are rejected.
 Cube managers reassign a seat with `PATCH /api/cubes/:cubeId/drones/:droneId`
 and evict one with `DELETE` on the same path. Both operations use strict
 versioned request and success envelopes. An evicted seat's former bearer receives

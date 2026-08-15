@@ -1,3 +1,4 @@
+import { ErrorCode } from './errors.js';
 import {
   ProtocolContractError,
   decodeCanonicalTimestamp,
@@ -11,6 +12,9 @@ import {
 export const DOCUMENT_CONTENT_TYPES = ['text/markdown', 'text/plain'] as const;
 export const DOCUMENT_DEFAULT_MAX_BYTES = 65_536 as const;
 export const DOCUMENT_DEFAULT_MAX_ACTIVE_BYTES_PER_CUBE = 524_288 as const;
+export const DOCUMENT_MAX_BYTES_ENV = 'BORG_SERVER_MAX_DOCUMENT_BYTES' as const;
+export const DOCUMENT_MAX_ACTIVE_BYTES_PER_CUBE_ENV =
+  'BORG_SERVER_MAX_ACTIVE_DOCUMENT_BYTES_PER_CUBE' as const;
 export type DocumentContentType = (typeof DOCUMENT_CONTENT_TYPES)[number];
 export type DocumentState = 'active' | 'superseded' | 'removed';
 
@@ -100,7 +104,11 @@ function title(value: unknown): string {
 
 function contentType(value: unknown): DocumentContentType {
   if (!DOCUMENT_CONTENT_TYPES.includes(value as DocumentContentType)) {
-    throw new ProtocolContractError('Unsupported document content type.');
+    throw new ProtocolContractError(
+      'Unsupported document content type.',
+      ErrorCode.DOCUMENT_CONTENT_TYPE_UNSUPPORTED,
+      ['content_type'],
+    );
   }
   return value as DocumentContentType;
 }
@@ -142,6 +150,17 @@ export function decodeDocumentCitation(value: unknown): DocumentCitation {
     size_bytes: count(input.size_bytes, 'size_bytes'),
     state: input.state as DocumentState,
   };
+}
+
+export function decodeDocumentCitations(value: unknown): DocumentCitation[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
+    throw new ProtocolContractError('Document citations must contain 1-100 entries.');
+  }
+  const citations = value.map(decodeDocumentCitation);
+  if (new Set(citations.map(({ id }) => id)).size !== citations.length) {
+    throw new ProtocolContractError('Document citation ids must be unique.');
+  }
+  return citations;
 }
 
 export function decodeCubeDocumentMetadata(value: unknown): CubeDocumentMetadata {
@@ -204,13 +223,25 @@ function oneDocument<T>(value: unknown, decode: (input: unknown) => T): { docume
   const input = object(value); exact(input, ['document'], ['document']);
   return { document: decode(input.document) };
 }
-export const decodePutDocumentResult = (value: unknown): PutDocumentResult => oneDocument(value, decodeCubeDocument);
+export const decodePutDocumentResult = (value: unknown): PutDocumentResult => {
+  const result = oneDocument(value, decodeCubeDocument);
+  if (result.document.state !== 'active' || result.document.removed_at !== null || result.document.removed_by !== null) {
+    throw new ProtocolContractError('New document result must be active.');
+  }
+  return result;
+};
 export const decodeGetDocumentResult = (value: unknown): GetDocumentResult => oneDocument(value, decodeCubeDocument);
-export const decodeRemoveDocumentResult = (value: unknown): RemoveDocumentResult => oneDocument(value, decodeCubeDocumentMetadata);
+export const decodeRemoveDocumentResult = (value: unknown): RemoveDocumentResult => {
+  const result = oneDocument(value, decodeCubeDocumentMetadata);
+  if (result.document.state !== 'removed') throw new ProtocolContractError('Removed document result must be removed.');
+  return result;
+};
 export function decodeListDocumentsResult(value: unknown): ListDocumentsResult {
   const input = object(value); exact(input, ['documents'], ['documents']);
   if (!Array.isArray(input.documents) || input.documents.length > 500) throw new ProtocolContractError('Invalid document list.');
-  return { documents: input.documents.map(decodeCubeDocumentMetadata) };
+  const documents = input.documents.map(decodeCubeDocumentMetadata);
+  if (documents.some(({ state }) => state === 'removed')) throw new ProtocolContractError('Removed documents must be delisted.');
+  return { documents };
 }
 
 export const decodePutDocumentRequestEnvelope = (value: unknown): ProtocolEnvelope<PutDocumentRequest> => decodeProtocolEnvelope(value, decodePutDocumentRequest);

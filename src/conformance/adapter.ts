@@ -46,6 +46,7 @@ import {
   CREATE_CUBE_RETRY_CONFORMANCE,
   INVITATION_ARTIFACT_CONFORMANCE,
   ENROLLMENT_RETRY_CONFORMANCE,
+  DOCUMENT_CONFORMANCE,
 } from './index.js';
 
 export interface ConformanceHttpResponse {
@@ -1339,8 +1340,62 @@ export async function runAdapterConformance(
   await record('documents.lifecycle', async () => {
     const documentPrincipal = await environment.admin.createPrincipal('document-lifecycle');
     const documentCube = await environment.admin.createCube('document-lifecycle');
-    await environment.admin.grantCube(documentPrincipal, documentCube);
+    await environment.admin.grantCube(documentPrincipal, documentCube, 'write');
     const documentCredential = await environment.admin.issueDroneSession(documentPrincipal);
+    const reader = await environment.admin.createPrincipal('document-reader');
+    const peer = await environment.admin.createPrincipal('document-peer');
+    const manager = await environment.admin.createPrincipal('document-manager');
+    await environment.admin.grantCube(reader, documentCube, 'read');
+    await environment.admin.grantCube(peer, documentCube, 'write');
+    await environment.admin.grantCube(manager, documentCube, 'manage');
+    const readerCredential = await environment.admin.issueDroneSession(reader);
+    const peerCredential = await environment.admin.issueDroneSession(peer);
+    const managerCredential = await environment.admin.issueDroneSession(manager);
+    expectError(await environment.operations.putDocument(
+      readerCredential,
+      documentCube,
+      createProtocolEnvelope('document-read-only-put', { title: 'Denied', content_type: 'text/plain', content: 'denied' }),
+    ), 403, ErrorCode.ACCESS_DENIED, 'Read-only document put');
+    expectError(await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-bad-type', { title: 'Binary', content_type: 'application/octet-stream', content: 'x' }),
+    ), 400, ErrorCode.DOCUMENT_CONTENT_TYPE_UNSUPPORTED, 'Unsupported document type');
+    expectError(await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-bad-title', { title: 'x'.repeat(121), content_type: 'text/plain', content: 'x' }),
+    ), 400, ErrorCode.INVALID_INPUT, 'Oversized document title');
+    expectError(await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-oversize', { title: 'Too large', content_type: 'text/plain', content: 'x'.repeat(65_537) }),
+    ), 413, ErrorCode.DOCUMENT_BUDGET_EXCEEDED, 'Oversized document');
+    const budgetCube = await environment.admin.createCube('document-budget');
+    await environment.admin.grantCube(documentPrincipal, budgetCube, 'write');
+    for (let index = 0; index < 8; index++) {
+      expectStatus(await environment.operations.putDocument(
+        documentCredential,
+        budgetCube,
+        createProtocolEnvelope(`document-budget-${index}`, {
+          title: `Budget ${index}`, content_type: 'text/plain', content: 'x'.repeat(65_536),
+        }),
+      ), 201, `Document budget fill ${index}`);
+    }
+    expectError(await environment.operations.putDocument(
+      documentCredential,
+      budgetCube,
+      createProtocolEnvelope('document-budget-overflow', { title: 'Overflow', content_type: 'text/plain', content: 'x' }),
+    ), 413, ErrorCode.DOCUMENT_BUDGET_EXCEEDED, 'Active document budget');
+    const budgetList = decodeListDocumentsResultEnvelope((await environment.operations.listDocuments(
+      documentCredential, budgetCube, createProtocolEnvelope('document-budget-list', {}),
+    )).body).payload.documents;
+    invariant(budgetList.length === 8, 'Budget refusal partially mutated the document set.');
+    expectError(await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-unknown-supersedes', { title: 'Unknown', content_type: 'text/plain', content: 'x', supersedes: 'unknown_full_id' }),
+    ), 409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, 'Unknown document supersession');
     const put = await environment.operations.putDocument(
       documentCredential,
       documentCube,
@@ -1367,6 +1422,16 @@ export async function runAdapterConformance(
     expectStatus(successorResponse, 201, 'Document successor put');
     const successor = decodePutDocumentResultEnvelope(successorResponse.body).payload.document;
     invariant(successor.supersedes === created.id, 'Document successor did not bind the full prior id.');
+    expectError(await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-branch', { title: 'Branch', content_type: 'text/plain', content: 'x', supersedes: created.id }),
+    ), 409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, 'Branched document supersession');
+    expectError(await environment.operations.putDocument(
+      credentialA,
+      cubeA,
+      createProtocolEnvelope('document-cross-cube', { title: 'Cross cube', content_type: 'text/plain', content: 'x', supersedes: created.id }),
+    ), 409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, 'Cross-cube document supersession');
 
     const citationResponse = await environment.operations.append(
       documentCredential,
@@ -1380,6 +1445,15 @@ export async function runAdapterConformance(
     expectStatus(citationResponse, 201, 'Document citation append');
     const cited = decodeAppendLogResultEnvelope(citationResponse.body).payload.entry.documents;
     invariant(cited?.length === 2 && cited[0].state === 'superseded', 'Log citations did not render document metadata and state.');
+    expectError(await environment.operations.append(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-citation-conflict', {
+        post_id: '00000000-0000-4000-8000-000000000320',
+        message: 'See the document evidence.',
+        documents: [successor.id],
+      }),
+    ), 409, ErrorCode.POST_ID_CONFLICT, 'Document citation post-id conflict');
 
     const listed = await environment.operations.listDocuments(
       documentCredential,
@@ -1394,6 +1468,16 @@ export async function runAdapterConformance(
       'Linear document supersession was not listed by full ids.',
     );
     invariant(!('content' in list[0]), 'Document list exposed immutable content.');
+    expectStatus(await environment.operations.getDocument(
+      readerCredential,
+      documentCube,
+      createProtocolEnvelope('document-reader-get', { id: created.id }),
+    ), 200, 'Read-only document get');
+    expectError(await environment.operations.removeDocument(
+      peerCredential,
+      documentCube,
+      createProtocolEnvelope('document-peer-remove', { id: created.id }),
+    ), 403, ErrorCode.DOCUMENT_REMOVE_DENIED, 'Peer document remove');
 
     const got = await environment.operations.getDocument(
       documentCredential,
@@ -1407,7 +1491,7 @@ export async function runAdapterConformance(
     );
 
     const removed = await environment.operations.removeDocument(
-      documentCredential,
+      managerCredential,
       documentCube,
       createProtocolEnvelope('document-remove', { id: created.id }),
     );
@@ -1428,13 +1512,58 @@ export async function runAdapterConformance(
       createProtocolEnvelope('document-get-removed', { id: created.id }),
     )).body).payload.document;
     invariant(retained.state === 'removed' && retained.content === created.content, 'Removed content was not forensically resolvable.');
+    const entriesBeforeUnknownCitation = (await environment.operations.read(
+      documentCredential, documentCube, createProtocolEnvelope('document-read-before-unknown-cite', { cursor: null, limit: 100 }),
+    ));
+    const beforeCount = decodeReadLogResultEnvelope(entriesBeforeUnknownCitation.body).payload.entries.length;
+    expectError(await environment.operations.append(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-unknown-citation', {
+        post_id: '00000000-0000-4000-8000-000000000321', message: 'Unknown.', documents: ['unknown_full_id'],
+      }),
+    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Unknown document citation');
+    const longAccepted = await environment.operations.append(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-advisory', {
+        post_id: '00000000-0000-4000-8000-000000000322', message: 'x'.repeat(1025),
+      }),
+    );
+    expectStatus(longAccepted, 201, 'Advisory log append');
+    invariant(decodeAppendLogResultEnvelope(longAccepted.body).payload.advisory?.threshold_bytes === 1024, 'Configured advisory was not returned.');
+    expectError(await environment.operations.append(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-hard-cap', {
+        post_id: '00000000-0000-4000-8000-000000000323', message: 'x'.repeat(4097),
+      }),
+    ), 413, ErrorCode.CONTENT_TOO_LARGE, 'Hard-cap log append');
     const citedRead = decodeReadLogResultEnvelope((await environment.operations.read(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-citation-read', { cursor: null, limit: 10 }),
     )).body).payload.entries[0].documents;
     invariant(citedRead?.[0].state === 'removed', 'Log citation did not resolve the audit-retained removed state.');
-    return { put: 201, cited: true, active_listed: true, removed_hidden: true, audit_resolvable: true };
+    const finalCount = decodeReadLogResultEnvelope((await environment.operations.read(
+      documentCredential, documentCube, createProtocolEnvelope('document-final-read', { cursor: null, limit: 100 }),
+    )).body).payload.entries.length;
+    invariant(finalCount === beforeCount + 1, 'Rejected document or log operations partially mutated state.');
+    const exercisedFixtures = new Set([
+      'markdown',
+      'plain',
+      'unsupported-content-type',
+      'oversize-title',
+      'foreign-supersedes',
+      'branched-supersedes',
+      'removed',
+      'peer-remove',
+    ]);
+    invariant(
+      DOCUMENT_CONFORMANCE.every(({ fixture }) => exercisedFixtures.has(fixture)),
+      'A finalized document conformance vector is not executable by the adapter runner.',
+    );
+    return { refusals: true, put: 201, cited: true, active_listed: true, removed_hidden: true, audit_resolvable: true };
   });
 
   await record('security.adapter-boundary-injection', async () => {

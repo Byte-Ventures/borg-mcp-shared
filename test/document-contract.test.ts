@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   DOCUMENT_CONFORMANCE,
   DOCUMENT_CONTENT_TYPES,
+  DEFAULT_LOG_ENTRY_ADVISORY_BYTES,
+  DEFAULT_MAX_LOG_ENTRY_BYTES,
+  LOG_ENTRY_ADVISORY_ENV,
+  MAX_LOG_ENTRY_ENV,
+  DOCUMENT_MAX_BYTES_ENV,
+  DOCUMENT_MAX_ACTIVE_BYTES_PER_CUBE_ENV,
   ErrorCode,
   ProtocolContractError,
   createProtocolEnvelope,
@@ -10,6 +16,7 @@ import {
   decodePutDocumentRequest,
   decodePutDocumentRequestEnvelope,
   decodeRemoveDocumentResult,
+  decodePutDocumentResult,
   utf8ByteLength,
 } from '../src/index.js';
 
@@ -49,6 +56,9 @@ describe('cube document contract', () => {
     expect(() => decodePutDocumentRequest({
       title: 'Broken', content_type: 'text/plain', content: '\ud800',
     })).toThrow('Invalid UTF-8');
+    expect(decodePutDocumentRequest({
+      title: 'Configured larger document', content_type: 'text/plain', content: 'x'.repeat(65_537),
+    }).content).toHaveLength(65_537);
   });
 
   it('strictly decodes immutable content, UTF-8 size, and full opaque links', () => {
@@ -75,9 +85,23 @@ describe('cube document contract', () => {
     expect(() => decodeRemoveDocumentResult({
       document: { ...removed, removed_by: null },
     })).toThrow(ProtocolContractError);
+    expect(() => decodePutDocumentResult({ document: { ...removed, content: 'Evidence: €' } })).toThrow('must be active');
+    expect(() => decodeRemoveDocumentResult({ document: metadata })).toThrow('must be removed');
+    expect(() => decodeListDocumentsResult({ documents: [removed] })).toThrow('delisted');
   });
 
   it('exports portable vectors and typed fail-closed error classes', () => {
+    expect({
+      advisory: [LOG_ENTRY_ADVISORY_ENV, DEFAULT_LOG_ENTRY_ADVISORY_BYTES],
+      hard: [MAX_LOG_ENTRY_ENV, DEFAULT_MAX_LOG_ENTRY_BYTES],
+      document: DOCUMENT_MAX_BYTES_ENV,
+      cube: DOCUMENT_MAX_ACTIVE_BYTES_PER_CUBE_ENV,
+    }).toEqual({
+      advisory: ['BORG_SERVER_LOG_ENTRY_ADVISORY_BYTES', 1024],
+      hard: ['BORG_SERVER_MAX_LOG_ENTRY_BYTES', 4096],
+      document: 'BORG_SERVER_MAX_DOCUMENT_BYTES',
+      cube: 'BORG_SERVER_MAX_ACTIVE_DOCUMENT_BYTES_PER_CUBE',
+    });
     expect(DOCUMENT_CONFORMANCE).toHaveLength(8);
     for (const code of [
       'DOCUMENT_NOT_FOUND',
