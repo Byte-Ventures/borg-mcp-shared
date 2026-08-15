@@ -1,4 +1,5 @@
 import {
+  LOG_ENTRY_ADVISORY_BYTES,
   ProtocolContractError,
   compareLogCursor,
   decodeCanonicalTimestamp,
@@ -376,7 +377,7 @@ function decodeUnreachableRecipient(
 
 export function decodeAppendLogResult(value: unknown): AppendLogResult {
   const input = object(value);
-  exact(input, ['entry', 'deduplicated', 'routing', 'unreachableRecipients'], ['entry', 'deduplicated']);
+  exact(input, ['entry', 'deduplicated', 'routing', 'unreachableRecipients', 'advisory'], ['entry', 'deduplicated']);
   if (typeof input.deduplicated !== 'boolean') {
     throw new ProtocolContractError('Invalid append-log deduplicated flag.');
   }
@@ -392,6 +393,14 @@ export function decodeAppendLogResult(value: unknown): AppendLogResult {
       throw new ProtocolContractError('Invalid unreachable-recipient list.');
     }
     output.unreachableRecipients = input.unreachableRecipients.map(decodeUnreachableRecipient);
+  }
+  if (input.advisory !== undefined) {
+    const advisory = object(input.advisory);
+    exact(advisory, ['code', 'threshold_bytes'], ['code', 'threshold_bytes']);
+    if (advisory.code !== 'STORE_AS_DOCUMENT' || advisory.threshold_bytes !== LOG_ENTRY_ADVISORY_BYTES) {
+      throw new ProtocolContractError('Invalid append-log document advisory.');
+    }
+    output.advisory = { code: 'STORE_AS_DOCUMENT', threshold_bytes: LOG_ENTRY_ADVISORY_BYTES };
   }
   return output;
 }

@@ -91,6 +91,13 @@ Key paths in the repository-first HTTP contract include:
   deletes the cube and its scoped state. Formerly authorized callers receive
   `410 CUBE_DELETED`, while callers that were never authorized still receive
   `404 NOT_FOUND`.
+- `PUT /api/cubes/:cubeId/documents` stores immutable UTF-8 `text/markdown` or
+  `text/plain` content under one opaque full id. Titles are required and bounded
+  to 120 characters. Optional `supersedes` links form a same-cube linear chain.
+  `GET` by full id remains audit-resolvable after author-or-manager removal,
+  while active listings delist removed documents. Log posts cite documents with
+  the structured `documents` id array; reads render id, title, UTF-8 size, and
+  superseded or removed state.
 
 `decodeProtocolTagPreflight` fails closed on any tag other than the exact
 expected version, on any extra field, or on a non-object body — before any
@@ -111,6 +118,8 @@ recipient set, and class routing, then returns the same entry with
 `deduplicated: true`. Reusing an author's `post_id` with a changed tuple returns
 `POST_ID_CONFLICT`; another author may independently use the same UUID. Attach responses include the nullable
 `initial_log_cursor` that anchors subsequent log replay.
+Log messages up to 1 KiB are accepted silently, messages from 1 KiB through
+4 KiB return a store-as-document advisory, and larger messages are rejected.
 Cube managers reassign a seat with `PATCH /api/cubes/:cubeId/drones/:droneId`
 and evict one with `DELETE` on the same path. Both operations use strict
 versioned request and success envelopes. An evicted seat's former bearer receives
@@ -124,6 +133,8 @@ Identity responses include `runtime_metadata_reported`, keeping an omitted
 attach report distinct from a reported all-null or explicitly cleared state.
 See [docs/enrollment.md](docs/enrollment.md) for purpose-bound owner enrollment,
 ordinary ungranted enrollment, cube creation, pending enrollment, and retry contracts.
+See [docs/cube-documents.md](docs/cube-documents.md) for document budgets,
+supersession, removal, citation, and log-length contracts.
 
 ## Conformance
 
@@ -139,6 +150,8 @@ and single-seat invariants, eviction exclusion, and terminal bearer signaling.
 The same runner covers complete attach reports, own-seat metadata self-healing,
 canonical repository identity, invalid-patch atomicity, cross-cube isolation,
 secret non-echo, and authority/liveness/log non-interference.
+The document lifecycle fixture covers immutable put/get, metadata-only listing,
+removal delisting, and retained exact-id forensic resolution.
 Manage-scoped cube, role, taxonomy, decision, and drone operations also share an
 authority matrix: managing parents may mutate; known same-cube read/write
 parents receive `403 ACCESS_DENIED`; drone sessions remain non-managing; and

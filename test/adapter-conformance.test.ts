@@ -23,6 +23,10 @@ import {
   decodeResolveRepositoryCubeRequestEnvelope,
   decodeReassignDroneRequestEnvelope,
   decodeRecordDecisionRequest,
+  decodeGetDocumentRequestEnvelope,
+  decodeListDocumentsRequestEnvelope,
+  decodePutDocumentRequestEnvelope,
+  decodeRemoveDocumentRequestEnvelope,
   parseRoleSections,
   ROLE_RATIONALE_SECTION_BODY_MAX_BYTES,
   encodeSseEvent,
@@ -47,6 +51,7 @@ import {
   type ResolvedRepositoryCube,
   type ReadLogClaim,
   type DroneRuntimeMetadata,
+  type CubeDocument,
 } from '../src/index.js';
 
 function same(left: unknown, right: unknown): boolean {
@@ -149,12 +154,14 @@ interface CubeState {
     visibility: 'broadcast' | 'direct';
     recipientDroneIds: string[];
     class: string | null;
+    documents: string[];
   }>;
   claims: ReadLogClaim[];
   decisions: Decision[];
   expired: Set<string>;
   roles: Map<string, RoleState>;
   drones: Map<string, DroneState>;
+  documents: Map<string, { document: CubeDocument; authorPrincipalId: string }>;
 }
 
 interface RoleState {
@@ -224,7 +231,7 @@ class AsyncQueue implements AsyncIterable<string> {
 class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private readonly limits = {
     max_request_bytes: 65_536,
-    max_log_message_bytes: 10_240,
+    max_log_message_bytes: 4096,
     max_read_page_size: 500,
     max_replay_page_size: 200,
   } as const;
@@ -314,7 +321,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         directive: '', taxonomyMarker: null,
         messageClassRouting: new Map(),
         entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
-        roles: new Map(), drones: new Map(),
+        roles: new Map(), drones: new Map(), documents: new Map(),
       });
       void name;
       return handle;
@@ -664,7 +671,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '9',
+                protocol_version: '10',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -684,7 +691,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '9',
+                protocol_version: '10',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -702,7 +709,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             directive: '', taxonomyMarker: null,
             messageClassRouting: new Map(),
             entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
-            roles: new Map(), drones: new Map(),
+            roles: new Map(), drones: new Map(), documents: new Map(),
           });
         }
         return {
@@ -747,6 +754,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             }],
           ]),
           drones: new Map(),
+          documents: new Map(),
         });
         principal.grants.set(handle.id, 'manage');
       }
@@ -786,7 +794,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '9',
+              protocol_version: '10',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -856,6 +864,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           }],
         ]),
         drones: new Map(),
+        documents: new Map(),
       });
       if (this.fault === 'grant-created-cube-to-wrong-client') {
         const other = [...this.principals.values()].find((principal) => principal !== auth.principal);
@@ -946,6 +955,86 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           deleted: true,
         }),
       };
+    },
+    putDocument: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodePutDocumentRequestEnvelope(request);
+      const cube = this.cube(cubeHandle.id);
+      const id = this.uuid();
+      const now = '2026-01-01T00:00:00.000Z';
+      const actor = { drone_id: null, label: null, role: null };
+      const document: CubeDocument = {
+        id,
+        title: envelope.payload.title,
+        content_type: envelope.payload.content_type,
+        content: envelope.payload.content,
+        size_bytes: utf8ByteLength(envelope.payload.content),
+        state: 'active',
+        supersedes: envelope.payload.supersedes ?? null,
+        superseded_by: null,
+        author: actor,
+        created_at: now,
+        removed_by: null,
+        removed_at: null,
+      };
+      if (document.supersedes !== null) {
+        const previous = cube.documents.get(document.supersedes);
+        if (!previous || previous.document.state !== 'active' || previous.document.superseded_by !== null) {
+          return this.error(409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, envelope.request_id);
+        }
+        previous.document = { ...previous.document, state: 'superseded', superseded_by: id };
+        for (const entry of cube.entries) {
+          entry.documents = entry.documents?.map((citation) => citation.id === previous.document.id
+            ? { ...citation, state: 'superseded' }
+            : citation);
+        }
+      }
+      cube.documents.set(id, { document, authorPrincipalId: access.principal.handle.id });
+      return { status: 201, body: createProtocolEnvelope(envelope.request_id, { document }) };
+    },
+    getDocument: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeGetDocumentRequestEnvelope(request);
+      const stored = this.cube(cubeHandle.id).documents.get(envelope.payload.id);
+      if (!stored) return this.error(404, ErrorCode.DOCUMENT_NOT_FOUND, envelope.request_id);
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, { document: stored.document }) };
+    },
+    listDocuments: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeListDocumentsRequestEnvelope(request);
+      const documents = [...this.cube(cubeHandle.id).documents.values()]
+        .map(({ document }) => document)
+        .filter(({ state }) => state !== 'removed')
+        .map(({ content: _content, ...metadata }) => metadata);
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, { documents }) };
+    },
+    removeDocument: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeRemoveDocumentRequestEnvelope(request);
+      const stored = this.cube(cubeHandle.id).documents.get(envelope.payload.id);
+      if (!stored) return this.error(404, ErrorCode.DOCUMENT_NOT_FOUND, envelope.request_id);
+      const cubeAccess = access.principal.grants.get(cubeHandle.id);
+      if (stored.authorPrincipalId !== access.principal.handle.id && cubeAccess !== 'manage') {
+        return this.error(403, ErrorCode.DOCUMENT_REMOVE_DENIED, envelope.request_id);
+      }
+      const { content: _content, ...metadata } = stored.document;
+      const document = {
+        ...metadata,
+        state: 'removed' as const,
+        removed_by: { drone_id: null, label: null, role: null },
+        removed_at: '2026-01-01T00:01:00.000Z',
+      };
+      stored.document = { ...document, content: stored.document.content };
+      for (const entry of this.cube(cubeHandle.id).entries) {
+        entry.documents = entry.documents?.map((citation) => citation.id === document.id
+          ? { ...citation, state: 'removed' }
+          : citation);
+      }
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, { document }) };
     },
     resolveRepositoryCube: async (
       credential: string | null,
@@ -1113,7 +1202,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '9', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '10', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1167,6 +1256,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         visibility: envelope.payload.visibility ?? 'broadcast',
         recipientDroneIds: resolvedRecipients,
         class: resolvedClass,
+        documents: [...(envelope.payload.documents ?? [])].sort(),
       };
       const postKey = `${authorId}/${envelope.payload.post_id}`;
       const existing = cube.posts.get(postKey);
@@ -1176,6 +1266,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           visibility: existing.visibility,
           recipientDroneIds: existing.recipientDroneIds,
           class: existing.class,
+          documents: existing.documents,
         })) {
           return this.error(409, ErrorCode.POST_ID_CONFLICT, envelope.request_id);
         }
@@ -1191,6 +1282,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       })) {
         return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       }
+      const cited = resolvedRouting.documents.map((id) => cube.documents.get(id)?.document);
+      if (cited.some((document) => document === undefined)) {
+        return this.error(404, ErrorCode.DOCUMENT_NOT_FOUND, envelope.request_id);
+      }
       const entry: EnrichedStreamEntry = {
         id: this.uuid(),
         cube_id: cubeHandle.id,
@@ -1201,6 +1296,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
         recipient_drone_ids: resolvedRecipients,
+        ...(cited.length === 0 ? {} : {
+          documents: cited.map((document) => ({
+            id: document!.id,
+            title: document!.title,
+            size_bytes: document!.size_bytes,
+            state: document!.state,
+          })),
+        }),
       };
       cube.entries.push(entry);
       cube.posts.set(postKey, { entry, ...resolvedRouting });
@@ -1814,7 +1917,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '9',
+        protocol_version: '10',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message },
       },

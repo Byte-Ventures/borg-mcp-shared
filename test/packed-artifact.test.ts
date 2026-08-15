@@ -149,6 +149,7 @@ describe('packed artifact', () => {
           decodeCreateCubeRequest,
           decodeDeleteCubeRequest,
           decodeDeleteCubeResponse,
+          decodePutDocumentRequest,
           decodeResolveRepositoryCubeResponse,
         } from 'borgmcp-shared/protocol';
         import {
@@ -183,6 +184,11 @@ describe('packed artifact', () => {
           }),
           cubeDeletedCode: ErrorCode.CUBE_DELETED,
           deletionVectorCount: DELETE_CUBE_CONFORMANCE.length,
+          documentRequest: decodePutDocumentRequest({
+            title: 'Packed evidence',
+            content_type: 'text/plain',
+            content: 'Exact installed contract.',
+          }),
           request,
           association,
           unresolved: decodeResolveRepositoryCubeResponse({ result: 'none' }),
@@ -231,7 +237,7 @@ describe('packed artifact', () => {
         { name: 'rejects an unknown template name', template: 'custom', accepts: false },
         { name: 'rejects a non-string template', template: null, accepts: false },
       ],
-      protocolVersion: '9',
+      protocolVersion: '10',
       deleteRequest: {},
       deleteResponse: {
         cube_id: '00000000-0000-4000-8000-000000000003',
@@ -239,6 +245,11 @@ describe('packed artifact', () => {
       },
       cubeDeletedCode: 'CUBE_DELETED',
       deletionVectorCount: 5,
+      documentRequest: {
+        title: 'Packed evidence',
+        content_type: 'text/plain',
+        content: 'Exact installed contract.',
+      },
       request: {
         retry_key: '00000000-0000-4000-8000-000000000001',
         name: 'Repository Cube',

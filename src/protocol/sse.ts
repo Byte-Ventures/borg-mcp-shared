@@ -1,4 +1,5 @@
 import type { EnrichedStreamEntry } from './types.js';
+import { decodeDocumentCitation } from './documents.js';
 import {
   ProtocolContractError,
   decodeCanonicalTimestamp,
@@ -97,6 +98,7 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
       'drone_label',
       'role_name',
       'recipient_drone_ids',
+      'documents',
     ],
     [
       'id',
@@ -120,7 +122,7 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
     id: decodeUuid(entry.id, ['entry', 'id']),
     cube_id: decodeUuid(entry.cube_id, ['entry', 'cube_id']),
     drone_id: entry.drone_id === null ? null : decodeUuid(entry.drone_id, ['entry', 'drone_id']),
-    message: boundedString(entry.message, 'message', 10_240),
+    message: boundedString(entry.message, 'message', 4096),
     visibility: entry.visibility,
     created_at: decodeCanonicalTimestamp(entry.created_at, ['entry', 'created_at']),
     drone_label: nullableString(entry.drone_label, 'drone_label', 120),
@@ -128,6 +130,11 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
     recipient_drone_ids: entry.recipient_drone_ids.map((id, index) =>
       decodeUuid(id, ['entry', 'recipient_drone_ids', index])
     ),
+    ...(entry.documents === undefined ? {} : {
+      documents: Array.isArray(entry.documents)
+        ? entry.documents.map(decodeDocumentCitation)
+        : (() => { throw new ProtocolContractError('Invalid SSE document citations.'); })(),
+    }),
   };
 }
 

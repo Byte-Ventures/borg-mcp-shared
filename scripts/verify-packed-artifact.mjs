@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MAX_PACKED_BYTES = 512 * 1024;
-const MAX_UNPACKED_BYTES = 1024 * 1024;
+const MAX_UNPACKED_BYTES = 1280 * 1024;
 const MAX_FILES = 128;
 const MAX_FILE_BYTES = 256 * 1024;
 const REQUIRED_FILES = ['LICENSE', 'NOTICE', 'README.md', 'RELEASES.md', 'SECURITY.md', 'package.json'];

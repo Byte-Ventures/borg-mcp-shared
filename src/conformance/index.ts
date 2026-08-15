@@ -23,6 +23,17 @@ export interface ConformanceVector<Input, Output> {
   expected: Output;
 }
 
+export const DOCUMENT_CONFORMANCE = [
+  { name: 'accepts markdown UTF-8 content', fixture: 'markdown', expected: 'created' },
+  { name: 'accepts plain UTF-8 content', fixture: 'plain', expected: 'created' },
+  { name: 'rejects unsupported content types', fixture: 'unsupported-content-type', expected: 'DOCUMENT_CONTENT_TYPE_UNSUPPORTED' },
+  { name: 'requires a title of at most 120 characters', fixture: 'oversize-title', expected: 'INVALID_INPUT' },
+  { name: 'rejects an unknown or cross-cube supersedes id', fixture: 'foreign-supersedes', expected: 'DOCUMENT_SUPERSESSION_INVALID' },
+  { name: 'rejects a branch in the linear supersession chain', fixture: 'branched-supersedes', expected: 'DOCUMENT_SUPERSESSION_INVALID' },
+  { name: 'delists removed content while retaining exact-id resolution', fixture: 'removed', expected: 'audit-resolvable' },
+  { name: 'allows only the author or a cube manager to remove', fixture: 'peer-remove', expected: 'DOCUMENT_REMOVE_DENIED' },
+] as const;
+
 export interface BroadcastHwmComparisonInput {
   a: BroadcastHwm;
   b: BroadcastHwm;

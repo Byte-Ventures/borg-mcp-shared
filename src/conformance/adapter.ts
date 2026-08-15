@@ -22,6 +22,10 @@ import {
   decodeResolveRepositoryCubeResponseEnvelope,
   decodeReassignDroneResultEnvelope,
   decodeUpdateDroneRuntimeMetadataResponseEnvelope,
+  decodeGetDocumentResultEnvelope,
+  decodeListDocumentsResultEnvelope,
+  decodePutDocumentResultEnvelope,
+  decodeRemoveDocumentResultEnvelope,
   decodeSseFrames,
   PROTOCOL_LIMIT_CEILINGS,
   PROTOCOL_HTTP_CONTRACT,
@@ -265,6 +269,10 @@ export interface ConformanceOperations {
     cube: ConformanceCube,
     request: unknown,
   ): Promise<ConformanceHttpResponse>;
+  putDocument(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+  getDocument(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+  listDocuments(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
+  removeDocument(credential: string, cube: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse>;
   resolveRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
   associateRepositoryCube(credential: string | null, request: unknown): Promise<ConformanceHttpResponse>;
   attach(credential: string, request: unknown): Promise<ConformanceHttpResponse>;
@@ -364,6 +372,7 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'enrollment.invitation-artifact', area: 'enrollment' },
   { id: 'enrollment.retry-authority', area: 'enrollment' },
   { id: 'repository.explicit-association', area: 'repository' },
+  { id: 'documents.lifecycle', area: 'documents' },
   { id: 'security.adapter-boundary-injection', area: 'security' },
   { id: 'security.oversize-request', area: 'security' },
   { id: 'security.cross-cube-isolation', area: 'security' },
@@ -1325,6 +1334,107 @@ export async function runAdapterConformance(
       inaccessible_binding_hidden: true,
       cross_client_binding_hidden: true,
     };
+  });
+
+  await record('documents.lifecycle', async () => {
+    const documentPrincipal = await environment.admin.createPrincipal('document-lifecycle');
+    const documentCube = await environment.admin.createCube('document-lifecycle');
+    await environment.admin.grantCube(documentPrincipal, documentCube);
+    const documentCredential = await environment.admin.issueDroneSession(documentPrincipal);
+    const put = await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-put', {
+        title: 'Review evidence',
+        content_type: 'text/markdown',
+        content: '# Evidence\n\nPortable UTF-8: €\n',
+      }),
+    );
+    expectStatus(put, 201, 'Document put');
+    const created = decodePutDocumentResultEnvelope(put.body).payload.document;
+    invariant(created.size_bytes === utf8ByteLength(created.content), 'Document size is not its UTF-8 byte size.');
+
+    const successorResponse = await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-put-successor', {
+        title: 'Review evidence revision 2',
+        content_type: 'text/markdown',
+        content: '# Revised evidence\n',
+        supersedes: created.id,
+      }),
+    );
+    expectStatus(successorResponse, 201, 'Document successor put');
+    const successor = decodePutDocumentResultEnvelope(successorResponse.body).payload.document;
+    invariant(successor.supersedes === created.id, 'Document successor did not bind the full prior id.');
+
+    const citationResponse = await environment.operations.append(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-citation', {
+        post_id: '00000000-0000-4000-8000-000000000320',
+        message: 'See the document evidence.',
+        documents: [created.id, successor.id],
+      }),
+    );
+    expectStatus(citationResponse, 201, 'Document citation append');
+    const cited = decodeAppendLogResultEnvelope(citationResponse.body).payload.entry.documents;
+    invariant(cited?.length === 2 && cited[0].state === 'superseded', 'Log citations did not render document metadata and state.');
+
+    const listed = await environment.operations.listDocuments(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-list', {}),
+    );
+    expectStatus(listed, 200, 'Document list');
+    const list = decodeListDocumentsResultEnvelope(listed.body).payload.documents;
+    invariant(
+      list.length === 2 && list.some(({ id, state, superseded_by }) =>
+        id === created.id && state === 'superseded' && superseded_by === successor.id),
+      'Linear document supersession was not listed by full ids.',
+    );
+    invariant(!('content' in list[0]), 'Document list exposed immutable content.');
+
+    const got = await environment.operations.getDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-get', { id: created.id }),
+    );
+    expectStatus(got, 200, 'Document get');
+    invariant(
+      decodeGetDocumentResultEnvelope(got.body).payload.document.content === created.content,
+      'Document get did not preserve immutable content and metadata.',
+    );
+
+    const removed = await environment.operations.removeDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-remove', { id: created.id }),
+    );
+    expectStatus(removed, 200, 'Document remove');
+    invariant(
+      decodeRemoveDocumentResultEnvelope(removed.body).payload.document.state === 'removed',
+      'Document removal did not produce audit-retained removed state.',
+    );
+    const after = decodeListDocumentsResultEnvelope((await environment.operations.listDocuments(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-list-after', {}),
+    )).body).payload.documents;
+    invariant(after.length === 1 && after[0].id === successor.id, 'Removed document remained in active listing.');
+    const retained = decodeGetDocumentResultEnvelope((await environment.operations.getDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-get-removed', { id: created.id }),
+    )).body).payload.document;
+    invariant(retained.state === 'removed' && retained.content === created.content, 'Removed content was not forensically resolvable.');
+    const citedRead = decodeReadLogResultEnvelope((await environment.operations.read(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-citation-read', { cursor: null, limit: 10 }),
+    )).body).payload.entries[0].documents;
+    invariant(citedRead?.[0].state === 'removed', 'Log citation did not resolve the audit-retained removed state.');
+    return { put: 201, cited: true, active_listed: true, removed_hidden: true, audit_resolvable: true };
   });
 
   await record('security.adapter-boundary-injection', async () => {
