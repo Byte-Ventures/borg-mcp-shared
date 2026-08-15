@@ -104,12 +104,15 @@ describe('cube document contract', () => {
   it('does not reflect attacker-controlled unknown field names', () => {
     const hostileKey = 'attacker-controlled-'.repeat(5_000);
     let diagnostic = '';
+    let caught = false;
     try {
       decodeCubeDocumentMetadata({ ...metadata, [hostileKey]: true });
     } catch (error) {
+      caught = true;
       expect(error).toBeInstanceOf(ProtocolContractError);
       diagnostic = (error as Error).message;
     }
+    expect(caught).toBe(true);
     expect(utf8ByteLength(diagnostic)).toBeLessThanOrEqual(512);
     expect(diagnostic).not.toContain('attacker-controlled-');
   });

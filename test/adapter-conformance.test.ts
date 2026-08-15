@@ -67,6 +67,7 @@ type Fault =
   | 'deny-author-document-remove'
   | 'deny-read-document-list'
   | 'allow-foreign-document-get'
+  | 'leak-foreign-document-diagnostic'
   | 'allow-foreign-document-list'
   | 'leak-foreign-document-list'
   | 'allow-foreign-document-remove'
@@ -1039,7 +1040,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const access = this.authorize(credential, cubeHandle.id);
       if (access.error) return access.error;
       const envelope = decodeGetDocumentRequestEnvelope(request);
-      const stored = this.cube(cubeHandle.id).documents.get(envelope.payload.id) ??
+      const localStored = this.cube(cubeHandle.id).documents.get(envelope.payload.id);
+      if (!localStored && this.fault === 'leak-foreign-document-diagnostic') {
+        const foreign = this.globalDocument(envelope.payload.id)?.stored.document;
+        if (foreign) return this.error(
+          404,
+          ErrorCode.DOCUMENT_NOT_FOUND,
+          envelope.request_id,
+          `Hidden document: ${foreign.title}; ${foreign.content}`,
+        );
+      }
+      const stored = localStored ??
         (this.fault === 'allow-foreign-document-get'
           ? this.globalDocument(envelope.payload.id)?.stored
           : undefined);
@@ -2079,6 +2090,7 @@ describe('executable adapter conformance', () => {
     ['denied author document removal', 'deny-author-document-remove', 'documents.lifecycle'],
     ['denied read-only document listing', 'deny-read-document-list', 'documents.lifecycle'],
     ['allowed foreign document get', 'allow-foreign-document-get', 'documents.lifecycle'],
+    ['leaked foreign document diagnostic', 'leak-foreign-document-diagnostic', 'documents.lifecycle'],
     ['allowed foreign document list', 'allow-foreign-document-list', 'documents.lifecycle'],
     ['leaked foreign document in list', 'leak-foreign-document-list', 'documents.lifecycle'],
     ['allowed foreign document removal', 'allow-foreign-document-remove', 'documents.lifecycle'],

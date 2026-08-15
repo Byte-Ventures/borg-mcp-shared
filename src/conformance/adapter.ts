@@ -630,7 +630,7 @@ function expectSecretFreeError(
   expectError(response, status, code, operation);
   const diagnostic = JSON.stringify(response.body);
   for (const secret of new Set(secrets)) {
-    invariant(!diagnostic.includes(secret), `${operation} exposed retry material.`);
+    invariant(!diagnostic.includes(secret), `${operation} exposed sensitive material.`);
   }
 }
 
@@ -1443,27 +1443,27 @@ export async function runAdapterConformance(
     const created = decodePutDocumentResultEnvelope(put.body).payload.document;
     outcomes.set('markdown', 'created');
     invariant(created.size_bytes === utf8ByteLength(created.content), 'Document size is not its UTF-8 byte size.');
-    expectError(await environment.operations.getDocument(
+    expectSecretFreeError(await environment.operations.getDocument(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-foreign-get', { id: foreignDocument.id }),
-    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document get');
-    expectError(await environment.operations.listDocuments(
+    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document get', [foreignDocument.title, foreignDocument.content]);
+    expectSecretFreeError(await environment.operations.listDocuments(
       documentCredential,
       foreignCube,
       createProtocolEnvelope('document-foreign-list', {}),
-    ), 404, ErrorCode.NOT_FOUND, 'Foreign document list');
-    expectError(await environment.operations.removeDocument(
+    ), 404, ErrorCode.NOT_FOUND, 'Foreign document list', [foreignDocument.title, foreignDocument.content]);
+    expectSecretFreeError(await environment.operations.removeDocument(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-foreign-remove', { id: foreignDocument.id }),
-    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document remove');
+    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document remove', [foreignDocument.title, foreignDocument.content]);
     const entriesBeforeForeignCitation = decodeReadLogResultEnvelope((await environment.operations.read(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-read-before-foreign-cite', { cursor: null, limit: 100 }),
     )).body).payload.entries.length;
-    expectError(await environment.operations.append(
+    expectSecretFreeError(await environment.operations.append(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-foreign-citation', {
@@ -1471,7 +1471,7 @@ export async function runAdapterConformance(
         message: 'Foreign evidence must remain hidden.',
         documents: [foreignDocument.id],
       }),
-    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document citation');
+    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document citation', [foreignDocument.title, foreignDocument.content]);
     const entriesAfterForeignCitation = decodeReadLogResultEnvelope((await environment.operations.read(
       documentCredential,
       documentCube,
