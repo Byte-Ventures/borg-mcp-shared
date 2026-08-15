@@ -82,6 +82,11 @@ one named, plain-label section of a role description. A v7 peer and a v8 peer
 reject each other during credential-free preflight before either new route is
 dispatched.
 
+The protocol v10 release is `borgmcp-shared@0.13.0`. It adds cube-scoped
+immutable text documents, structured log citations, and bounded log-entry
+advisories. A v9 peer and a v10 peer reject each other during credential-free
+preflight before either peer sends credentials or dispatches an operation.
+
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
 successful build alone — they must run the shared conformance suite against the

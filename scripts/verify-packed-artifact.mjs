@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MAX_PACKED_BYTES = 512 * 1024;
-const MAX_UNPACKED_BYTES = 1024 * 1024;
+const MAX_UNPACKED_BYTES = 1280 * 1024;
 const MAX_FILES = 128;
 const MAX_FILE_BYTES = 256 * 1024;
 const REQUIRED_FILES = ['LICENSE', 'NOTICE', 'README.md', 'RELEASES.md', 'SECURITY.md', 'package.json'];
@@ -153,7 +153,7 @@ export async function verifyPackedArtifact(tarballPath) {
     }
 
     const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-    if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.12.3') {
+    if (manifest.name !== 'borgmcp-shared' || manifest.version !== '0.13.0') {
       throw new Error(`Unexpected package identity: ${manifest.name}@${manifest.version}`);
     }
     if (manifest.repository?.url !== 'git+https://github.com/Byte-Ventures/borg-mcp-shared.git') {

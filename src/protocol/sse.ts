@@ -1,4 +1,5 @@
 import type { EnrichedStreamEntry } from './types.js';
+import { decodeDocumentCitations } from './documents.js';
 import {
   ProtocolContractError,
   decodeCanonicalTimestamp,
@@ -6,15 +7,41 @@ import {
   decodeLogCursor,
   decodeOpaqueIdentifier,
   decodeUuid,
+  PROTOCOL_LIMIT_CEILINGS,
   utf8ByteLength,
   type LogCursor,
   type ProtocolErrorEnvelope,
 } from './contract.js';
 
+const MAX_UUID = '00000000-0000-4000-8000-000000000000';
+const MAX_TIMESTAMP = '0000-00-00T00:00:00.000Z';
+const MAX_LOG_DATA_BYTES = utf8ByteLength(JSON.stringify({
+  cursor: { created_at: MAX_TIMESTAMP, id: MAX_UUID },
+  entry: {
+    id: MAX_UUID,
+    cube_id: MAX_UUID,
+    drone_id: MAX_UUID,
+    message: '\0'.repeat(PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes),
+    visibility: 'broadcast',
+    created_at: MAX_TIMESTAMP,
+    drone_label: '\0'.repeat(120),
+    role_name: '\0'.repeat(120),
+    recipient_drone_ids: Array.from({ length: 100 }, () => MAX_UUID),
+    documents: Array.from({ length: 100 }, (_, index) => ({
+      id: `${index.toString().padStart(3, '0')}${'x'.repeat(125)}`,
+      title: '😀'.repeat(120),
+      size_bytes: 10 * 1024 * 1024,
+      state: 'superseded',
+    })),
+  },
+}));
+const MAX_LOG_FRAME_BYTES = MAX_LOG_DATA_BYTES +
+  utf8ByteLength(`event: log\nid: ${MAX_UUID}\ndata: `);
+
 export const SSE_LIMITS = {
   total_bytes: 1024 * 1024,
-  frame_bytes: 65_536,
-  data_bytes: 65_536,
+  frame_bytes: MAX_LOG_FRAME_BYTES,
+  data_bytes: MAX_LOG_DATA_BYTES,
   frame_count: 1000,
   unknown_data_bytes: 4096,
 } as const;
@@ -97,6 +124,7 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
       'drone_label',
       'role_name',
       'recipient_drone_ids',
+      'documents',
     ],
     [
       'id',
@@ -120,7 +148,11 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
     id: decodeUuid(entry.id, ['entry', 'id']),
     cube_id: decodeUuid(entry.cube_id, ['entry', 'cube_id']),
     drone_id: entry.drone_id === null ? null : decodeUuid(entry.drone_id, ['entry', 'drone_id']),
-    message: boundedString(entry.message, 'message', 10_240),
+    message: boundedString(
+      entry.message,
+      'message',
+      PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes,
+    ),
     visibility: entry.visibility,
     created_at: decodeCanonicalTimestamp(entry.created_at, ['entry', 'created_at']),
     drone_label: nullableString(entry.drone_label, 'drone_label', 120),
@@ -128,6 +160,9 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
     recipient_drone_ids: entry.recipient_drone_ids.map((id, index) =>
       decodeUuid(id, ['entry', 'recipient_drone_ids', index])
     ),
+    ...(entry.documents === undefined ? {} : {
+      documents: decodeDocumentCitations(entry.documents),
+    }),
   };
 }
 

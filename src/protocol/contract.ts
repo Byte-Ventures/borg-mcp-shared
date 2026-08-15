@@ -13,11 +13,15 @@ import type {
 } from './types.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.12.3' as const;
+export const SHARED_PACKAGE_VERSION = '0.13.0' as const;
 /** Maximum UTF-8 payload for each newly recorded decision text field. */
 export const DECISION_TEXT_MAX_BYTES = 512 as const;
 /** Maximum UTF-8 size of role detailed-description text and any returned section slice. */
 export const ROLE_TEXT_MAX_BYTES = 51_200 as const;
+export const DEFAULT_LOG_ENTRY_ADVISORY_BYTES = 1024 as const;
+export const DEFAULT_MAX_LOG_ENTRY_BYTES = 4096 as const;
+export const LOG_ENTRY_ADVISORY_ENV = 'BORG_SERVER_LOG_ENTRY_ADVISORY_BYTES' as const;
+export const MAX_LOG_ENTRY_ENV = 'BORG_SERVER_MAX_LOG_ENTRY_BYTES' as const;
 
 export const HEALTH_PATH = '/healthz' as const;
 export const PROTOCOL_INFO_PATH = '/api/protocol' as const;
@@ -30,12 +34,18 @@ export const REPOSITORY_CUBE_RESOLVE_PATH = '/api/repository-cubes/resolve' as c
 export const REPOSITORY_CUBE_ASSOCIATION_PATH = '/api/repository-cubes/association' as const;
 export const ATTACH_PATH = '/api/client/attach' as const;
 export const SELF_RUNTIME_METADATA_PATH = '/api/cubes/:cubeId/drones/self/metadata' as const;
+export const DOCUMENTS_PATH = '/api/cubes/:cubeId/documents' as const;
+export const DOCUMENT_PATH = '/api/cubes/:cubeId/documents/:documentId' as const;
 
 export const PROTOCOL_HTTP_CONTRACT = {
   health: { method: 'GET', path: HEALTH_PATH, authenticated: false, success_status: 204, bodyless: true },
   protocol: { method: 'GET', path: PROTOCOL_INFO_PATH, authenticated: false, success_status: 200 },
   enrollment: { method: 'POST', path: ENROLLMENT_EXCHANGE_PATH, authenticated: 'invitation', success_status: 201 },
   cubes: { method: 'POST', path: CUBES_PATH, authenticated: true, success_status: 201 },
+  document_put: { method: 'PUT', path: DOCUMENTS_PATH, authenticated: true, success_status: 201, mutation: true },
+  document_list: { method: 'GET', path: DOCUMENTS_PATH, authenticated: true, success_status: 200, mutation: false },
+  document_get: { method: 'GET', path: DOCUMENT_PATH, authenticated: true, success_status: 200, mutation: false },
+  document_remove: { method: 'DELETE', path: DOCUMENT_PATH, authenticated: true, success_status: 200, mutation: true },
   cube_delete: {
     method: 'DELETE',
     path: CUBE_PATH,
@@ -104,7 +114,7 @@ export const PROTOCOL_HTTP_CONTRACT = {
 
 export const PROTOCOL_LIMIT_CEILINGS = {
   max_request_bytes: 10 * 1024 * 1024,
-  max_log_message_bytes: 1024 * 1024,
+  max_log_message_bytes: 65_536,
   max_read_page_size: 500,
   max_replay_page_size: 1000,
 } as const;
@@ -580,7 +590,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'This client requires protocol v9. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
+      'This client requires protocol v10. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -997,12 +1007,12 @@ export function decodeAppendLogRequest(value: unknown): import('./types.js').App
   const input = record(value);
   exactKeys(
     input,
-    ['post_id', 'message', 'visibility', 'recipientDroneIds', 'class', 'to'],
+    ['post_id', 'message', 'visibility', 'recipientDroneIds', 'class', 'to', 'documents'],
     ['post_id', 'message'],
   );
   const output: import('./types.js').AppendLogRequest = {
     post_id: decodeUuid(input.post_id, ['post_id']),
-    message: boundedString(input.message, 1, 10_240, ['message']),
+    message: boundedString(input.message, 1, PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes, ['message']),
   };
   if (input.visibility !== undefined) {
     if (input.visibility !== 'broadcast' && input.visibility !== 'direct') {
@@ -1023,6 +1033,10 @@ export function decodeAppendLogRequest(value: unknown): import('./types.js').App
   }
   if (input.to !== undefined) {
     output.to = decodeStringArray(input.to, 'to', 100, 120);
+  }
+  if (input.documents !== undefined) {
+    output.documents = decodeStringArray(input.documents, 'documents', 100, 128)
+      .map((id, index) => decodeOpaqueIdentifier(id, ['documents', index]));
   }
   return output;
 }

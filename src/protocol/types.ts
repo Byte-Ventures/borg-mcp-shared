@@ -1,4 +1,5 @@
 import type { MessageTaxonomy } from '../templates.js';
+import type { DocumentCitation } from './documents.js';
 
 export type AgentKind = 'claude' | 'codex' | 'opencode';
 export type RoleClass = 'queen' | 'worker';
@@ -100,6 +101,7 @@ export interface ActivityLogEntry {
   message: string;
   visibility: LogVisibility;
   created_at: string;
+  documents?: DocumentCitation[];
 }
 
 export interface EnrichedStreamEntry extends ActivityLogEntry {
@@ -177,6 +179,7 @@ export interface AppendLogRequest {
   recipientDroneIds?: string[];
   class?: string;
   to?: string[];
+  documents?: string[];
 }
 
 export interface AppendLogResponse {
@@ -184,6 +187,10 @@ export interface AppendLogResponse {
   deduplicated: boolean;
   routing?: RoutingEcho | null;
   unreachableRecipients?: Array<{ id: string; label: string }>;
+  advisory?: {
+    code: 'STORE_AS_DOCUMENT';
+    threshold_bytes: number;
+  };
 }
 
 export interface Decision {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ErrorCode,
   ProtocolContractError,
+  SSE_LIMITS,
   compareLogCursor,
   decodeSseFrames,
   encodeSseEvent,
@@ -54,6 +55,7 @@ describe('SSE wire codec', () => {
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
         recipient_drone_ids: [],
+        documents: [{ id: 'doc_full_id', title: 'Evidence', size_bytes: 8, state: 'active' }],
       },
     });
 
@@ -62,7 +64,62 @@ describe('SSE wire codec', () => {
     expect(decodeSseFrames(encoded)[0]).toMatchObject({
       type: 'log',
       cursor: cursorA,
+      entry: { documents: [{ id: 'doc_full_id', title: 'Evidence', size_bytes: 8, state: 'active' }] },
     });
+  });
+
+  it('rejects duplicate or oversized citation collections on reads and streams', () => {
+    const entry = {
+      id: cursorA.id,
+      cube_id: '10000000-0000-4000-8000-000000000001',
+      drone_id: '20000000-0000-4000-8000-000000000001',
+      message: 'hello',
+      visibility: 'broadcast' as const,
+      created_at: cursorA.created_at,
+      drone_label: 'one-of-one-builder',
+      role_name: 'Builder',
+      recipient_drone_ids: [],
+    };
+    const citation = { id: 'doc_full_id', title: 'Evidence', size_bytes: 8, state: 'active' as const };
+    expect(() => encodeSseEvent({ type: 'log', cursor: cursorA, entry: { ...entry, documents: [citation, citation] } }))
+      .toThrow('unique');
+    expect(() => encodeSseEvent({
+      type: 'log', cursor: cursorA, entry: { ...entry, documents: Array.from({ length: 101 }, (_, index) => ({ ...citation, id: `doc_${index}` })) },
+    })).toThrow('1-100');
+  });
+
+  it('round-trips a maximum message with maximum recipient and citation metadata', () => {
+    const recipients = Array.from({ length: 100 }, (_, index) =>
+      `30000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`);
+    const documents = Array.from({ length: 100 }, (_, index) => ({
+      id: `${index.toString().padStart(3, '0')}${'x'.repeat(125)}`,
+      title: '😀'.repeat(120),
+      size_bytes: 10 * 1024 * 1024,
+      state: 'superseded' as const,
+    }));
+    const event = {
+      type: 'log' as const,
+      cursor: cursorA,
+      entry: {
+        id: cursorA.id,
+        cube_id: '10000000-0000-4000-8000-000000000001',
+        drone_id: '20000000-0000-4000-8000-000000000001',
+        message: '\0'.repeat(65_536),
+        visibility: 'broadcast' as const,
+        created_at: cursorA.created_at,
+        drone_label: '\0'.repeat(120),
+        role_name: '\0'.repeat(120),
+        recipient_drone_ids: recipients,
+        documents,
+      },
+    };
+    const encoded = encodeSseEvent(event);
+    const frame = encoded.split('\n\n')[0]!;
+    const data = frame.split('\ndata: ')[1]!;
+    expect(new TextEncoder().encode(encoded).byteLength).toBeLessThan(SSE_LIMITS.total_bytes);
+    expect(new TextEncoder().encode(frame).byteLength).toBe(SSE_LIMITS.frame_bytes);
+    expect(new TextEncoder().encode(data).byteLength).toBe(SSE_LIMITS.data_bytes);
+    expect(decodeSseFrames(encoded)).toEqual([event]);
   });
 
   it('never emits resume ids for ack or claim events', () => {
@@ -90,7 +147,7 @@ describe('SSE wire codec', () => {
     const event = {
       type: 'error' as const,
       error: {
-        protocol_version: '9' as const,
+        protocol_version: '10' as const,
         error: { code: ErrorCode.CUBE_DELETED, message: 'This cube was deleted.' },
       },
     };

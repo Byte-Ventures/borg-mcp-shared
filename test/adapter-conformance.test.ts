@@ -23,6 +23,10 @@ import {
   decodeResolveRepositoryCubeRequestEnvelope,
   decodeReassignDroneRequestEnvelope,
   decodeRecordDecisionRequest,
+  decodeGetDocumentRequestEnvelope,
+  decodeListDocumentsRequestEnvelope,
+  decodePutDocumentRequestEnvelope,
+  decodeRemoveDocumentRequestEnvelope,
   parseRoleSections,
   ROLE_RATIONALE_SECTION_BODY_MAX_BYTES,
   encodeSseEvent,
@@ -47,6 +51,7 @@ import {
   type ResolvedRepositoryCube,
   type ReadLogClaim,
   type DroneRuntimeMetadata,
+  type CubeDocument,
 } from '../src/index.js';
 
 function same(left: unknown, right: unknown): boolean {
@@ -54,6 +59,22 @@ function same(left: unknown, right: unknown): boolean {
 }
 
 type Fault =
+  | 'allow-read-document-put'
+  | 'allow-peer-document-remove'
+  | 'skip-document-budget'
+  | 'allow-document-branch'
+  | 'allow-unknown-document-citation'
+  | 'deny-author-document-remove'
+  | 'deny-read-document-list'
+  | 'allow-foreign-document-get'
+  | 'leak-foreign-document-diagnostic'
+  | 'allow-foreign-document-list'
+  | 'leak-foreign-document-list'
+  | 'allow-foreign-document-remove'
+  | 'allow-foreign-document-citation'
+  | 'allow-read-document-remove'
+  | 'deny-read-removed-document-get'
+  | 'mutate-over-budget-successor'
   | 'cross-cube-leak'
   | 'skip-message-class-configuration'
   | 'ignore-stream-cursor'
@@ -149,12 +170,14 @@ interface CubeState {
     visibility: 'broadcast' | 'direct';
     recipientDroneIds: string[];
     class: string | null;
+    documents: string[];
   }>;
   claims: ReadLogClaim[];
   decisions: Decision[];
   expired: Set<string>;
   roles: Map<string, RoleState>;
   drones: Map<string, DroneState>;
+  documents: Map<string, { document: CubeDocument; authorPrincipalId: string }>;
 }
 
 interface RoleState {
@@ -224,7 +247,7 @@ class AsyncQueue implements AsyncIterable<string> {
 class MemoryConformanceEnvironment implements ConformanceEnvironment {
   private readonly limits = {
     max_request_bytes: 65_536,
-    max_log_message_bytes: 10_240,
+    max_log_message_bytes: 4096,
     max_read_page_size: 500,
     max_replay_page_size: 200,
   } as const;
@@ -314,7 +337,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         directive: '', taxonomyMarker: null,
         messageClassRouting: new Map(),
         entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
-        roles: new Map(), drones: new Map(),
+        roles: new Map(), drones: new Map(), documents: new Map(),
       });
       void name;
       return handle;
@@ -664,7 +687,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '9',
+                protocol_version: '10',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -684,7 +707,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '9',
+                protocol_version: '10',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -702,7 +725,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             directive: '', taxonomyMarker: null,
             messageClassRouting: new Map(),
             entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
-            roles: new Map(), drones: new Map(),
+            roles: new Map(), drones: new Map(), documents: new Map(),
           });
         }
         return {
@@ -747,6 +770,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             }],
           ]),
           drones: new Map(),
+          documents: new Map(),
         });
         principal.grants.set(handle.id, 'manage');
       }
@@ -786,7 +810,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '9',
+              protocol_version: '10',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -856,6 +880,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           }],
         ]),
         drones: new Map(),
+        documents: new Map(),
       });
       if (this.fault === 'grant-created-cube-to-wrong-client') {
         const other = [...this.principals.values()].find((principal) => principal !== auth.principal);
@@ -946,6 +971,150 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           deleted: true,
         }),
       };
+    },
+    putDocument: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const cubeAccess = access.principal.grants.get(cubeHandle.id);
+      if (cubeAccess !== 'write' && cubeAccess !== 'manage' && this.fault !== 'allow-read-document-put') {
+        return this.error(403, ErrorCode.ACCESS_DENIED);
+      }
+      let envelope;
+      try {
+        envelope = decodePutDocumentRequestEnvelope(request);
+      } catch (error) {
+        if (error instanceof ProtocolContractError) return this.error(400, error.code);
+        throw error;
+      }
+      const cube = this.cube(cubeHandle.id);
+      const contentBytes = utf8ByteLength(envelope.payload.content);
+      const activeBytes = [...cube.documents.values()]
+        .filter(({ document }) => document.state !== 'removed')
+        .reduce((total, { document }) => total + document.size_bytes, 0);
+      if ((contentBytes > 65_536 || activeBytes + contentBytes > 524_288) && this.fault !== 'skip-document-budget') {
+        if (this.fault === 'mutate-over-budget-successor' && envelope.payload.supersedes) {
+          const previous = cube.documents.get(envelope.payload.supersedes);
+          if (previous) previous.document = {
+            ...previous.document,
+            state: 'superseded',
+            superseded_by: this.uuid(),
+          };
+        }
+        return this.error(413, ErrorCode.DOCUMENT_BUDGET_EXCEEDED, envelope.request_id);
+      }
+      const id = this.uuid();
+      const now = '2026-01-01T00:00:00.000Z';
+      const actor = { drone_id: null, label: null, role: null };
+      const document: CubeDocument = {
+        id,
+        title: envelope.payload.title,
+        content_type: envelope.payload.content_type,
+        content: envelope.payload.content,
+        size_bytes: contentBytes,
+        state: 'active',
+        supersedes: envelope.payload.supersedes ?? null,
+        superseded_by: null,
+        author: actor,
+        created_at: now,
+        removed_by: null,
+        removed_at: null,
+      };
+      if (document.supersedes !== null) {
+        const previous = cube.documents.get(document.supersedes);
+        if ((!previous || previous.document.state !== 'active' || previous.document.superseded_by !== null) &&
+            this.fault !== 'allow-document-branch') {
+          return this.error(409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, envelope.request_id);
+        }
+        if (!previous) return this.error(409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, envelope.request_id);
+        previous.document = { ...previous.document, state: 'superseded', superseded_by: id };
+        for (const entry of cube.entries) {
+          entry.documents = entry.documents?.map((citation) => citation.id === previous.document.id
+            ? { ...citation, state: 'superseded' }
+            : citation);
+        }
+      }
+      cube.documents.set(id, { document, authorPrincipalId: access.principal.handle.id });
+      return { status: 201, body: createProtocolEnvelope(envelope.request_id, { document }) };
+    },
+    getDocument: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeGetDocumentRequestEnvelope(request);
+      const localStored = this.cube(cubeHandle.id).documents.get(envelope.payload.id);
+      if (!localStored && this.fault === 'leak-foreign-document-diagnostic') {
+        const foreign = this.globalDocument(envelope.payload.id)?.stored.document;
+        if (foreign) return this.error(
+          404,
+          ErrorCode.DOCUMENT_NOT_FOUND,
+          envelope.request_id,
+          `Hidden document: ${foreign.title}; ${foreign.content}`,
+        );
+      }
+      const stored = localStored ??
+        (this.fault === 'allow-foreign-document-get'
+          ? this.globalDocument(envelope.payload.id)?.stored
+          : undefined);
+      if (!stored) return this.error(404, ErrorCode.DOCUMENT_NOT_FOUND, envelope.request_id);
+      if (this.fault === 'deny-read-removed-document-get' && stored.document.state === 'removed' &&
+          access.principal.grants.get(cubeHandle.id) === 'read') {
+        return this.error(403, ErrorCode.ACCESS_DENIED, envelope.request_id);
+      }
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, { document: stored.document }) };
+    },
+    listDocuments: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.fault === 'allow-foreign-document-list'
+        ? this.authenticate(credential)
+        : this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      if (this.fault === 'deny-read-document-list' &&
+          access.principal.grants.get(cubeHandle.id) === 'read') {
+        return this.error(403, ErrorCode.ACCESS_DENIED);
+      }
+      const envelope = decodeListDocumentsRequestEnvelope(request);
+      const storedDocuments = this.fault === 'leak-foreign-document-list'
+        ? [...this.cubes.values()].flatMap((cube) => [...cube.documents.values()])
+        : [...this.cube(cubeHandle.id).documents.values()];
+      const documents = storedDocuments
+        .map(({ document }) => document)
+        .filter(({ state }) => state !== 'removed')
+        .map(({ content: _content, ...metadata }) => metadata);
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, { documents }) };
+    },
+    removeDocument: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeRemoveDocumentRequestEnvelope(request);
+      const localStored = this.cube(cubeHandle.id).documents.get(envelope.payload.id);
+      const foreign = this.fault === 'allow-foreign-document-remove'
+        ? this.globalDocument(envelope.payload.id)
+        : undefined;
+      const stored = localStored ?? foreign?.stored;
+      if (!stored) return this.error(404, ErrorCode.DOCUMENT_NOT_FOUND, envelope.request_id);
+      const cubeAccess = access.principal.grants.get(cubeHandle.id);
+      if (this.fault === 'deny-author-document-remove' &&
+          stored.authorPrincipalId === access.principal.handle.id) {
+        return this.error(403, ErrorCode.DOCUMENT_REMOVE_DENIED, envelope.request_id);
+      }
+      if (stored.authorPrincipalId !== access.principal.handle.id && cubeAccess !== 'manage' &&
+          this.fault !== 'allow-read-document-remove' &&
+          this.fault !== 'allow-foreign-document-remove' &&
+          this.fault !== 'allow-peer-document-remove') {
+        return this.error(403, ErrorCode.DOCUMENT_REMOVE_DENIED, envelope.request_id);
+      }
+      const { content: _content, ...metadata } = stored.document;
+      const document = {
+        ...metadata,
+        state: 'removed' as const,
+        removed_by: { drone_id: null, label: null, role: null },
+        removed_at: '2026-01-01T00:01:00.000Z',
+      };
+      stored.document = { ...document, content: stored.document.content };
+      for (const entry of this.cube(cubeHandle.id).entries) {
+        entry.documents = entry.documents?.map((citation) => citation.id === document.id
+          ? { ...citation, state: 'removed' }
+          : citation);
+      }
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, { document }) };
     },
     resolveRepositoryCube: async (
       credential: string | null,
@@ -1113,7 +1282,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '9', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '10', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1151,6 +1320,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
       const cube = this.cube(cubeHandle.id);
+      const messageBytes = utf8ByteLength(envelope.payload.message);
+      if (messageBytes > 4096) return this.error(413, ErrorCode.CONTENT_TOO_LARGE, envelope.request_id);
       const authorId = access.drone?.handle.id ?? access.principal.handle.id;
       const recipients = [...(envelope.payload.recipientDroneIds ?? [])].sort();
       const usesExplicitDelivery = envelope.payload.visibility !== undefined ||
@@ -1167,6 +1338,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         visibility: envelope.payload.visibility ?? 'broadcast',
         recipientDroneIds: resolvedRecipients,
         class: resolvedClass,
+        documents: [...(envelope.payload.documents ?? [])].sort(),
       };
       const postKey = `${authorId}/${envelope.payload.post_id}`;
       const existing = cube.posts.get(postKey);
@@ -1176,12 +1348,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           visibility: existing.visibility,
           recipientDroneIds: existing.recipientDroneIds,
           class: existing.class,
+          documents: existing.documents,
         })) {
           return this.error(409, ErrorCode.POST_ID_CONFLICT, envelope.request_id);
         }
         return {
           status: 201,
-          body: createProtocolEnvelope(envelope.request_id, { entry: existing.entry, deduplicated: true }),
+          body: createProtocolEnvelope(envelope.request_id, {
+            entry: existing.entry,
+            deduplicated: true,
+            ...(messageBytes > 1024 ? { advisory: { code: 'STORE_AS_DOCUMENT', threshold_bytes: 1024 } } : {}),
+          }),
         };
       }
       if (recipients.some((id) => {
@@ -1190,6 +1367,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           (recipient.evicted && this.fault !== 'keep-evicted-drone-routable');
       })) {
         return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      }
+      const cited = resolvedRouting.documents.map((id) => cube.documents.get(id)?.document ??
+        (this.fault === 'allow-foreign-document-citation' ? this.globalDocument(id)?.stored.document : undefined) ??
+        (this.fault === 'allow-unknown-document-citation' ? {
+          id, title: 'Unknown', size_bytes: 0, state: 'active' as const,
+        } : undefined));
+      if (cited.some((document) => document === undefined)) {
+        return this.error(404, ErrorCode.DOCUMENT_NOT_FOUND, envelope.request_id);
       }
       const entry: EnrichedStreamEntry = {
         id: this.uuid(),
@@ -1201,6 +1386,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
         recipient_drone_ids: resolvedRecipients,
+        ...(cited.length === 0 ? {} : {
+          documents: cited.map((document) => ({
+            id: document!.id,
+            title: document!.title,
+            size_bytes: document!.size_bytes,
+            state: document!.state,
+          })),
+        }),
       };
       cube.entries.push(entry);
       cube.posts.set(postKey, { entry, ...resolvedRouting });
@@ -1212,7 +1405,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       return {
         status: 201,
-        body: createProtocolEnvelope(envelope.request_id, { entry, deduplicated: false }),
+        body: createProtocolEnvelope(envelope.request_id, {
+          entry,
+          deduplicated: false,
+          ...(messageBytes > 1024 ? { advisory: { code: 'STORE_AS_DOCUMENT', threshold_bytes: 1024 } } : {}),
+        }),
       };
     },
     appendRaw: async (
@@ -1754,6 +1951,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return value;
   }
 
+  private globalDocument(id: string): {
+    cube: CubeState;
+    stored: { document: CubeDocument; authorPrincipalId: string };
+  } | undefined {
+    for (const cube of this.cubes.values()) {
+      const stored = cube.documents.get(id);
+      if (stored) return { cube, stored };
+    }
+    return undefined;
+  }
+
   private drone(id: string): DroneState {
     for (const cube of this.cubes.values()) {
       const drone = cube.drones.get(id);
@@ -1814,7 +2022,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '9',
+        protocol_version: '10',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message },
       },
@@ -1874,6 +2082,22 @@ describe('executable adapter conformance', () => {
   });
 
   it.each([
+    ['allowed read-only document put', 'allow-read-document-put', 'documents.lifecycle'],
+    ['allowed peer document removal', 'allow-peer-document-remove', 'documents.lifecycle'],
+    ['skipped document budgets', 'skip-document-budget', 'documents.lifecycle'],
+    ['allowed branching document supersession', 'allow-document-branch', 'documents.lifecycle'],
+    ['allowed an unknown document citation', 'allow-unknown-document-citation', 'documents.lifecycle'],
+    ['denied author document removal', 'deny-author-document-remove', 'documents.lifecycle'],
+    ['denied read-only document listing', 'deny-read-document-list', 'documents.lifecycle'],
+    ['allowed foreign document get', 'allow-foreign-document-get', 'documents.lifecycle'],
+    ['leaked foreign document diagnostic', 'leak-foreign-document-diagnostic', 'documents.lifecycle'],
+    ['allowed foreign document list', 'allow-foreign-document-list', 'documents.lifecycle'],
+    ['leaked foreign document in list', 'leak-foreign-document-list', 'documents.lifecycle'],
+    ['allowed foreign document removal', 'allow-foreign-document-remove', 'documents.lifecycle'],
+    ['allowed foreign document citation', 'allow-foreign-document-citation', 'documents.lifecycle'],
+    ['allowed read-only document removal', 'allow-read-document-remove', 'documents.lifecycle'],
+    ['denied read-only removed document get', 'deny-read-removed-document-get', 'documents.lifecycle'],
+    ['mutated predecessor before budget refusal', 'mutate-over-budget-successor', 'documents.lifecycle'],
     ['cross-cube leak', 'cross-cube-leak', 'security.cross-cube-isolation'],
     ['ignored replay cursor', 'ignore-stream-cursor', 'sse.replay-live-transition'],
     ['dropped replay-transition write', 'drop-transition-write', 'sse.replay-live-transition'],

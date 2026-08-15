@@ -148,7 +148,7 @@ describe('public conformance vectors', () => {
     }
   });
 
-  it('pins the complete protocol-v9 cube-template acceptance set', () => {
+  it('pins the complete protocol-v10 cube-template acceptance set', () => {
     for (const vector of CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE) {
       const request = {
         retry_key: '00000000-0000-4000-8000-000000000120',
