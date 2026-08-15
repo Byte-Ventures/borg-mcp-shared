@@ -7,6 +7,7 @@ import {
   decodeLogCursor,
   decodeOpaqueIdentifier,
   decodeUuid,
+  PROTOCOL_LIMIT_CEILINGS,
   utf8ByteLength,
   type LogCursor,
   type ProtocolErrorEnvelope,
@@ -14,8 +15,8 @@ import {
 
 export const SSE_LIMITS = {
   total_bytes: 1024 * 1024,
-  frame_bytes: 65_536,
-  data_bytes: 65_536,
+  frame_bytes: 256 * 1024,
+  data_bytes: 256 * 1024,
   frame_count: 1000,
   unknown_data_bytes: 4096,
 } as const;
@@ -122,7 +123,11 @@ export function decodeEnrichedStreamEntry(value: unknown): EnrichedStreamEntry {
     id: decodeUuid(entry.id, ['entry', 'id']),
     cube_id: decodeUuid(entry.cube_id, ['entry', 'cube_id']),
     drone_id: entry.drone_id === null ? null : decodeUuid(entry.drone_id, ['entry', 'drone_id']),
-    message: boundedString(entry.message, 'message', SSE_LIMITS.data_bytes),
+    message: boundedString(
+      entry.message,
+      'message',
+      PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes,
+    ),
     visibility: entry.visibility,
     created_at: decodeCanonicalTimestamp(entry.created_at, ['entry', 'created_at']),
     drone_label: nullableString(entry.drone_label, 'drone_label', 120),

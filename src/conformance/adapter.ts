@@ -1338,6 +1338,7 @@ export async function runAdapterConformance(
   });
 
   await record('documents.lifecycle', async () => {
+    const outcomes = new Map<string, string>();
     const documentPrincipal = await environment.admin.createPrincipal('document-lifecycle');
     const documentCube = await environment.admin.createCube('document-lifecycle');
     await environment.admin.grantCube(documentPrincipal, documentCube, 'write');
@@ -1361,11 +1362,13 @@ export async function runAdapterConformance(
       documentCube,
       createProtocolEnvelope('document-bad-type', { title: 'Binary', content_type: 'application/octet-stream', content: 'x' }),
     ), 400, ErrorCode.DOCUMENT_CONTENT_TYPE_UNSUPPORTED, 'Unsupported document type');
+    outcomes.set('unsupported-content-type', ErrorCode.DOCUMENT_CONTENT_TYPE_UNSUPPORTED);
     expectError(await environment.operations.putDocument(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-bad-title', { title: 'x'.repeat(121), content_type: 'text/plain', content: 'x' }),
     ), 400, ErrorCode.INVALID_INPUT, 'Oversized document title');
+    outcomes.set('oversize-title', ErrorCode.INVALID_INPUT);
     expectError(await environment.operations.putDocument(
       documentCredential,
       documentCube,
@@ -1396,6 +1399,7 @@ export async function runAdapterConformance(
       documentCube,
       createProtocolEnvelope('document-unknown-supersedes', { title: 'Unknown', content_type: 'text/plain', content: 'x', supersedes: 'unknown_full_id' }),
     ), 409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, 'Unknown document supersession');
+    outcomes.set('foreign-supersedes', ErrorCode.DOCUMENT_SUPERSESSION_INVALID);
     const put = await environment.operations.putDocument(
       documentCredential,
       documentCube,
@@ -1407,6 +1411,7 @@ export async function runAdapterConformance(
     );
     expectStatus(put, 201, 'Document put');
     const created = decodePutDocumentResultEnvelope(put.body).payload.document;
+    outcomes.set('markdown', 'created');
     invariant(created.size_bytes === utf8ByteLength(created.content), 'Document size is not its UTF-8 byte size.');
 
     const successorResponse = await environment.operations.putDocument(
@@ -1427,6 +1432,7 @@ export async function runAdapterConformance(
       documentCube,
       createProtocolEnvelope('document-branch', { title: 'Branch', content_type: 'text/plain', content: 'x', supersedes: created.id }),
     ), 409, ErrorCode.DOCUMENT_SUPERSESSION_INVALID, 'Branched document supersession');
+    outcomes.set('branched-supersedes', ErrorCode.DOCUMENT_SUPERSESSION_INVALID);
     expectError(await environment.operations.putDocument(
       credentialA,
       cubeA,
@@ -1456,7 +1462,7 @@ export async function runAdapterConformance(
     ), 409, ErrorCode.POST_ID_CONFLICT, 'Document citation post-id conflict');
 
     const listed = await environment.operations.listDocuments(
-      documentCredential,
+      readerCredential,
       documentCube,
       createProtocolEnvelope('document-list', {}),
     );
@@ -1478,6 +1484,23 @@ export async function runAdapterConformance(
       documentCube,
       createProtocolEnvelope('document-peer-remove', { id: created.id }),
     ), 403, ErrorCode.DOCUMENT_REMOVE_DENIED, 'Peer document remove');
+    outcomes.set('peer-remove', ErrorCode.DOCUMENT_REMOVE_DENIED);
+
+    const authorDocumentResponse = await environment.operations.putDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-author-put', {
+        title: 'Author removable', content_type: 'text/plain', content: 'Author content.',
+      }),
+    );
+    expectStatus(authorDocumentResponse, 201, 'Author document put');
+    outcomes.set('plain', 'created');
+    const authorDocument = decodePutDocumentResultEnvelope(authorDocumentResponse.body).payload.document;
+    expectStatus(await environment.operations.removeDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-author-remove', { id: authorDocument.id }),
+    ), 200, 'Author document remove');
 
     const got = await environment.operations.getDocument(
       documentCredential,
@@ -1512,6 +1535,7 @@ export async function runAdapterConformance(
       createProtocolEnvelope('document-get-removed', { id: created.id }),
     )).body).payload.document;
     invariant(retained.state === 'removed' && retained.content === created.content, 'Removed content was not forensically resolvable.');
+    outcomes.set('removed', 'audit-resolvable');
     const entriesBeforeUnknownCitation = (await environment.operations.read(
       documentCredential, documentCube, createProtocolEnvelope('document-read-before-unknown-cite', { cursor: null, limit: 100 }),
     ));
@@ -1549,20 +1573,12 @@ export async function runAdapterConformance(
       documentCredential, documentCube, createProtocolEnvelope('document-final-read', { cursor: null, limit: 100 }),
     )).body).payload.entries.length;
     invariant(finalCount === beforeCount + 1, 'Rejected document or log operations partially mutated state.');
-    const exercisedFixtures = new Set([
-      'markdown',
-      'plain',
-      'unsupported-content-type',
-      'oversize-title',
-      'foreign-supersedes',
-      'branched-supersedes',
-      'removed',
-      'peer-remove',
-    ]);
-    invariant(
-      DOCUMENT_CONFORMANCE.every(({ fixture }) => exercisedFixtures.has(fixture)),
-      'A finalized document conformance vector is not executable by the adapter runner.',
-    );
+    for (const vector of DOCUMENT_CONFORMANCE) {
+      invariant(
+        outcomes.get(vector.fixture) === vector.expected,
+        `${vector.name} produced ${outcomes.get(vector.fixture) ?? 'no outcome'}; expected ${vector.expected}.`,
+      );
+    }
     return { refusals: true, put: 201, cited: true, active_listed: true, removed_hidden: true, audit_resolvable: true };
   });
 

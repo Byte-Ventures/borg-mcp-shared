@@ -87,6 +87,36 @@ describe('SSE wire codec', () => {
     })).toThrow('1-100');
   });
 
+  it('round-trips a maximum message with maximum recipient and citation metadata', () => {
+    const recipients = Array.from({ length: 100 }, (_, index) =>
+      `30000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`);
+    const documents = Array.from({ length: 100 }, (_, index) => ({
+      id: `document_${index}_${'x'.repeat(110)}`,
+      title: '😀'.repeat(120),
+      size_bytes: 65_536,
+      state: index % 2 === 0 ? 'superseded' as const : 'removed' as const,
+    }));
+    const event = {
+      type: 'log' as const,
+      cursor: cursorA,
+      entry: {
+        id: cursorA.id,
+        cube_id: '10000000-0000-4000-8000-000000000001',
+        drone_id: '20000000-0000-4000-8000-000000000001',
+        message: 'x'.repeat(65_536),
+        visibility: 'direct' as const,
+        created_at: cursorA.created_at,
+        drone_label: 'x'.repeat(120),
+        role_name: 'x'.repeat(120),
+        recipient_drone_ids: recipients,
+        documents,
+      },
+    };
+    const encoded = encodeSseEvent(event);
+    expect(new TextEncoder().encode(encoded).byteLength).toBeLessThanOrEqual(256 * 1024);
+    expect(decodeSseFrames(encoded)).toEqual([event]);
+  });
+
   it('never emits resume ids for ack or claim events', () => {
     for (const event of [
       {

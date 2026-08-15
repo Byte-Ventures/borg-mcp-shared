@@ -64,6 +64,8 @@ type Fault =
   | 'skip-document-budget'
   | 'allow-document-branch'
   | 'allow-unknown-document-citation'
+  | 'deny-author-document-remove'
+  | 'deny-read-document-list'
   | 'cross-cube-leak'
   | 'skip-message-class-configuration'
   | 'ignore-stream-cursor'
@@ -1028,6 +1030,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     listDocuments: async (credential: string, cubeHandle: ConformanceCube, request: unknown): Promise<ConformanceHttpResponse> => {
       const access = this.authorize(credential, cubeHandle.id);
       if (access.error) return access.error;
+      if (this.fault === 'deny-read-document-list' &&
+          access.principal.grants.get(cubeHandle.id) === 'read') {
+        return this.error(403, ErrorCode.ACCESS_DENIED);
+      }
       const envelope = decodeListDocumentsRequestEnvelope(request);
       const documents = [...this.cube(cubeHandle.id).documents.values()]
         .map(({ document }) => document)
@@ -1042,6 +1048,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const stored = this.cube(cubeHandle.id).documents.get(envelope.payload.id);
       if (!stored) return this.error(404, ErrorCode.DOCUMENT_NOT_FOUND, envelope.request_id);
       const cubeAccess = access.principal.grants.get(cubeHandle.id);
+      if (this.fault === 'deny-author-document-remove' &&
+          stored.authorPrincipalId === access.principal.handle.id) {
+        return this.error(403, ErrorCode.DOCUMENT_REMOVE_DENIED, envelope.request_id);
+      }
       if (stored.authorPrincipalId !== access.principal.handle.id && cubeAccess !== 'manage' &&
           this.fault !== 'allow-peer-document-remove') {
         return this.error(403, ErrorCode.DOCUMENT_REMOVE_DENIED, envelope.request_id);
@@ -2020,6 +2030,8 @@ describe('executable adapter conformance', () => {
     ['skipped document budgets', 'skip-document-budget', 'documents.lifecycle'],
     ['allowed branching document supersession', 'allow-document-branch', 'documents.lifecycle'],
     ['allowed an unknown document citation', 'allow-unknown-document-citation', 'documents.lifecycle'],
+    ['denied author document removal', 'deny-author-document-remove', 'documents.lifecycle'],
+    ['denied read-only document listing', 'deny-read-document-list', 'documents.lifecycle'],
     ['cross-cube leak', 'cross-cube-leak', 'security.cross-cube-isolation'],
     ['ignored replay cursor', 'ignore-stream-cursor', 'sse.replay-live-transition'],
     ['dropped replay-transition write', 'drop-transition-write', 'sse.replay-live-transition'],
