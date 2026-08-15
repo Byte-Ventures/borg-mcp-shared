@@ -13,10 +13,35 @@ import {
   type ProtocolErrorEnvelope,
 } from './contract.js';
 
+const MAX_UUID = '00000000-0000-4000-8000-000000000000';
+const MAX_TIMESTAMP = '0000-00-00T00:00:00.000Z';
+const MAX_LOG_DATA_BYTES = utf8ByteLength(JSON.stringify({
+  cursor: { created_at: MAX_TIMESTAMP, id: MAX_UUID },
+  entry: {
+    id: MAX_UUID,
+    cube_id: MAX_UUID,
+    drone_id: MAX_UUID,
+    message: '\0'.repeat(PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes),
+    visibility: 'broadcast',
+    created_at: MAX_TIMESTAMP,
+    drone_label: '\0'.repeat(120),
+    role_name: '\0'.repeat(120),
+    recipient_drone_ids: Array.from({ length: 100 }, () => MAX_UUID),
+    documents: Array.from({ length: 100 }, (_, index) => ({
+      id: `${index.toString().padStart(3, '0')}${'x'.repeat(125)}`,
+      title: '😀'.repeat(120),
+      size_bytes: 10 * 1024 * 1024,
+      state: 'superseded',
+    })),
+  },
+}));
+const MAX_LOG_FRAME_BYTES = MAX_LOG_DATA_BYTES +
+  utf8ByteLength(`event: log\nid: ${MAX_UUID}\ndata: `);
+
 export const SSE_LIMITS = {
   total_bytes: 1024 * 1024,
-  frame_bytes: 256 * 1024,
-  data_bytes: 256 * 1024,
+  frame_bytes: MAX_LOG_FRAME_BYTES,
+  data_bytes: MAX_LOG_DATA_BYTES,
   frame_count: 1000,
   unknown_data_bytes: 4096,
 } as const;

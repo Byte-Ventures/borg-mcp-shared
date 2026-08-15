@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ErrorCode,
   ProtocolContractError,
+  SSE_LIMITS,
   compareLogCursor,
   decodeSseFrames,
   encodeSseEvent,
@@ -91,10 +92,10 @@ describe('SSE wire codec', () => {
     const recipients = Array.from({ length: 100 }, (_, index) =>
       `30000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`);
     const documents = Array.from({ length: 100 }, (_, index) => ({
-      id: `document_${index}_${'x'.repeat(110)}`,
+      id: `${index.toString().padStart(3, '0')}${'x'.repeat(125)}`,
       title: '😀'.repeat(120),
-      size_bytes: 65_536,
-      state: index % 2 === 0 ? 'superseded' as const : 'removed' as const,
+      size_bytes: 10 * 1024 * 1024,
+      state: 'superseded' as const,
     }));
     const event = {
       type: 'log' as const,
@@ -103,17 +104,21 @@ describe('SSE wire codec', () => {
         id: cursorA.id,
         cube_id: '10000000-0000-4000-8000-000000000001',
         drone_id: '20000000-0000-4000-8000-000000000001',
-        message: 'x'.repeat(65_536),
-        visibility: 'direct' as const,
+        message: '\0'.repeat(65_536),
+        visibility: 'broadcast' as const,
         created_at: cursorA.created_at,
-        drone_label: 'x'.repeat(120),
-        role_name: 'x'.repeat(120),
+        drone_label: '\0'.repeat(120),
+        role_name: '\0'.repeat(120),
         recipient_drone_ids: recipients,
         documents,
       },
     };
     const encoded = encodeSseEvent(event);
-    expect(new TextEncoder().encode(encoded).byteLength).toBeLessThanOrEqual(256 * 1024);
+    const frame = encoded.split('\n\n')[0]!;
+    const data = frame.split('\ndata: ')[1]!;
+    expect(new TextEncoder().encode(encoded).byteLength).toBeLessThan(SSE_LIMITS.total_bytes);
+    expect(new TextEncoder().encode(frame).byteLength).toBe(SSE_LIMITS.frame_bytes);
+    expect(new TextEncoder().encode(data).byteLength).toBe(SSE_LIMITS.data_bytes);
     expect(decodeSseFrames(encoded)).toEqual([event]);
   });
 
