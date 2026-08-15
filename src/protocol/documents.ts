@@ -68,7 +68,7 @@ function object(value: unknown): Record<string, unknown> {
 
 function exact(value: Record<string, unknown>, allowed: readonly string[], required: readonly string[]): void {
   for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) throw new ProtocolContractError(`Unknown document field "${key}".`);
+    if (!allowed.includes(key)) throw new ProtocolContractError('Unknown document field.');
   }
   for (const key of required) {
     if (!Object.prototype.hasOwnProperty.call(value, key)) {
@@ -168,7 +168,9 @@ export function decodeCubeDocumentMetadata(value: unknown): CubeDocumentMetadata
   exact(input, ['id', 'title', 'size_bytes', 'state', 'content_type', 'supersedes', 'superseded_by', 'author', 'created_at', 'removed_by', 'removed_at'], ['id', 'title', 'size_bytes', 'state', 'content_type', 'supersedes', 'superseded_by', 'author', 'created_at', 'removed_by', 'removed_at']);
   const citation = decodeDocumentCitation({ id: input.id, title: input.title, size_bytes: input.size_bytes, state: input.state });
   const removed = citation.state === 'removed';
-  if (removed !== (input.removed_by !== null && input.removed_at !== null)) {
+  const hasRemovedBy = input.removed_by !== null;
+  const hasRemovedAt = input.removed_at !== null;
+  if (hasRemovedBy !== hasRemovedAt || removed !== hasRemovedBy) {
     throw new ProtocolContractError('Removed document audit fields do not match its state.');
   }
   if (citation.state === 'active' && input.superseded_by !== null) {

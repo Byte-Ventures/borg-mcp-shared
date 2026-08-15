@@ -39,6 +39,7 @@ import {
   type LogCursor,
   type StreamEvent,
   type DroneRuntimeMetadata,
+  type CubeDocument,
 } from '../protocol/index.js';
 import {
   APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
@@ -1352,6 +1353,19 @@ export async function runAdapterConformance(
     const readerCredential = await environment.admin.issueDroneSession(reader);
     const peerCredential = await environment.admin.issueDroneSession(peer);
     const managerCredential = await environment.admin.issueDroneSession(manager);
+    const foreignPrincipal = await environment.admin.createPrincipal('document-foreign');
+    const foreignCube = await environment.admin.createCube('document-foreign');
+    await environment.admin.grantCube(foreignPrincipal, foreignCube, 'write');
+    const foreignCredential = await environment.admin.issueDroneSession(foreignPrincipal);
+    const foreignPut = await environment.operations.putDocument(
+      foreignCredential,
+      foreignCube,
+      createProtocolEnvelope('document-foreign-put', {
+        title: 'Foreign evidence', content_type: 'text/plain', content: 'Foreign immutable content.',
+      }),
+    );
+    expectStatus(foreignPut, 201, 'Foreign document put');
+    const foreignDocument = decodePutDocumentResultEnvelope(foreignPut.body).payload.document;
     expectError(await environment.operations.putDocument(
       readerCredential,
       documentCube,
@@ -1376,24 +1390,40 @@ export async function runAdapterConformance(
     ), 413, ErrorCode.DOCUMENT_BUDGET_EXCEEDED, 'Oversized document');
     const budgetCube = await environment.admin.createCube('document-budget');
     await environment.admin.grantCube(documentPrincipal, budgetCube, 'write');
+    let budgetPredecessor: CubeDocument | undefined;
     for (let index = 0; index < 8; index++) {
-      expectStatus(await environment.operations.putDocument(
+      const response = await environment.operations.putDocument(
         documentCredential,
         budgetCube,
         createProtocolEnvelope(`document-budget-${index}`, {
           title: `Budget ${index}`, content_type: 'text/plain', content: 'x'.repeat(65_536),
         }),
-      ), 201, `Document budget fill ${index}`);
+      );
+      expectStatus(response, 201, `Document budget fill ${index}`);
+      if (index === 0) budgetPredecessor = decodePutDocumentResultEnvelope(response.body).payload.document;
     }
+    invariant(budgetPredecessor !== undefined, 'Budget predecessor was not created.');
     expectError(await environment.operations.putDocument(
       documentCredential,
       budgetCube,
-      createProtocolEnvelope('document-budget-overflow', { title: 'Overflow', content_type: 'text/plain', content: 'x' }),
+      createProtocolEnvelope('document-budget-overflow', {
+        title: 'Overflow', content_type: 'text/plain', content: 'x', supersedes: budgetPredecessor.id,
+      }),
     ), 413, ErrorCode.DOCUMENT_BUDGET_EXCEEDED, 'Active document budget');
     const budgetList = decodeListDocumentsResultEnvelope((await environment.operations.listDocuments(
       documentCredential, budgetCube, createProtocolEnvelope('document-budget-list', {}),
     )).body).payload.documents;
     invariant(budgetList.length === 8, 'Budget refusal partially mutated the document set.');
+    const budgetRetained = decodeGetDocumentResultEnvelope((await environment.operations.getDocument(
+      documentCredential,
+      budgetCube,
+      createProtocolEnvelope('document-budget-get-predecessor', { id: budgetPredecessor.id }),
+    )).body).payload.document;
+    invariant(
+      budgetRetained.state === 'active' && budgetRetained.superseded_by === null &&
+        budgetRetained.content === budgetPredecessor.content,
+      'Budget refusal partially mutated its predecessor.',
+    );
     expectError(await environment.operations.putDocument(
       documentCredential,
       documentCube,
@@ -1413,6 +1443,41 @@ export async function runAdapterConformance(
     const created = decodePutDocumentResultEnvelope(put.body).payload.document;
     outcomes.set('markdown', 'created');
     invariant(created.size_bytes === utf8ByteLength(created.content), 'Document size is not its UTF-8 byte size.');
+    expectError(await environment.operations.getDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-foreign-get', { id: foreignDocument.id }),
+    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document get');
+    expectError(await environment.operations.listDocuments(
+      documentCredential,
+      foreignCube,
+      createProtocolEnvelope('document-foreign-list', {}),
+    ), 404, ErrorCode.NOT_FOUND, 'Foreign document list');
+    expectError(await environment.operations.removeDocument(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-foreign-remove', { id: foreignDocument.id }),
+    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document remove');
+    const entriesBeforeForeignCitation = decodeReadLogResultEnvelope((await environment.operations.read(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-read-before-foreign-cite', { cursor: null, limit: 100 }),
+    )).body).payload.entries.length;
+    expectError(await environment.operations.append(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-foreign-citation', {
+        post_id: '00000000-0000-4000-8000-00000000031f',
+        message: 'Foreign evidence must remain hidden.',
+        documents: [foreignDocument.id],
+      }),
+    ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Foreign document citation');
+    const entriesAfterForeignCitation = decodeReadLogResultEnvelope((await environment.operations.read(
+      documentCredential,
+      documentCube,
+      createProtocolEnvelope('document-read-after-foreign-cite', { cursor: null, limit: 100 }),
+    )).body).payload.entries.length;
+    invariant(entriesAfterForeignCitation === entriesBeforeForeignCitation, 'Denied foreign citation mutated the log.');
 
     const successorResponse = await environment.operations.putDocument(
       documentCredential,
@@ -1474,11 +1539,17 @@ export async function runAdapterConformance(
       'Linear document supersession was not listed by full ids.',
     );
     invariant(!('content' in list[0]), 'Document list exposed immutable content.');
+    invariant(!list.some(({ id }) => id === foreignDocument.id), 'Document list leaked a foreign document.');
     expectStatus(await environment.operations.getDocument(
       readerCredential,
       documentCube,
       createProtocolEnvelope('document-reader-get', { id: created.id }),
     ), 200, 'Read-only document get');
+    expectError(await environment.operations.removeDocument(
+      readerCredential,
+      documentCube,
+      createProtocolEnvelope('document-reader-remove', { id: created.id }),
+    ), 403, ErrorCode.DOCUMENT_REMOVE_DENIED, 'Read-only document remove');
     expectError(await environment.operations.removeDocument(
       peerCredential,
       documentCube,
@@ -1523,18 +1594,31 @@ export async function runAdapterConformance(
       decodeRemoveDocumentResultEnvelope(removed.body).payload.document.state === 'removed',
       'Document removal did not produce audit-retained removed state.',
     );
-    const after = decodeListDocumentsResultEnvelope((await environment.operations.listDocuments(
-      documentCredential,
+    const afterResponse = await environment.operations.listDocuments(
+      readerCredential,
       documentCube,
       createProtocolEnvelope('document-list-after', {}),
-    )).body).payload.documents;
+    );
+    expectStatus(afterResponse, 200, 'Read-only document list after removal');
+    const after = decodeListDocumentsResultEnvelope(afterResponse.body).payload.documents;
     invariant(after.length === 1 && after[0].id === successor.id, 'Removed document remained in active listing.');
-    const retained = decodeGetDocumentResultEnvelope((await environment.operations.getDocument(
-      documentCredential,
+    const retainedResponse = await environment.operations.getDocument(
+      readerCredential,
       documentCube,
       createProtocolEnvelope('document-get-removed', { id: created.id }),
-    )).body).payload.document;
+    );
+    expectStatus(retainedResponse, 200, 'Read-only audit-retained document get');
+    const retained = decodeGetDocumentResultEnvelope(retainedResponse.body).payload.document;
     invariant(retained.state === 'removed' && retained.content === created.content, 'Removed content was not forensically resolvable.');
+    const foreignRetained = decodeGetDocumentResultEnvelope((await environment.operations.getDocument(
+      foreignCredential,
+      foreignCube,
+      createProtocolEnvelope('document-foreign-retained', { id: foreignDocument.id }),
+    )).body).payload.document;
+    invariant(
+      foreignRetained.state === 'active' && foreignRetained.content === foreignDocument.content,
+      'Denied foreign operations leaked mutation into the foreign document.',
+    );
     outcomes.set('removed', 'audit-resolvable');
     const entriesBeforeUnknownCitation = (await environment.operations.read(
       documentCredential, documentCube, createProtocolEnvelope('document-read-before-unknown-cite', { cursor: null, limit: 100 }),

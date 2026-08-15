@@ -12,6 +12,8 @@ import {
   ProtocolContractError,
   createProtocolEnvelope,
   decodeCubeDocument,
+  decodeCubeDocumentMetadata,
+  decodeGetDocumentResult,
   decodeListDocumentsResult,
   decodePutDocumentRequest,
   decodePutDocumentRequestEnvelope,
@@ -88,6 +90,28 @@ describe('cube document contract', () => {
     expect(() => decodePutDocumentResult({ document: { ...removed, content: 'Evidence: €' } })).toThrow('must be active');
     expect(() => decodeRemoveDocumentResult({ document: metadata })).toThrow('must be removed');
     expect(() => decodeListDocumentsResult({ documents: [removed] })).toThrow('delisted');
+    for (const partial of [
+      { ...metadata, removed_by: actor },
+      { ...metadata, removed_at: '2026-08-15T08:01:00.000Z' },
+    ]) {
+      expect(() => decodeCubeDocumentMetadata(partial)).toThrow('audit fields');
+      expect(() => decodeGetDocumentResult({ document: { ...partial, content: 'Evidence: €' } }))
+        .toThrow('audit fields');
+      expect(() => decodeListDocumentsResult({ documents: [partial] })).toThrow('audit fields');
+    }
+  });
+
+  it('does not reflect attacker-controlled unknown field names', () => {
+    const hostileKey = 'attacker-controlled-'.repeat(5_000);
+    let diagnostic = '';
+    try {
+      decodeCubeDocumentMetadata({ ...metadata, [hostileKey]: true });
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProtocolContractError);
+      diagnostic = (error as Error).message;
+    }
+    expect(utf8ByteLength(diagnostic)).toBeLessThanOrEqual(512);
+    expect(diagnostic).not.toContain('attacker-controlled-');
   });
 
   it('exports portable vectors and typed fail-closed error classes', () => {
