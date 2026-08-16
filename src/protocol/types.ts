@@ -168,17 +168,13 @@ export interface ReadLogResponse {
 export interface RoutingEcho {
   class: string | null;
   recipients: string[];
-  fellOpen: boolean;
-  message: string | null;
 }
 
 export interface AppendLogRequest {
   post_id: string;
   message: string;
-  visibility?: LogVisibility;
-  recipientDroneIds?: string[];
+  to: 'broadcast' | string[];
   class?: string;
-  to?: string[];
   documents?: string[];
 }
 

@@ -28,6 +28,10 @@ import {
   decodeAckStatusRequestEnvelope,
   decodeAckStatusResult,
   decodeAckStatusResultEnvelope,
+  decodeEntryQueryRequest,
+  decodeEntryQueryRequestEnvelope,
+  decodeEntryQueryResult,
+  decodeEntryQueryResultEnvelope,
   decodeAckLogRequest,
   decodeAppendLogRequest,
   decodeAppendLogResult,
@@ -86,7 +90,7 @@ import {
 } from '../src/index.js';
 import * as sharedApi from '../src/index.js';
 
-const tagPreflight = { protocol_version: '11' } as const;
+const tagPreflight = { protocol_version: '12' } as const;
 
 describe('package and handshake contract', () => {
   it('keeps the exported identity aligned with package.json', async () => {
@@ -95,7 +99,7 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.14.0');
+    expect(SHARED_PACKAGE_VERSION).toBe('1.0.0');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
@@ -191,7 +195,7 @@ describe('package and handshake contract', () => {
 
   it('emits and decodes a tag-only preflight carrying nothing but the exact tag', () => {
     const emitted = createProtocolTagPreflight();
-    expect(emitted).toEqual({ protocol_version: '11' });
+    expect(emitted).toEqual({ protocol_version: '12' });
     expect(Object.keys(emitted)).toEqual(['protocol_version']);
     expect(decodeProtocolTagPreflight(tagPreflight)).toEqual(tagPreflight);
   });
@@ -254,7 +258,7 @@ describe('package and handshake contract', () => {
       throw new Error('PAYLOAD-DECODER-WAS-CALLED');
     };
     const secretPayload: Record<string, unknown> = { client_credential: marker, [marker]: marker };
-    const staticPreflightMessage = 'This client requires protocol v11. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.';
+    const staticPreflightMessage = 'This client requires protocol v12. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.';
     const boundaries: Array<[string, (protocol_version: unknown) => unknown, string]> = [
       ['tag preflight', (v) => decodeProtocolTagPreflight({ protocol_version: v }), staticPreflightMessage],
       ['generic success envelope', (v) => decodeProtocolEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }, sentinelDecoder), 'Unsupported protocol version.'],
@@ -337,7 +341,7 @@ describe('package and handshake contract', () => {
 
   it('creates a versioned success envelope without accepting an arbitrary version', () => {
     expect(createProtocolEnvelope('req-12345678', { ok: true })).toEqual({
-      protocol_version: '11',
+      protocol_version: '12',
       request_id: 'req-12345678',
       payload: { ok: true },
     });
@@ -355,7 +359,7 @@ describe('package and handshake contract', () => {
   it('decodes canonical errors without accepting secret-bearing fields', () => {
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         request_id: 'req-12345678',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -363,7 +367,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         error: {
           code: 'AUTH_INVALID',
           message: 'Authentication failed.',
@@ -380,7 +384,7 @@ describe('package and handshake contract', () => {
     );
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         error: { code: 'AUTH_INVALID', message: `Credential ${secret} failed.` },
       }).error.message,
     ).toBe('Credential <REDACTED> failed.');
@@ -405,7 +409,7 @@ describe('package and handshake contract', () => {
       `retry_key\\u0009:<REDACTED> cube_id=${publicId}`,
     );
     expect(decodeProtocolErrorEnvelope({
-      protocol_version: '11',
+      protocol_version: '12',
       error: {
         code: 'AUTH_INVALID',
         message: `retry-key\n: ${retryKey}`,
@@ -425,7 +429,7 @@ describe('package and handshake contract', () => {
 
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         request_id: 'valid-id\r\nInjected',
         error: { code: 'AUTH_INVALID', message: 'Authentication failed.' },
       }),
@@ -435,7 +439,7 @@ describe('package and handshake contract', () => {
   it('rejects retired capability-negotiation error fields', () => {
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         error: {
           code: 'AUTH_INVALID',
           message: 'Unsupported.',
@@ -445,7 +449,7 @@ describe('package and handshake contract', () => {
     ).toThrow(ProtocolContractError);
     expect(() =>
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         error: {
           code: 'UNSUPPORTED_PROTOCOL_VERSION',
           message: 'Unsupported.',
@@ -462,28 +466,28 @@ describe('package and handshake contract', () => {
     expect(PROTOCOL_HTTP_CONTRACT.cube_deleted_status).toBe(410);
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         request_id: 'req-12345678',
         error: { code: 'CUBE_DELETED', message: 'This cube was deleted.' },
       }),
     ).toMatchObject({ error: { code: 'CUBE_DELETED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REVOKED', message: 'Session revoked.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REVOKED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         request_id: 'req-12345678',
         error: { code: 'SESSION_REJECTED', message: 'Seat already bound.' },
       }),
     ).toMatchObject({ error: { code: 'SESSION_REJECTED' } });
     expect(
       decodeProtocolErrorEnvelope({
-        protocol_version: '11',
+        protocol_version: '12',
         request_id: 'req-12345678',
         error: { code: 'DRONE_EVICTED', message: 'This seat was evicted.' },
       }),
@@ -1061,7 +1065,7 @@ describe('repository cube association codecs', () => {
     'POST_ID_CONFLICT',
   ] as const)('decodes the stable %s conflict class', (code) => {
     expect(decodeProtocolErrorEnvelope({
-      protocol_version: '11',
+      protocol_version: '12',
       request_id: 'repo-conflict-1',
       error: { code, message: 'Association conflicts with existing state.' },
     }).error.code).toBe(code);
@@ -1091,28 +1095,64 @@ describe('coordination request codecs', () => {
     expect(decodeAppendLogRequest({
       post_id,
       message: 'See evidence.',
+      to: 'broadcast',
       documents: ['doc_full_id', 'doc_other_full_id'],
     })).toEqual({
       post_id,
       message: 'See evidence.',
+      to: 'broadcast',
       documents: ['doc_full_id', 'doc_other_full_id'],
     });
     expect(() => decodeAppendLogRequest({
       post_id,
       message: 'Duplicate.',
+      to: 'broadcast',
       documents: ['doc_full_id', 'doc_full_id'],
     })).toThrow(ProtocolContractError);
     expect(() => decodeAppendLogRequest({ message: 'hello' })).toThrow(ProtocolContractError);
-    expect(() => decodeAppendLogRequest({ post_id: 'not-a-uuid', message: 'hello' })).toThrow(
+    expect(() => decodeAppendLogRequest({ post_id: 'not-a-uuid', message: 'hello', to: 'broadcast' })).toThrow(
       ProtocolContractError,
     );
-    expect(() => decodeAppendLogRequest({ post_id, message: '' })).toThrow(ProtocolContractError);
-    expect(() => decodeAppendLogRequest({ post_id, message: '😀'.repeat(17_000) })).toThrow(
+    expect(() => decodeAppendLogRequest({ post_id, message: '', to: 'broadcast' })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message: '😀'.repeat(17_000), to: 'broadcast' })).toThrow(
       ProtocolContractError,
     );
-    expect(() => decodeAppendLogRequest({ post_id, message: 'hello', credential: 'secret' })).toThrow(
+    expect(() => decodeAppendLogRequest({ post_id, message: 'hello', to: 'broadcast', credential: 'secret' })).toThrow(
       ProtocolContractError,
     );
+  });
+
+  it('requires exactly one explicit audience union branch and rejects retired routing fields', () => {
+    const post_id = '00000000-0000-4000-8000-000000000001';
+    const message = 'START NOW exact slice\nto:[Builder]';
+    expect(() => decodeAppendLogRequest({ post_id, message })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: null })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: [] })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: 'all' })).toThrow(ProtocolContractError);
+    expect(decodeAppendLogRequest({ post_id, message, to: ['Builder'] })).toEqual({
+      post_id,
+      message,
+      to: ['Builder'],
+    });
+    expect(decodeAppendLogRequest({ post_id, message, to: 'broadcast' })).toEqual({
+      post_id,
+      message,
+      to: 'broadcast',
+    });
+    expect(() => decodeAppendLogRequest({ post_id, message, to: 'broadcast', visibility: 'broadcast' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({
+      post_id,
+      message,
+      to: 'broadcast',
+      recipientDroneIds: ['00000000-0000-4000-8000-000000000002'],
+    })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: [' Builder'] }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: ['Builder', 'Builder'] }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: ['Builder\nReviewer'] }))
+      .toThrow(ProtocolContractError);
   });
 
   it('decodes and validates the optional append-log routing response', () => {
@@ -1122,17 +1162,15 @@ describe('coordination request codecs', () => {
       routing: {
         class: 'review',
         recipients: ['one-of-one-reviewer'],
-        fellOpen: false,
-        message: 'Routing applied.',
       },
       unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer' }],
     } satisfies AppendLogResponse;
     expect(decodeAppendLogResult(payload)).toEqual(payload);
     expect(decodeAppendLogResultEnvelope({
-      protocol_version: '11',
+      protocol_version: '12',
       request_id: 'append-log-1',
       payload,
-    })).toEqual({ protocol_version: '11', request_id: 'append-log-1', payload });
+    })).toEqual({ protocol_version: '12', request_id: 'append-log-1', payload });
   });
 
   it('requires a boolean append-log deduplication result', () => {
@@ -1147,6 +1185,7 @@ describe('coordination request codecs', () => {
     expect(decodeAppendLogRequest({
       post_id: '50000000-0000-4000-8000-000000000001',
       message: 'x'.repeat(4097),
+      to: 'broadcast',
     }).message).toHaveLength(4097);
     expect(decodeAppendLogResult({
       entry: appendLogEntry,
@@ -1164,8 +1203,6 @@ describe('coordination request codecs', () => {
     const routing = {
       class: null,
       recipients: [],
-      fellOpen: false,
-      message: null,
     };
     const unknownFieldClasses = [
       { entry: appendLogEntry, deduplicated: false, routing, unknownTopLevel: true },
@@ -1188,14 +1225,12 @@ describe('coordination request codecs', () => {
     const routing = {
       class: 'review',
       recipients: ['one-of-one-reviewer'],
-      fellOpen: false,
-      message: 'Routing applied.',
     };
     const malformed = [
       { ...routing, class: 'x'.repeat(65) },
       { ...routing, recipients: Array.from({ length: 101 }, () => 'reviewer') },
       { ...routing, recipients: ['x'.repeat(121)] },
-      { ...routing, message: 'x'.repeat(513) },
+      { ...routing, fellOpen: false },
     ];
     for (const invalidRouting of malformed) {
       expect(() =>
@@ -1261,6 +1296,44 @@ describe('coordination request codecs', () => {
       .toEqual(result);
     expect(decodeAckStatusResult(result).recipients[0]?.acknowledged_at).toBeNull();
     expect(decodeAckStatusResult(result).claims).toHaveLength(1);
+  });
+
+  it('decodes full and short entry queries without cursor state', () => {
+    const fullId = '10000000-0000-4000-8000-000000000001';
+    const entry = {
+      id: fullId,
+      cube_id: '20000000-0000-4000-8000-000000000001',
+      drone_id: null,
+      message: 'START NOW exact slice',
+      visibility: 'direct' as const,
+      created_at: '2026-08-16T18:00:00.000Z',
+      drone_label: null,
+      role_name: null,
+      recipient_drone_ids: ['30000000-0000-4000-8000-000000000001'],
+    };
+    expect(decodeEntryQueryRequest({ entry_id: fullId.toUpperCase() })).toEqual({ entry_id: fullId });
+    expect(decodeEntryQueryRequest({ entry_id: 'ABCDEF12' })).toEqual({ entry_id: 'abcdef12' });
+    expect(decodeEntryQueryRequestEnvelope(
+      createProtocolEnvelope('entry-query-1', { entry_id: 'abcdef12' }),
+    ).payload).toEqual({ entry_id: 'abcdef12' });
+    expect(decodeEntryQueryResult({ entry })).toEqual({ entry });
+    expect(decodeEntryQueryResultEnvelope(
+      createProtocolEnvelope('entry-query-1', { entry }),
+    ).payload).toEqual({ entry });
+  });
+
+  it('rejects malformed or ambiguous entry-query wire shapes', () => {
+    const entry_id = '10000000-0000-4000-8000-000000000001';
+    for (const request of [
+      {},
+      { entry_id: 'abcdef1' },
+      { entry_id: 'abcdefghi' },
+      { entry_id, cursor: null },
+    ]) {
+      expect(() => decodeEntryQueryRequest(request)).toThrow(ProtocolContractError);
+    }
+    expect(() => decodeEntryQueryResult({ entry: appendLogEntry, cursor: null }))
+      .toThrow(ProtocolContractError);
   });
 
   it('rejects malformed acknowledgement-status contracts', () => {
@@ -1594,12 +1667,12 @@ describe('clean-slate attach wire types', () => {
 
   it('decodes attach response envelope with correct protocol version', () => {
     const envelope = {
-      protocol_version: '11',
+      protocol_version: '12',
       request_id: 'test-request-id-123',
       payload: validAttachResponse,
     };
     const decoded = decodeAttachResponseEnvelope(envelope);
-    expect(decoded.protocol_version).toBe('11');
+    expect(decoded.protocol_version).toBe('12');
     expect(decoded.payload.result).toBe('created');
   });
 
@@ -1634,7 +1707,7 @@ describe('clean-slate attach wire types', () => {
 
   it('creates and decodes a valid attach request envelope round-trip', () => {
     const envelope = createAttachRequestEnvelope('test-req-001', validAttachRequest);
-    expect(envelope.protocol_version).toBe('11');
+    expect(envelope.protocol_version).toBe('12');
     expect(envelope.request_id).toBe('test-req-001');
     expect(envelope.payload.cube_id).toBe(validAttachRequest.cube_id);
 
@@ -1645,7 +1718,7 @@ describe('clean-slate attach wire types', () => {
 
   it('decodes attach request envelope from raw JSON', () => {
     const raw = {
-      protocol_version: '11',
+      protocol_version: '12',
       request_id: 'test-req-002',
       payload: validAttachRequest,
     };

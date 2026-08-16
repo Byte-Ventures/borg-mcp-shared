@@ -48,7 +48,7 @@ Existing cubes are snapshots with local ownership, not replicas. They do not aut
 
 Use the existing focused controls; do not add a second template lifecycle mechanism:
 
-- `test/templates.test.ts` pins the built-in set, expected software-development roles and flags, host-neutral presentation copy, authority/scope language, role-size budgets, Builder minimum-sufficient-change ordering, taxonomy routing, generated/source equality, and no-clobber resolution.
+- `test/templates.test.ts` pins the built-in set, expected software-development roles and flags, host-neutral presentation copy, authority/scope language, role-size budgets, Builder minimum-sufficient-change ordering, classification-only taxonomy, explicit log addressing, generated/source equality, and no-clobber resolution.
 - `test/role-section.test.ts` pins plain-label parsing, byte-identical parse/serialize for real template roles, and single-section replacement/insertion/deletion without clobbering unrelated text.
 - `test/packed-artifact.test.ts` installs the packed package and verifies the public named-template creation contract and shipped role text from the consumer surface.
 - `CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE` pins the closed accepted template-name set and invalid-name rejection. Stateful create vectors pin template identity to retry behavior.

@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.14.0' as const;
+export const SHARED_PACKAGE_VERSION = '1.0.0' as const;
 /** Maximum UTF-8 payload for each newly recorded decision text field. */
 export const DECISION_TEXT_MAX_BYTES = 512 as const;
 /** Maximum UTF-8 size of role detailed-description text and any returned section slice. */
@@ -590,7 +590,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'This client requires protocol v11. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
+      'This client requires protocol v12. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -1007,38 +1007,32 @@ export function decodeAppendLogRequest(value: unknown): import('./types.js').App
   const input = record(value);
   exactKeys(
     input,
-    ['post_id', 'message', 'visibility', 'recipientDroneIds', 'class', 'to', 'documents'],
-    ['post_id', 'message'],
+    ['post_id', 'message', 'to', 'class', 'documents'],
+    ['post_id', 'message', 'to'],
   );
   const output: import('./types.js').AppendLogRequest = {
     post_id: decodeUuid(input.post_id, ['post_id']),
     message: boundedString(input.message, 1, PROTOCOL_LIMIT_CEILINGS.max_log_message_bytes, ['message']),
+    to: input.to === 'broadcast' ? 'broadcast' : decodeRecipientSelectors(input.to),
   };
-  if (input.visibility !== undefined) {
-    if (input.visibility !== 'broadcast' && input.visibility !== 'direct') {
-      fail('Invalid log visibility.', ['visibility']);
-    }
-    output.visibility = input.visibility;
-  }
-  if (input.recipientDroneIds !== undefined) {
-    if (!Array.isArray(input.recipientDroneIds) || input.recipientDroneIds.length === 0 || input.recipientDroneIds.length > 100) {
-      fail('Expected recipientDroneIds to contain 1-100 UUIDs.', ['recipientDroneIds']);
-    }
-    output.recipientDroneIds = input.recipientDroneIds.map((id, index) =>
-      decodeUuid(id, ['recipientDroneIds', index])
-    );
-  }
   if (input.class !== undefined) {
     output.class = boundedString(input.class, 1, 64, ['class']);
-  }
-  if (input.to !== undefined) {
-    output.to = decodeStringArray(input.to, 'to', 100, 120);
   }
   if (input.documents !== undefined) {
     output.documents = decodeStringArray(input.documents, 'documents', 100, 128)
       .map((id, index) => decodeOpaqueIdentifier(id, ['documents', index]));
   }
   return output;
+}
+
+function decodeRecipientSelectors(value: unknown): string[] {
+  const selectors = decodeStringArray(value, 'to', 100, 120);
+  for (const [index, selector] of selectors.entries()) {
+    if (selector !== selector.trim() || /[\u0000-\u001f\u007f-\u009f]/.test(selector)) {
+      fail('Recipient selectors must be trimmed and control-free.', ['to', index]);
+    }
+  }
+  return selectors;
 }
 
 function decodeStringArray(value: unknown, field: string, maxItems: number, maxLength: number): string[] {

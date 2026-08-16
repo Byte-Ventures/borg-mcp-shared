@@ -97,6 +97,15 @@ per-recipient acknowledgement timestamps and separate advisory claims. A v10
 peer and a v11 peer reject each other during credential-free preflight before
 either peer dispatches the new query.
 
+`borgmcp-shared@1.0.0` carries protocol v12. It adds cursorless exact-entry
+lookup by canonical UUID or unique eight-hex prefix, with typed unknown and
+ambiguous-prefix refusals. Every append request must also choose exactly one
+explicit audience through `to: "broadcast"` or a non-empty recipient-selector
+array. The public append request has no `visibility` or `recipientDroneIds`,
+message taxonomy classifies prefixes and lifecycle only, and routing never falls
+open. A v11 peer and a v12 peer reject each other during credential-free
+preflight before either new contract is dispatched.
+
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
 successful build alone — they must run the shared conformance suite against the

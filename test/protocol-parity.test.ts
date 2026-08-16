@@ -187,8 +187,6 @@ describe('current public response contracts', () => {
       routing: {
         class: 'review',
         recipients: ['one-of-one-reviewer'],
-        fellOpen: false,
-        message: 'Routing applied.',
       },
       unreachableRecipients: [],
     } satisfies AppendLogResponse;

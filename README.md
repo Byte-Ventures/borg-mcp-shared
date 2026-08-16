@@ -112,9 +112,10 @@ protocol preflight uses its exact tag-only shape; `204` liveness and
 acknowledgement responses are bodyless. Payload codecs are exported separately
 so adapters can validate the envelope first and then validate the
 operation-specific payload without accepting ambiguous fields. Append-log
-requests require a canonical UUID `post_id`. Identity is scoped by authenticated
-author: an exact retry must preserve the message and fully resolved visibility,
-recipient set, and class routing, then returns the same entry with
+requests require a canonical UUID `post_id` and an explicit `to` audience of
+scalar `"broadcast"` or a non-empty recipient-selector array. Identity is scoped
+by authenticated author: an exact retry must preserve the message and fully
+resolved visibility and recipient set, then returns the same entry with
 `deduplicated: true`. Reusing an author's `post_id` with a changed tuple returns
 `POST_ID_CONFLICT`; another author may independently use the same UUID. Attach responses include the nullable
 `initial_log_cursor` that anchors subsequent log replay.

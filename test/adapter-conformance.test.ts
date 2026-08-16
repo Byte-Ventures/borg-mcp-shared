@@ -8,6 +8,7 @@ import {
   createProtocolTagPreflight,
   decodeAckLogRequest,
   decodeAckStatusRequestEnvelope,
+  decodeEntryQueryRequestEnvelope,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
   encodeInvitationArtifact,
@@ -77,7 +78,6 @@ type Fault =
   | 'deny-read-removed-document-get'
   | 'mutate-over-budget-successor'
   | 'cross-cube-leak'
-  | 'skip-message-class-configuration'
   | 'ignore-stream-cursor'
   | 'drop-transition-write'
   | 'keep-stream-after-revoke'
@@ -133,7 +133,6 @@ type Fault =
   | 'allow-active-role-delete'
   | 'allow-default-role-delete'
   | 'allow-required-role-delete'
-  | 'allow-referenced-role-delete'
   | 'reveal-unknown-role-delete'
   | 'wrong-role-in-use-message'
   | 'skip-evicted-role-retarget'
@@ -149,7 +148,14 @@ type Fault =
   | 'ack-status-collapse-claim'
   | 'ack-status-consume-unread'
   | 'ack-status-unknown-as-missing'
-  | 'ack-status-writes-ack';
+  | 'ack-status-writes-ack'
+  | 'accept-missing-log-addressing'
+  | 'fall-open-log-addressing'
+  | 'entry-query-writes-ack'
+  | 'entry-query-consumes-entry'
+  | 'entry-query-returns-first-ambiguous'
+  | 'entry-query-clears-acks'
+  | 'entry-query-clears-claims';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -168,14 +174,12 @@ interface CubeState {
   template: CubeTemplate | null;
   directive: string;
   taxonomyMarker: string | null;
-  messageClassRouting: Map<string, string[]>;
   entries: EnrichedStreamEntry[];
   posts: Map<string, {
     entry: EnrichedStreamEntry;
     message: string;
     visibility: 'broadcast' | 'direct';
     recipientDroneIds: string[];
-    class: string | null;
     documents: string[];
   }>;
   claims: ReadLogClaim[];
@@ -199,7 +203,6 @@ interface RoleState {
   detailedDescription?: string;
   isDefault?: boolean;
   isMandatory?: boolean;
-  taxonomyReferenced?: boolean;
   templateKind?: 'human_seat' | 'default_worker';
 }
 
@@ -346,7 +349,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cubes.set(handle.id, {
         handle, name: null, workingRepoName: null, repository: null, template: null,
         directive: '', taxonomyMarker: null,
-        messageClassRouting: new Map(),
         entries: [], posts: new Map(), claims: [], acknowledgements: [], decisions: [], expired: new Set(),
         roles: new Map(), drones: new Map(), documents: new Map(),
       });
@@ -381,25 +383,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cube(cube.id).roles.set(handle.id, { handle, ...input });
       return handle;
     },
-    referenceRoleFromTaxonomy: async (
+    replaceLogEntryId: async (
       cube: ConformanceCube,
-      role: ConformanceRole,
+      currentId: string,
+      replacementId: string,
     ): Promise<void> => {
-      const state = this.cube(cube.id).roles.get(role.id);
-      if (!state) throw new Error('Cannot reference a foreign role from taxonomy.');
-      state.taxonomyReferenced = true;
-    },
-    configureMessageClassRouting: async (
-      cube: ConformanceCube,
-      className: string,
-      recipientDroneIds: readonly string[],
-    ): Promise<void> => {
-      if (this.fault === 'skip-message-class-configuration') return;
       const state = this.cube(cube.id);
-      if (recipientDroneIds.some((id) => !state.drones.has(id))) {
-        throw new Error('Cannot route a message class to an unknown drone.');
+      const entry = state.entries.find((candidate) => candidate.id === currentId);
+      if (!entry || state.entries.some((candidate) => candidate.id === replacementId)) {
+        throw new Error('Cannot replace an unknown log entry id or create a duplicate.');
       }
-      state.messageClassRouting.set(className, [...recipientDroneIds].sort());
+      entry.id = replacementId;
     },
     createDrone: async (
       principal: ConformancePrincipal,
@@ -532,6 +526,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         0,
       ),
       activity_claims: [...this.cubes.values()].reduce((count, cube) => count + cube.claims.length, 0),
+      activity_log_entries: [...this.cubes.values()].reduce((count, cube) => count + cube.entries.length, 0),
       cubes: this.cubes.size,
       roles: [...this.cubes.values()].reduce((count, cube) => count + cube.roles.size, 0),
       grants: [...this.principals.values()].reduce((count, principal) => count + principal.grants.size, 0),
@@ -703,7 +698,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '11',
+                protocol_version: '12',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -723,7 +718,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '11',
+                protocol_version: '12',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -739,7 +734,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           this.cubes.set(handle.id, {
             handle, name: null, workingRepoName: null, repository: null, template: null,
             directive: '', taxonomyMarker: null,
-            messageClassRouting: new Map(),
             entries: [], posts: new Map(), claims: [], acknowledgements: [], decisions: [], expired: new Set(),
             roles: new Map(), drones: new Map(), documents: new Map(),
           });
@@ -769,7 +763,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           template: null,
           directive: '',
           taxonomyMarker: null,
-          messageClassRouting: new Map(),
           entries: [],
           posts: new Map(),
           claims: [],
@@ -827,7 +820,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '11',
+              protocol_version: '12',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -880,7 +873,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         template: envelope.payload.template,
         directive: '',
         taxonomyMarker: null,
-        messageClassRouting: new Map(),
         entries: [],
         posts: new Map(),
         claims: [],
@@ -1300,7 +1292,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '11', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '12', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1336,26 +1328,36 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     ): Promise<ConformanceHttpResponse> => {
       const access = this.authorize(credential, cubeHandle.id);
       if (access.error) return access.error;
-      const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
+      let envelope;
+      try {
+        envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
+      } catch (error) {
+        if (this.fault !== 'accept-missing-log-addressing') {
+          if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
+          throw error;
+        }
+        envelope = decodeProtocolEnvelope(request, (payload) => payload as {
+          post_id: string;
+          message: string;
+          to?: 'broadcast' | string[];
+          class?: string;
+          documents?: string[];
+        });
+      }
       const cube = this.cube(cubeHandle.id);
       const messageBytes = utf8ByteLength(envelope.payload.message);
       if (messageBytes > 4096) return this.error(413, ErrorCode.CONTENT_TOO_LARGE, envelope.request_id);
       const authorId = access.drone?.handle.id ?? access.principal.handle.id;
-      const recipients = [...(envelope.payload.recipientDroneIds ?? [])].sort();
-      const usesExplicitDelivery = envelope.payload.visibility !== undefined ||
-        envelope.payload.recipientDroneIds !== undefined;
-      const resolvedClass = usesExplicitDelivery ? null : envelope.payload.class ?? null;
-      if (!usesExplicitDelivery && resolvedClass !== null && !cube.messageClassRouting.has(resolvedClass)) {
-        return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
-      }
-      const resolvedRecipients = usesExplicitDelivery
-        ? recipients
-        : resolvedClass === null ? [] : cube.messageClassRouting.get(resolvedClass) ?? [];
+      const audience = this.fault === 'fall-open-log-addressing' && envelope.payload.class !== undefined
+        ? 'broadcast'
+        : envelope.payload.to ?? 'broadcast';
+      const resolvedRecipients = audience === 'broadcast'
+        ? []
+        : [...audience].sort();
       const resolvedRouting = {
         message: envelope.payload.message,
-        visibility: envelope.payload.visibility ?? 'broadcast',
+        visibility: audience === 'broadcast' ? 'broadcast' as const : 'direct' as const,
         recipientDroneIds: resolvedRecipients,
-        class: resolvedClass,
         documents: [...(envelope.payload.documents ?? [])].sort(),
       };
       const postKey = `${authorId}/${envelope.payload.post_id}`;
@@ -1365,7 +1367,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           message: existing.message,
           visibility: existing.visibility,
           recipientDroneIds: existing.recipientDroneIds,
-          class: existing.class,
           documents: existing.documents,
         })) {
           return this.error(409, ErrorCode.POST_ID_CONFLICT, envelope.request_id);
@@ -1379,7 +1380,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           }),
         };
       }
-      if (recipients.some((id) => {
+      if (resolvedRecipients.some((id) => {
         const recipient = cube.drones.get(id);
         return recipient === undefined ||
           (recipient.evicted && this.fault !== 'keep-evicted-drone-routable');
@@ -1399,7 +1400,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         cube_id: cubeHandle.id,
         drone_id: authorId,
         message: envelope.payload.message,
-        visibility: envelope.payload.visibility ?? 'broadcast',
+        visibility: resolvedRouting.visibility,
         created_at: this.timestamp(),
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
@@ -1451,6 +1452,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           request = createProtocolEnvelope(envelope.request_id, {
             post_id: envelope.payload.post_id,
             message: 'interpreted-input',
+            to: envelope.payload.to,
           });
         }
       }
@@ -1481,6 +1483,40 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           has_more: after.length > entries.length,
           claims: cube.claims,
         }),
+      };
+    },
+    entryQuery: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeEntryQueryRequestEnvelope(request);
+      const cube = this.cube(cubeHandle.id);
+      const matches = envelope.payload.entry_id.length === 36
+        ? cube.entries.filter((entry) => entry.id === envelope.payload.entry_id)
+        : cube.entries.filter((entry) => entry.id.startsWith(envelope.payload.entry_id));
+      if (matches.length === 0) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      if (matches.length > 1 && this.fault !== 'entry-query-returns-first-ambiguous') {
+        return this.error(409, ErrorCode.LOG_ENTRY_PREFIX_AMBIGUOUS, envelope.request_id);
+      }
+      const entry = matches[0];
+      if (this.fault === 'entry-query-clears-acks') cube.acknowledgements = [];
+      if (this.fault === 'entry-query-clears-claims') cube.claims = [];
+      if (this.fault === 'entry-query-writes-ack') {
+        cube.acknowledgements.push({
+          logEntryId: entry.id,
+          droneId: access.principal.handle.id,
+          acknowledgedAt: this.timestamp(),
+        });
+      }
+      if (this.fault === 'entry-query-consumes-entry') {
+        cube.entries = cube.entries.filter((candidate) => candidate.id !== entry.id);
+      }
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, { entry }),
       };
     },
     ack: async (
@@ -1801,9 +1837,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       if ((role.isMandatory || role.isHumanSeat) && this.fault !== 'allow-required-role-delete') {
         return this.error(409, ErrorCode.ROLE_REQUIRED, envelope.request_id);
-      }
-      if (role.taxonomyReferenced && this.fault !== 'allow-referenced-role-delete') {
-        return this.error(409, ErrorCode.ROLE_REFERENCED, envelope.request_id);
       }
       if ([...cube.drones.values()].some(
         (drone) => !drone.evicted && drone.roleId === roleHandle.id,
@@ -2130,7 +2163,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '11',
+        protocol_version: '12',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message },
       },
@@ -2176,17 +2209,6 @@ describe('executable adapter conformance', () => {
     expect(deletion?.error).toContain(
       'Never-authorized post-delete DELETE returned HTTP 410; expected 404',
     );
-  });
-
-  it('rejects a reference adapter without configured message classes', async () => {
-    const report = await runAdapterConformance(
-      new MemoryConformanceEnvironment('skip-message-class-configuration'),
-      fastTimeouts,
-    );
-    expect(report.results).toContainEqual(expect.objectContaining({
-      id: 'log.append-idempotency',
-      ok: false,
-    }));
   });
 
   it.each([
@@ -2260,7 +2282,6 @@ describe('executable adapter conformance', () => {
     ['allowed deletion of an actively assigned role', 'allow-active-role-delete', 'roles.delete-contract'],
     ['allowed deletion of the default role', 'allow-default-role-delete', 'roles.delete-contract'],
     ['allowed deletion of a required role', 'allow-required-role-delete', 'roles.delete-contract'],
-    ['allowed deletion of a taxonomy-referenced role', 'allow-referenced-role-delete', 'roles.delete-contract'],
     ['revealed an unknown role through a typed integrity refusal', 'reveal-unknown-role-delete', 'roles.delete-contract'],
     ['returned an unactionable role-in-use message', 'wrong-role-in-use-message', 'roles.delete-contract'],
     ['left an evicted drone on its deleted role', 'skip-evicted-role-retarget', 'roles.delete-contract'],
@@ -2277,6 +2298,13 @@ describe('executable adapter conformance', () => {
     ['consumed unread state during status lookup', 'ack-status-consume-unread', 'acks.status-query'],
     ['returned missing acknowledgement state for an unknown entry', 'ack-status-unknown-as-missing', 'acks.status-query'],
     ['wrote an acknowledgement during status lookup', 'ack-status-writes-ack', 'acks.status-query'],
+    ['accepted omitted log addressing', 'accept-missing-log-addressing', 'log.mandatory-addressing'],
+    ['fell open explicit log addressing', 'fall-open-log-addressing', 'log.mandatory-addressing'],
+    ['wrote an acknowledgement during entry lookup', 'entry-query-writes-ack', 'log.entry-query'],
+    ['consumed an entry during lookup', 'entry-query-consumes-entry', 'log.entry-query'],
+    ['returned the first ambiguous prefix match', 'entry-query-returns-first-ambiguous', 'log.entry-query'],
+    ['cleared acknowledgements during entry lookup', 'entry-query-clears-acks', 'log.entry-query'],
+    ['cleared claims during entry lookup', 'entry-query-clears-claims', 'log.entry-query'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),
