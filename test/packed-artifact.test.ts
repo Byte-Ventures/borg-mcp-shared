@@ -50,7 +50,7 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number; readmeRelativeLinkCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.13.0',
+      version: '0.13.1',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
     expect(report.readmeRelativeLinkCount).toBeGreaterThan(0);
@@ -80,7 +80,7 @@ describe('packed artifact', () => {
     expect(result.stderr).toContain('README relative link target is not shipped: docs/missing.md');
   });
 
-  it('ships the canonical Coordinator activation sequence', async () => {
+  it('ships operator-controlled ownership across coordinating roles', async () => {
     const { destination, tarball } = await pack();
     const consumer = join(destination, 'consumer');
     await mkdir(consumer);
@@ -98,25 +98,21 @@ describe('packed artifact', () => {
       tarball,
     ], { stdio: 'pipe', env: materializeNpmEnv });
 
-    const coordinator = execFileSync('node', [
+    const coordinatingRoles = JSON.parse(execFileSync('node', [
       '--input-type=module',
       '--eval',
-      "import { TEMPLATES } from 'borgmcp-shared/templates'; process.stdout.write(TEMPLATES['software-dev'].roles.find(({ name }) => name === 'Coordinator').detailed_description);",
-    ], { cwd: consumer, encoding: 'utf8' });
+      "import { TEMPLATES } from 'borgmcp-shared/templates'; process.stdout.write(JSON.stringify([TEMPLATES['software-dev'].roles.find(({ name }) => name === 'Coordinator').detailed_description,TEMPLATES.starter.roles.find(({ name }) => name === 'Coordinator').detailed_description,TEMPLATES['local-model'].roles.find(({ name }) => name === 'Director').detailed_description]));",
+    ], { cwd: consumer, encoding: 'utf8' })) as string[];
 
-    for (const phrase of [
-      'START NOW, RESUME NOW, REVIEW NOW, or HOLD',
-      'ACK and claim are receipt only',
-      'STARTING or substantive PROGRESS within 2 minutes',
-      'Directly kick a miss',
-      'After 5 more minutes without substantive response, probe liveness',
-      'reassign only when eligible and authorized',
-      'substantive PROGRESS at least every 10 minutes',
-      'Require immediate BLOCKED',
-    ]) {
-      expect(coordinator).toContain(phrase);
+    for (const role of coordinatingRoles) {
+      expect(role).toContain('one direct status request');
+      expect(role).toContain('report the evidence to the human');
+      expect(role).toContain(
+        'requires explicit human operator approval for the exact work item and recipient',
+      );
+      expect(role).not.toMatch(/within 2 minutes|After 5 more minutes|every 10 minutes/i);
     }
-    expect(coordinator.length).toBeLessThanOrEqual(45_000);
+    expect(coordinatingRoles[0].length).toBeLessThanOrEqual(45_000);
   });
 
   it('ships the named-template cube-creation contract and presentation copy', async () => {
@@ -329,7 +325,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.13.0' },
+      dependencies: { 'borgmcp-shared': '0.13.1' },
     }));
     execFileSync('npm', [
       'install',
