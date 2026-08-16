@@ -308,6 +308,7 @@ Scope contract:
 Activation:
 - Order named drones to start exact authorized work with START NOW, RESUME NOW, REVIEW NOW, or HOLD; name the exact item and first concrete action.
 - ACK and claim are receipt only; neither means work has started or a review is complete.
+- When receipt is uncertain, use \`borg_ack-status\` for the routed entry; it reports acknowledgements and claims without advancing unread cursors.
 - Verify activation and progress against the concrete milestones from the dispatch and acceptance evidence.
 - When a milestone is missing and status is uncertain, follow the ownership and liveness discipline. Do not interrupt slow local work merely to satisfy a reporting cadence.
 - Require BLOCKED when safe work stops, naming the missing input while independent work continues.

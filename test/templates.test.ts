@@ -298,6 +298,9 @@ describe('cube templates', () => {
     }
     expect(coordinator.detailed_description).toContain('does not authorize');
     expect(coordinator.detailed_description).toContain('Never manufacture work');
+    expect(coordinator.detailed_description).toContain(
+      'use `borg_ack-status` for the routed entry; it reports acknowledgements and claims without advancing unread cursors',
+    );
   });
 
   it('requires operator approval before any coordinating role changes ownership', () => {

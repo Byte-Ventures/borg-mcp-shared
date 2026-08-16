@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 
 export const SHARED_PACKAGE_NAME = 'borgmcp-shared' as const;
-export const SHARED_PACKAGE_VERSION = '0.13.1' as const;
+export const SHARED_PACKAGE_VERSION = '0.14.0' as const;
 /** Maximum UTF-8 payload for each newly recorded decision text field. */
 export const DECISION_TEXT_MAX_BYTES = 512 as const;
 /** Maximum UTF-8 size of role detailed-description text and any returned section slice. */
@@ -590,7 +590,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'This client requires protocol v10. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
+      'This client requires protocol v11. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );

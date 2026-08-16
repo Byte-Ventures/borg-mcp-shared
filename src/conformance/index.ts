@@ -1012,6 +1012,40 @@ export const ROLE_RATIONALE_CONFORMANCE: readonly RoleRationaleConformanceVector
   },
 ];
 
+export interface AckStatusConformanceVector {
+  name: string;
+  fixture: 'missing-ack' | 'ack-and-claim' | 'unread-preserved' | 'unknown-entry';
+  expected:
+    | { status: 200; acknowledged_at: null; mutation: 'none' }
+    | { status: 200; acknowledgements: 1; claims: 1; distinct: true; mutation: 'none' }
+    | { status: 200; unread_entry_available: true; mutation: 'none' }
+    | { status: 404; error: 'NOT_FOUND'; mutation: 'none' };
+}
+
+/** Portable acknowledgement-status outcomes for one exact log entry. */
+export const ACK_STATUS_CONFORMANCE: readonly AckStatusConformanceVector[] = [
+  {
+    name: 'reports an intended recipient with no acknowledgement',
+    fixture: 'missing-ack',
+    expected: { status: 200, acknowledged_at: null, mutation: 'none' },
+  },
+  {
+    name: 'keeps acknowledgements and claims in separate result collections',
+    fixture: 'ack-and-claim',
+    expected: { status: 200, acknowledgements: 1, claims: 1, distinct: true, mutation: 'none' },
+  },
+  {
+    name: 'does not consume the queried entry from unread delivery',
+    fixture: 'unread-preserved',
+    expected: { status: 200, unread_entry_available: true, mutation: 'none' },
+  },
+  {
+    name: 'returns not found for an unknown entry instead of missing acknowledgement state',
+    fixture: 'unknown-entry',
+    expected: { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+  },
+];
+
 /** One canonical corpus consumed unchanged by shared, server, and client tests. */
 export const RUNTIME_METADATA_REPOSITORY_CONFORMANCE:
 readonly RuntimeMetadataRepositoryConformanceVector[] = [

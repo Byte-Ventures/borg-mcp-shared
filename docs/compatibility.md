@@ -91,6 +91,12 @@ preflight before either peer sends credentials or dispatches an operation.
 shipped coordination templates so liveness evidence cannot authorize work
 rerouting or reassignment without explicit human operator approval.
 
+`borgmcp-shared@0.14.0` carries protocol v11. It adds the read-only
+acknowledgement-status contract for one activity-log entry, including nullable
+per-recipient acknowledgement timestamps and separate advisory claims. A v10
+peer and a v11 peer reject each other during credential-free preflight before
+either peer dispatches the new query.
+
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
 successful build alone — they must run the shared conformance suite against the

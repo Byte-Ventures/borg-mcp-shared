@@ -50,7 +50,7 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number; readmeRelativeLinkCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.13.1',
+      version: '0.14.0',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
     expect(report.readmeRelativeLinkCount).toBeGreaterThan(0);
@@ -233,7 +233,7 @@ describe('packed artifact', () => {
         { name: 'rejects an unknown template name', template: 'custom', accepts: false },
         { name: 'rejects a non-string template', template: null, accepts: false },
       ],
-      protocolVersion: '10',
+      protocolVersion: '11',
       deleteRequest: {},
       deleteResponse: {
         cube_id: '00000000-0000-4000-8000-000000000003',
@@ -325,7 +325,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.13.1' },
+      dependencies: { 'borgmcp-shared': '0.14.0' },
     }));
     execFileSync('npm', [
       'install',
