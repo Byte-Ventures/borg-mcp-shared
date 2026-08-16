@@ -6,6 +6,7 @@ import {
   decodeCreateCubeResponseEnvelope,
   decodeDeleteCubeResponseEnvelope,
   decodeAppendLogResultEnvelope,
+  decodeAckStatusResultEnvelope,
   decodeDecisionResultEnvelope,
   decodeDecisionsResultEnvelope,
   decodeEnrollmentExchangeResponseEnvelope,
@@ -304,6 +305,11 @@ export interface ConformanceOperations {
     cube: ConformanceCube,
     request: unknown,
   ): Promise<ConformanceHttpResponse>;
+  ackStatus(
+    credential: string,
+    cube: ConformanceCube,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
   updateCube(
     credential: string,
     cube: ConformanceCube,
@@ -383,6 +389,7 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'sse.replay-live-transition', area: 'sse' },
   { id: 'cursor.explicit-expiry', area: 'cursor' },
   { id: 'acks.idempotent', area: 'acks' },
+  { id: 'acks.status-query', area: 'acks' },
   { id: 'claims.durable-noncursor', area: 'claims' },
   { id: 'decisions.topic-supersession', area: 'decisions' },
   { id: 'security.drone-management-authorization', area: 'security' },
@@ -1992,6 +1999,136 @@ export async function runAdapterConformance(
     expectStatus(second, 204, 'Repeated acknowledgement');
     invariant((first.body === '' || first.body === undefined) && (second.body === '' || second.body === undefined), 'Acknowledgement responses must be bodyless.');
     return { first_status: 204, repeated_status: 204, bodyless: true };
+  });
+
+  await record('acks.status-query', async () => {
+    const cube = await environment.admin.createCube('ack-status-cube');
+    await environment.admin.grantCube(principalA, cube);
+    const role = await environment.admin.createRole(cube, {
+      roleClass: 'worker',
+      isHumanSeat: false,
+      name: 'Ack Status Worker',
+    });
+    const acknowledgedRecipient = await environment.admin.createDrone(principalA, cube, role);
+    const claimingRecipient = await environment.admin.createDrone(principalA, cube, role);
+    const acknowledgedCredential = await environment.admin.issueManagedDroneSession(acknowledgedRecipient);
+    const claimingCredential = await environment.admin.issueManagedDroneSession(claimingRecipient);
+    const append = await environment.operations.append(
+      credentialA,
+      cube,
+      createProtocolEnvelope('ack-status-append', {
+        post_id: '00000000-0000-4000-8000-000000000310',
+        message: 'START NOW acknowledgement status fixture',
+        visibility: 'direct',
+        recipientDroneIds: [acknowledgedRecipient.id, claimingRecipient.id],
+      }),
+    );
+    expectStatus(append, 201, 'Acknowledgement-status fixture append');
+    const entry = decodeAppendLogResultEnvelope(append.body).payload.entry;
+
+    const beforeMissing = await environment.admin.observeAuthorityState();
+    const missingResponse = await environment.operations.ackStatus(
+      credentialA,
+      cube,
+      createProtocolEnvelope('ack-status-missing', { entry_id: entry.id }),
+    );
+    expectStatus(missingResponse, 200, 'Missing acknowledgement status');
+    const missing = decodeAckStatusResultEnvelope(missingResponse.body).payload;
+    invariant(
+      missing.visibility === 'direct' &&
+        missing.recipients.length === 2 &&
+        missing.recipients.every((recipient) => recipient.acknowledged_at === null) &&
+        missing.claims.length === 0,
+      'Missing acknowledgement was not represented as nullable per-recipient state.',
+    );
+    assertStateDelta(
+      beforeMissing,
+      await environment.admin.observeAuthorityState(),
+      {},
+      'Missing acknowledgement status query',
+    );
+
+    expectStatus(
+      await environment.operations.ack(
+        acknowledgedCredential,
+        cube,
+        createProtocolEnvelope('ack-status-ack', { entry_id: entry.id, kind: 'ack' }),
+      ),
+      204,
+      'Acknowledgement-status acknowledgement',
+    );
+    expectStatus(
+      await environment.operations.ack(
+        claimingCredential,
+        cube,
+        createProtocolEnvelope('ack-status-claim', { entry_id: entry.id, kind: 'claim' }),
+      ),
+      204,
+      'Acknowledgement-status claim',
+    );
+    const beforeDistinct = await environment.admin.observeAuthorityState();
+    const distinctResponse = await environment.operations.ackStatus(
+      credentialA,
+      cube,
+      createProtocolEnvelope('ack-status-distinct', { entry_id: entry.id }),
+    );
+    expectStatus(distinctResponse, 200, 'Distinct acknowledgement and claim status');
+    const distinct = decodeAckStatusResultEnvelope(distinctResponse.body).payload;
+    const acknowledged = distinct.recipients.filter((recipient) => recipient.acknowledged_at !== null);
+    invariant(
+      acknowledged.length === 1 &&
+        acknowledged[0].drone_id === acknowledgedRecipient.id &&
+        distinct.claims.length === 1 &&
+        distinct.claims[0].drone_id === claimingRecipient.id &&
+        distinct.recipients.find((recipient) => recipient.drone_id === claimingRecipient.id)?.acknowledged_at === null,
+      'Acknowledgement status conflated acknowledgement and claim records.',
+    );
+    assertStateDelta(
+      beforeDistinct,
+      await environment.admin.observeAuthorityState(),
+      {},
+      'Distinct acknowledgement and claim status query',
+    );
+
+    const unreadResponse = await environment.operations.read(
+      credentialA,
+      cube,
+      createProtocolEnvelope('ack-status-unread', { cursor: null, limit: 10 }),
+    );
+    expectStatus(unreadResponse, 200, 'Post-query unread read');
+    const unread = decodeReadLogResultEnvelope(unreadResponse.body).payload;
+    invariant(
+      unread.entries.length === 1 && unread.entries[0].id === entry.id,
+      'Acknowledgement-status query advanced unread delivery state.',
+    );
+
+    const beforeUnknown = await environment.admin.observeAuthorityState();
+    expectError(
+      await environment.operations.ackStatus(
+        credentialA,
+        cube,
+        createProtocolEnvelope('ack-status-unknown', {
+          entry_id: '00000000-0000-4000-8000-000000000311',
+        }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Unknown acknowledgement-status entry',
+    );
+    assertStateDelta(
+      beforeUnknown,
+      await environment.admin.observeAuthorityState(),
+      {},
+      'Unknown acknowledgement status query',
+    );
+    return {
+      missing_acknowledgement: null,
+      acknowledgements: 1,
+      claims: 1,
+      distinct: true,
+      unread_entry_available: true,
+      unknown_entry_code: ErrorCode.NOT_FOUND,
+    };
   });
 
   await record('claims.durable-noncursor', async () => {

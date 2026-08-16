@@ -4,6 +4,7 @@ import {
   APPEND_LOG_RESULT_CONFORMANCE,
   APPEND_LOG_REQUEST_CONFORMANCE,
   APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
+  ACK_STATUS_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
   CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
@@ -46,6 +47,15 @@ describe('public conformance vectors', () => {
       expect.objectContaining({ actor: 'same', mutation: 'ignored_request_shape', expected: 'deduplicated' }),
       expect.objectContaining({ actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' }),
       expect.objectContaining({ actor: 'different', mutation: 'none', expected: 'created' }),
+    ]);
+  });
+
+  it('pins acknowledgement-status behavior separately from acknowledgement writes', () => {
+    expect(ACK_STATUS_CONFORMANCE.map((vector) => vector.expected)).toEqual([
+      { status: 200, acknowledged_at: null, mutation: 'none' },
+      { status: 200, acknowledgements: 1, claims: 1, distinct: true, mutation: 'none' },
+      { status: 200, unread_entry_available: true, mutation: 'none' },
+      { status: 404, error: 'NOT_FOUND', mutation: 'none' },
     ]);
   });
 

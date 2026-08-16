@@ -7,6 +7,7 @@ import {
   createProtocolEnvelope,
   createProtocolTagPreflight,
   decodeAckLogRequest,
+  decodeAckStatusRequestEnvelope,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
   encodeInvitationArtifact,
@@ -143,7 +144,11 @@ type Fault =
   | 'wrong-rationale-section-code'
   | 'accept-ambiguous-rationale-role'
   | 'append-rationale-section'
-  | 'oversize-rationale-body';
+  | 'oversize-rationale-body'
+  | 'ack-status-false-ack'
+  | 'ack-status-collapse-claim'
+  | 'ack-status-consume-unread'
+  | 'ack-status-unknown-as-missing';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -173,6 +178,11 @@ interface CubeState {
     documents: string[];
   }>;
   claims: ReadLogClaim[];
+  acknowledgements: Array<{
+    logEntryId: string;
+    droneId: string;
+    acknowledgedAt: string;
+  }>;
   decisions: Decision[];
   expired: Set<string>;
   roles: Map<string, RoleState>;
@@ -336,7 +346,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         handle, name: null, workingRepoName: null, repository: null, template: null,
         directive: '', taxonomyMarker: null,
         messageClassRouting: new Map(),
-        entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
+        entries: [], posts: new Map(), claims: [], acknowledgements: [], decisions: [], expired: new Set(),
         roles: new Map(), drones: new Map(), documents: new Map(),
       });
       void name;
@@ -724,7 +734,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             handle, name: null, workingRepoName: null, repository: null, template: null,
             directive: '', taxonomyMarker: null,
             messageClassRouting: new Map(),
-            entries: [], posts: new Map(), claims: [], decisions: [], expired: new Set(),
+            entries: [], posts: new Map(), claims: [], acknowledgements: [], decisions: [], expired: new Set(),
             roles: new Map(), drones: new Map(), documents: new Map(),
           });
         }
@@ -757,6 +767,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           entries: [],
           posts: new Map(),
           claims: [],
+          acknowledgements: [],
           decisions: [],
           expired: new Set(),
           roles: new Map([
@@ -867,6 +878,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         entries: [],
         posts: new Map(),
         claims: [],
+        acknowledgements: [],
         decisions: [],
         expired: new Set(),
         roles: new Map([
@@ -1474,18 +1486,97 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (access.error) return access.error;
       const envelope = decodeProtocolEnvelope(request, decodeAckLogRequest);
       const cube = this.cube(cubeHandle.id);
+      const actorId = access.drone?.handle.id ?? access.principal.handle.id;
+      if (envelope.payload.kind === 'ack' &&
+          !cube.acknowledgements.some((acknowledgement) =>
+            acknowledgement.logEntryId === envelope.payload.entry_id &&
+            acknowledgement.droneId === actorId
+          )) {
+        cube.acknowledgements.push({
+          logEntryId: envelope.payload.entry_id,
+          droneId: actorId,
+          acknowledgedAt: this.timestamp(),
+        });
+      }
       if (envelope.payload.kind === 'claim' &&
-          !cube.claims.some((claim) => claim.log_entry_id === envelope.payload.entry_id && claim.claimant_drone_id === access.principal.handle.id)) {
+          !cube.claims.some((claim) => claim.log_entry_id === envelope.payload.entry_id && claim.claimant_drone_id === actorId)) {
+        const role = access.drone === undefined ? undefined : cube.roles.get(access.drone.roleId);
         cube.claims.push({
           log_entry_id: envelope.payload.entry_id,
-          claimant_drone_id: access.principal.handle.id,
-          claimant_label: 'one-of-one-builder',
-          claimant_role: 'Builder',
+          claimant_drone_id: actorId,
+          claimant_label: access.drone?.label ?? null,
+          claimant_role: role?.name ?? null,
           claimed_at: this.timestamp(),
           stale: false,
         });
       }
       return { status: 204, body: '' };
+    },
+    ackStatus: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeAckStatusRequestEnvelope(request);
+      const cube = this.cube(cubeHandle.id);
+      const entry = cube.entries.find((candidate) => candidate.id === envelope.payload.entry_id);
+      if (!entry) {
+        if (this.fault === 'ack-status-unknown-as-missing') {
+          return {
+            status: 200,
+            body: createProtocolEnvelope(envelope.request_id, {
+              entry_id: envelope.payload.entry_id,
+              visibility: 'broadcast',
+              recipients: [],
+              claims: [],
+            }),
+          };
+        }
+        return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      }
+      const recipients = entry.recipient_drone_ids.map((droneId) => {
+        const drone = cube.drones.get(droneId);
+        const role = drone === undefined ? undefined : cube.roles.get(drone.roleId);
+        const acknowledgement = cube.acknowledgements.find((candidate) =>
+          candidate.logEntryId === entry.id && candidate.droneId === droneId
+        );
+        const collapsedClaim = cube.claims.find((claim) =>
+          claim.log_entry_id === entry.id && claim.claimant_drone_id === droneId
+        );
+        return {
+          drone_id: droneId,
+          drone_label: drone?.label ?? null,
+          drone_role: role?.name ?? null,
+          acknowledged_at: acknowledgement?.acknowledgedAt ??
+            (this.fault === 'ack-status-false-ack'
+              ? this.timestamp()
+              : this.fault === 'ack-status-collapse-claim' && collapsedClaim
+                ? collapsedClaim.claimed_at
+                : null),
+        };
+      });
+      const claims = cube.claims
+        .filter((claim) => claim.log_entry_id === entry.id)
+        .map((claim) => ({
+          drone_id: claim.claimant_drone_id,
+          drone_label: claim.claimant_label,
+          drone_role: claim.claimant_role,
+          claimed_at: claim.claimed_at,
+        }));
+      if (this.fault === 'ack-status-consume-unread' && envelope.request_id === 'ack-status-distinct') {
+        cube.entries = cube.entries.filter((candidate) => candidate.id !== entry.id);
+      }
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, {
+          entry_id: entry.id,
+          visibility: entry.visibility,
+          recipients,
+          claims,
+        }),
+      };
     },
     updateCube: async (
       credential: string,
@@ -2164,6 +2255,10 @@ describe('executable adapter conformance', () => {
     ['accepted an ambiguous case-insensitive rationale role name', 'accept-ambiguous-rationale-role', 'roles.rationale-contract'],
     ['returned a neighboring rationale section', 'append-rationale-section', 'roles.rationale-contract'],
     ['returned an oversized rationale section', 'oversize-rationale-body', 'roles.rationale-contract'],
+    ['reported a false acknowledgement', 'ack-status-false-ack', 'acks.status-query'],
+    ['collapsed a claim into acknowledgement state', 'ack-status-collapse-claim', 'acks.status-query'],
+    ['consumed unread state during status lookup', 'ack-status-consume-unread', 'acks.status-query'],
+    ['returned missing acknowledgement state for an unknown entry', 'ack-status-unknown-as-missing', 'acks.status-query'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),
