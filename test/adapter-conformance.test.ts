@@ -8,6 +8,7 @@ import {
   createProtocolTagPreflight,
   decodeAckLogRequest,
   decodeAckStatusRequestEnvelope,
+  decodeEntryQueryRequestEnvelope,
   decodeAppendLogRequest,
   decodeEnrollmentExchangeRequestEnvelope,
   encodeInvitationArtifact,
@@ -149,7 +150,12 @@ type Fault =
   | 'ack-status-collapse-claim'
   | 'ack-status-consume-unread'
   | 'ack-status-unknown-as-missing'
-  | 'ack-status-writes-ack';
+  | 'ack-status-writes-ack'
+  | 'accept-prose-routing-annotation'
+  | 'reject-prose-routing-escape'
+  | 'entry-query-writes-ack'
+  | 'entry-query-consumes-entry'
+  | 'entry-query-returns-first-ambiguous';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -401,6 +407,18 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       state.messageClassRouting.set(className, [...recipientDroneIds].sort());
     },
+    replaceLogEntryId: async (
+      cube: ConformanceCube,
+      currentId: string,
+      replacementId: string,
+    ): Promise<void> => {
+      const state = this.cube(cube.id);
+      const entry = state.entries.find((candidate) => candidate.id === currentId);
+      if (!entry || state.entries.some((candidate) => candidate.id === replacementId)) {
+        throw new Error('Cannot replace an unknown log entry id or create a duplicate.');
+      }
+      entry.id = replacementId;
+    },
     createDrone: async (
       principal: ConformancePrincipal,
       cube: ConformanceCube,
@@ -532,6 +550,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         0,
       ),
       activity_claims: [...this.cubes.values()].reduce((count, cube) => count + cube.claims.length, 0),
+      activity_log_entries: [...this.cubes.values()].reduce((count, cube) => count + cube.entries.length, 0),
       cubes: this.cubes.size,
       roles: [...this.cubes.values()].reduce((count, cube) => count + cube.roles.size, 0),
       grants: [...this.principals.values()].reduce((count, principal) => count + principal.grants.size, 0),
@@ -703,7 +722,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '11',
+                protocol_version: '12',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -723,7 +742,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '11',
+                protocol_version: '12',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -827,7 +846,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '11',
+              protocol_version: '12',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -1300,7 +1319,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '11', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '12', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1336,8 +1355,31 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     ): Promise<ConformanceHttpResponse> => {
       const access = this.authorize(credential, cubeHandle.id);
       if (access.error) return access.error;
-      const envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
+      let envelope;
+      try {
+        envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
+      } catch (error) {
+        if (this.fault !== 'accept-prose-routing-annotation') {
+          if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
+          throw error;
+        }
+        envelope = decodeProtocolEnvelope(request, (payload) => payload as {
+          post_id: string;
+          message: string;
+          visibility?: 'broadcast' | 'direct';
+          recipientDroneIds?: string[];
+          class?: string;
+          to?: string[];
+          documents?: string[];
+        });
+      }
       const cube = this.cube(cubeHandle.id);
+      if (
+        this.fault === 'reject-prose-routing-escape' &&
+        /\bto\s*:\s*\[[^\]\r\n]*\]\s*$/iu.test(envelope.payload.message)
+      ) {
+        return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
       const messageBytes = utf8ByteLength(envelope.payload.message);
       if (messageBytes > 4096) return this.error(413, ErrorCode.CONTENT_TOO_LARGE, envelope.request_id);
       const authorId = access.drone?.handle.id ?? access.principal.handle.id;
@@ -1481,6 +1523,38 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           has_more: after.length > entries.length,
           claims: cube.claims,
         }),
+      };
+    },
+    entryQuery: async (
+      credential: string,
+      cubeHandle: ConformanceCube,
+      request: unknown,
+    ): Promise<ConformanceHttpResponse> => {
+      const access = this.authorize(credential, cubeHandle.id);
+      if (access.error) return access.error;
+      const envelope = decodeEntryQueryRequestEnvelope(request);
+      const cube = this.cube(cubeHandle.id);
+      const matches = envelope.payload.entry_id.length === 36
+        ? cube.entries.filter((entry) => entry.id === envelope.payload.entry_id)
+        : cube.entries.filter((entry) => entry.id.startsWith(envelope.payload.entry_id));
+      if (matches.length === 0) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      if (matches.length > 1 && this.fault !== 'entry-query-returns-first-ambiguous') {
+        return this.error(409, ErrorCode.LOG_ENTRY_PREFIX_AMBIGUOUS, envelope.request_id);
+      }
+      const entry = matches[0];
+      if (this.fault === 'entry-query-writes-ack') {
+        cube.acknowledgements.push({
+          logEntryId: entry.id,
+          droneId: access.principal.handle.id,
+          acknowledgedAt: this.timestamp(),
+        });
+      }
+      if (this.fault === 'entry-query-consumes-entry') {
+        cube.entries = cube.entries.filter((candidate) => candidate.id !== entry.id);
+      }
+      return {
+        status: 200,
+        body: createProtocolEnvelope(envelope.request_id, { entry }),
       };
     },
     ack: async (
@@ -2130,7 +2204,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '11',
+        protocol_version: '12',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message },
       },
@@ -2277,6 +2351,11 @@ describe('executable adapter conformance', () => {
     ['consumed unread state during status lookup', 'ack-status-consume-unread', 'acks.status-query'],
     ['returned missing acknowledgement state for an unknown entry', 'ack-status-unknown-as-missing', 'acks.status-query'],
     ['wrote an acknowledgement during status lookup', 'ack-status-writes-ack', 'acks.status-query'],
+    ['accepted a prose-only routing annotation', 'accept-prose-routing-annotation', 'log.prose-routing-refusal'],
+    ['rejected an explicit routing escape', 'reject-prose-routing-escape', 'log.prose-routing-refusal'],
+    ['wrote an acknowledgement during entry lookup', 'entry-query-writes-ack', 'log.entry-query'],
+    ['consumed an entry during lookup', 'entry-query-consumes-entry', 'log.entry-query'],
+    ['returned the first ambiguous prefix match', 'entry-query-returns-first-ambiguous', 'log.entry-query'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

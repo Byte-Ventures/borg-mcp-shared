@@ -7,6 +7,7 @@ import {
   decodeDeleteCubeResponseEnvelope,
   decodeAppendLogResultEnvelope,
   decodeAckStatusResultEnvelope,
+  decodeEntryQueryResultEnvelope,
   decodeDecisionResultEnvelope,
   decodeDecisionsResultEnvelope,
   decodeEnrollmentExchangeResponseEnvelope,
@@ -41,6 +42,7 @@ import {
   type StreamEvent,
   type DroneRuntimeMetadata,
   type CubeDocument,
+  type EnrichedStreamEntry,
 } from '../protocol/index.js';
 import {
   APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
@@ -122,6 +124,7 @@ export interface ConformanceAuthorityState {
   enrollment_claims: number;
   activity_acknowledgements: number;
   activity_claims: number;
+  activity_log_entries: number;
   cubes: number;
   roles: number;
   grants: number;
@@ -223,6 +226,7 @@ export interface ConformanceAdmin {
     className: string,
     recipientDroneIds: readonly string[],
   ): Promise<void>;
+  replaceLogEntryId(cube: ConformanceCube, currentId: string, replacementId: string): Promise<void>;
   createDrone(
     principal: ConformancePrincipal,
     cube: ConformanceCube,
@@ -298,6 +302,11 @@ export interface ConformanceOperations {
     body: string,
   ): Promise<ConformanceHttpResponse>;
   read(
+    credential: string,
+    cube: ConformanceCube,
+    request: unknown,
+  ): Promise<ConformanceHttpResponse>;
+  entryQuery(
     credential: string,
     cube: ConformanceCube,
     request: unknown,
@@ -387,6 +396,8 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'security.oversize-request', area: 'security' },
   { id: 'security.cross-cube-isolation', area: 'security' },
   { id: 'log.append-idempotency', area: 'log' },
+  { id: 'log.prose-routing-refusal', area: 'log' },
+  { id: 'log.entry-query', area: 'log' },
   { id: 'log.read-cursor-tuple', area: 'cursor' },
   { id: 'sse.replay-live-transition', area: 'sse' },
   { id: 'cursor.explicit-expiry', area: 'cursor' },
@@ -1887,6 +1898,146 @@ export async function runAdapterConformance(
       'Append collision controls persisted the wrong number of entries.',
     );
     return { persisted_entries: 3, stable_entry: true, deduplicated: true, conflicts: 4, cross_author_created: true };
+  });
+
+  await record('log.prose-routing-refusal', async () => {
+    const cube = await environment.admin.createCube('prose-routing-cube');
+    await environment.admin.grantCube(principalA, cube);
+    const message = 'START NOW exact slice\nto:[Builder]';
+    const before = await environment.admin.observeAuthorityState();
+    expectError(
+      await environment.operations.append(
+        credentialA,
+        cube,
+        createProtocolEnvelope('prose-routing-refusal', {
+          post_id: '30000000-0000-4000-8000-000000000001',
+          message,
+        }),
+      ),
+      400,
+      ErrorCode.INVALID_INPUT,
+      'Prose-only routing annotation',
+    );
+    assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Prose-only routing refusal');
+
+    const broadcast = await environment.operations.append(
+      credentialA,
+      cube,
+      createProtocolEnvelope('prose-routing-broadcast', {
+        post_id: '30000000-0000-4000-8000-000000000002',
+        message,
+        visibility: 'broadcast',
+      }),
+    );
+    expectStatus(broadcast, 201, 'Explicit-broadcast routing annotation');
+    const structuredTo = await environment.operations.append(
+      credentialA,
+      cube,
+      createProtocolEnvelope('prose-routing-to', {
+        post_id: '30000000-0000-4000-8000-000000000004',
+        message,
+        to: ['Structured Recipient'],
+      }),
+    );
+    expectStatus(structuredTo, 201, 'Structured-to routing annotation');
+    const role = await environment.admin.createRole(cube, {
+      roleClass: 'worker',
+      isHumanSeat: false,
+      name: 'Structured Recipient',
+    });
+    const recipient = await environment.admin.createDrone(principalA, cube, role);
+    const directed = await environment.operations.append(
+      credentialA,
+      cube,
+      createProtocolEnvelope('prose-routing-directed', {
+        post_id: '30000000-0000-4000-8000-000000000003',
+        message,
+        recipientDroneIds: [recipient.id],
+      }),
+    );
+    expectStatus(directed, 201, 'Structured-recipient routing annotation');
+    return { refused_status: 400, code: ErrorCode.INVALID_INPUT, persisted: false, accepted_escapes: 3 };
+  });
+
+  await record('log.entry-query', async () => {
+    const cube = await environment.admin.createCube('entry-query-cube');
+    await environment.admin.grantCube(principalA, cube);
+    const ids = [
+      '11111111-0000-4000-8000-000000000001',
+      '22222222-0000-4000-8000-000000000001',
+      '22222222-0000-4000-8000-000000000002',
+    ];
+    const entries: EnrichedStreamEntry[] = [];
+    for (const [index, id] of ids.entries()) {
+      const response = await environment.operations.append(
+        credentialA,
+        cube,
+        createProtocolEnvelope(`entry-query-append-${index}`, {
+          post_id: `40000000-0000-4000-8000-00000000000${index}`,
+          message: `entry-query-${index}`,
+          visibility: 'broadcast',
+        }),
+      );
+      expectStatus(response, 201, `Entry-query fixture append ${index}`);
+      const entry = decodeAppendLogResultEnvelope(response.body).payload.entry;
+      await environment.admin.replaceLogEntryId(cube, entry.id, id);
+      entries.push({ ...entry, id });
+    }
+
+    const before = await environment.admin.observeAuthorityState();
+    for (const [requestId, selector, expectedId] of [
+      ['entry-query-full', ids[1], ids[1]],
+      ['entry-query-prefix', '11111111', ids[0]],
+    ] as const) {
+      const response = await environment.operations.entryQuery(
+        credentialA,
+        cube,
+        createProtocolEnvelope(requestId, { entry_id: selector }),
+      );
+      expectStatus(response, 200, requestId);
+      const result = decodeEntryQueryResultEnvelope(response.body).payload;
+      invariant(result.entry.id === expectedId, `${requestId} returned the wrong entry.`);
+    }
+    expectError(
+      await environment.operations.entryQuery(
+        credentialA,
+        cube,
+        createProtocolEnvelope('entry-query-unknown', { entry_id: 'ffffffff' }),
+      ),
+      404,
+      ErrorCode.NOT_FOUND,
+      'Unknown entry query',
+    );
+    expectError(
+      await environment.operations.entryQuery(
+        credentialA,
+        cube,
+        createProtocolEnvelope('entry-query-ambiguous', { entry_id: '22222222' }),
+      ),
+      409,
+      ErrorCode.LOG_ENTRY_PREFIX_AMBIGUOUS,
+      'Ambiguous entry query',
+    );
+    assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Entry query');
+    const unreadResponse = await environment.operations.read(
+      credentialA,
+      cube,
+      createProtocolEnvelope('entry-query-unread', { cursor: null, limit: 10 }),
+    );
+    expectStatus(unreadResponse, 200, 'Entry-query unread read');
+    const unread = decodeReadLogResultEnvelope(unreadResponse.body).payload;
+    invariant(
+      unread.entries.length === entries.length && entries.every((entry) => unread.entries.some((item) => item.id === entry.id)),
+      'Entry query consumed or advanced unread activity.',
+    );
+    return {
+      full_uuid: true,
+      unique_prefix: true,
+      ambiguous_code: ErrorCode.LOG_ENTRY_PREFIX_AMBIGUOUS,
+      unknown_code: ErrorCode.NOT_FOUND,
+      unread_entry_available: true,
+      mutation: 'none',
+    };
   });
 
   const entries: Array<{ id: string; created_at: string; message: string }> = [];

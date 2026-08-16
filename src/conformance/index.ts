@@ -144,6 +144,30 @@ export const APPEND_LOG_REQUEST_CONFORMANCE: readonly AppendLogRequestConformanc
   { name: 'rejects an omitted post UUID', request: { message: APPEND_LOG_REQUEST.message }, accepts: false },
   { name: 'rejects an invalid post UUID', request: { ...APPEND_LOG_REQUEST, post_id: 'not-a-uuid' }, accepts: false },
   { name: 'rejects unknown request fields', request: { ...APPEND_LOG_REQUEST, extra: true }, accepts: false },
+  {
+    name: 'rejects a terminal prose-only routing annotation',
+    request: { ...APPEND_LOG_REQUEST, message: 'START NOW exact slice\nto:[Builder]' },
+    accepts: false,
+  },
+  {
+    name: 'accepts the same annotation with structured to routing',
+    request: { ...APPEND_LOG_REQUEST, message: 'START NOW exact slice\nto:[Builder]', to: ['Builder'] },
+    accepts: true,
+  },
+  {
+    name: 'accepts the same annotation with structured recipient ids',
+    request: {
+      ...APPEND_LOG_REQUEST,
+      message: 'START NOW exact slice\nto:[Builder]',
+      recipientDroneIds: ['00000000-0000-4000-8000-000000000204'],
+    },
+    accepts: true,
+  },
+  {
+    name: 'accepts the same annotation with explicit broadcast visibility',
+    request: { ...APPEND_LOG_REQUEST, message: 'START NOW exact slice\nto:[Builder]', visibility: 'broadcast' },
+    accepts: true,
+  },
 ];
 
 /** Runtime response vectors keep the append-log decoder aligned with its public type. */
@@ -1043,6 +1067,45 @@ export const ACK_STATUS_CONFORMANCE: readonly AckStatusConformanceVector[] = [
     name: 'returns not found for an unknown entry instead of missing acknowledgement state',
     fixture: 'unknown-entry',
     expected: { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+  },
+];
+
+export interface EntryQueryConformanceVector {
+  name: string;
+  fixture: 'full-uuid' | 'unique-prefix' | 'unknown' | 'ambiguous-prefix' | 'read-only';
+  expected:
+    | { status: 200; exact_entry: true; mutation: 'none' }
+    | { status: 404; error: 'NOT_FOUND'; mutation: 'none' }
+    | { status: 409; error: 'LOG_ENTRY_PREFIX_AMBIGUOUS'; mutation: 'none' }
+    | { status: 200; unread_entry_available: true; mutation: 'none' };
+}
+
+/** Portable exact-entry lookup outcomes for canonical UUID and short-prefix selectors. */
+export const ENTRY_QUERY_CONFORMANCE: readonly EntryQueryConformanceVector[] = [
+  {
+    name: 'resolves one canonical full UUID',
+    fixture: 'full-uuid',
+    expected: { status: 200, exact_entry: true, mutation: 'none' },
+  },
+  {
+    name: 'resolves one unique eight-hex prefix',
+    fixture: 'unique-prefix',
+    expected: { status: 200, exact_entry: true, mutation: 'none' },
+  },
+  {
+    name: 'hides an unknown or inaccessible selector',
+    fixture: 'unknown',
+    expected: { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+  },
+  {
+    name: 'refuses an ambiguous eight-hex prefix',
+    fixture: 'ambiguous-prefix',
+    expected: { status: 409, error: 'LOG_ENTRY_PREFIX_AMBIGUOUS', mutation: 'none' },
+  },
+  {
+    name: 'does not advance unread or mutate acknowledgement, claim, log, or authority state',
+    fixture: 'read-only',
+    expected: { status: 200, unread_entry_available: true, mutation: 'none' },
   },
 ];
 

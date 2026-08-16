@@ -590,7 +590,7 @@ export function decodeProtocolTagPreflight(value: unknown): ProtocolTagPreflight
   exactKeys(input, ['protocol_version'], ['protocol_version']);
   if (input.protocol_version !== PROTOCOL_VERSION) {
     throw new ProtocolContractError(
-      'This client requires protocol v11. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
+      'This client requires protocol v12. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.',
       ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
       ['protocol_version'],
     );
@@ -1037,6 +1037,14 @@ export function decodeAppendLogRequest(value: unknown): import('./types.js').App
   if (input.documents !== undefined) {
     output.documents = decodeStringArray(input.documents, 'documents', 100, 128)
       .map((id, index) => decodeOpaqueIdentifier(id, ['documents', index]));
+  }
+  if (
+    output.to === undefined &&
+    output.recipientDroneIds === undefined &&
+    output.visibility !== 'broadcast' &&
+    /\bto\s*:\s*\[[^\]\r\n]*\]\s*$/iu.test(output.message)
+  ) {
+    fail('Terminal to:[...] annotations require structured recipients or explicit broadcast visibility.', ['message']);
   }
   return output;
 }

@@ -47,6 +47,14 @@ export interface ReadLogResult {
   claims: ClaimRecord[];
 }
 
+export interface EntryQueryRequest {
+  entry_id: string;
+}
+
+export interface EntryQueryResult {
+  entry: EnrichedStreamEntry;
+}
+
 export interface AckStatusRequest {
   entry_id: string;
 }
@@ -333,6 +341,32 @@ export function decodeReadLogRequestEnvelope(
   value: unknown,
 ): ProtocolEnvelope<ReadLogRequest> {
   return decodeProtocolEnvelope(value, decodeReadLogRequest);
+}
+
+export function decodeEntryQueryRequest(value: unknown): EntryQueryRequest {
+  const input = object(value);
+  exact(input, ['entry_id'], ['entry_id']);
+  const entryId = boundedString(input.entry_id, 'entry_id', 36);
+  if (/^[0-9a-f]{8}$/i.test(entryId)) return { entry_id: entryId.toLowerCase() };
+  return { entry_id: decodeUuid(entryId, ['entry_id']) };
+}
+
+export function decodeEntryQueryRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<EntryQueryRequest> {
+  return decodeProtocolEnvelope(value, decodeEntryQueryRequest);
+}
+
+export function decodeEntryQueryResult(value: unknown): EntryQueryResult {
+  const input = object(value);
+  exact(input, ['entry'], ['entry']);
+  return { entry: decodeEnrichedStreamEntry(input.entry) };
+}
+
+export function decodeEntryQueryResultEnvelope(
+  value: unknown,
+): ProtocolEnvelope<EntryQueryResult> {
+  return decodeProtocolEnvelope(value, decodeEntryQueryResult);
 }
 
 export function decodeAckStatusRequest(value: unknown): AckStatusRequest {

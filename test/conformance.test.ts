@@ -5,6 +5,7 @@ import {
   APPEND_LOG_REQUEST_CONFORMANCE,
   APPEND_LOG_IDEMPOTENCY_CONFORMANCE,
   ACK_STATUS_CONFORMANCE,
+  ENTRY_QUERY_CONFORMANCE,
   ATTACH_SESSION_CONFORMANCE,
   CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
   CREATE_CUBE_RETRY_CONFORMANCE,
@@ -56,6 +57,16 @@ describe('public conformance vectors', () => {
       { status: 200, acknowledgements: 1, claims: 1, distinct: true, mutation: 'none' },
       { status: 200, unread_entry_available: true, mutation: 'none' },
       { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+    ]);
+  });
+
+  it('pins exact entry-query resolution and read-only outcomes', () => {
+    expect(ENTRY_QUERY_CONFORMANCE.map((vector) => vector.expected)).toEqual([
+      { status: 200, exact_entry: true, mutation: 'none' },
+      { status: 200, exact_entry: true, mutation: 'none' },
+      { status: 404, error: 'NOT_FOUND', mutation: 'none' },
+      { status: 409, error: 'LOG_ENTRY_PREFIX_AMBIGUOUS', mutation: 'none' },
+      { status: 200, unread_entry_available: true, mutation: 'none' },
     ]);
   });
 
@@ -158,7 +169,7 @@ describe('public conformance vectors', () => {
     }
   });
 
-  it('pins the complete protocol-v11 cube-template acceptance set', () => {
+  it('pins the complete protocol-v12 cube-template acceptance set', () => {
     for (const vector of CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE) {
       const request = {
         retry_key: '00000000-0000-4000-8000-000000000120',
