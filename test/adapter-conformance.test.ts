@@ -148,7 +148,8 @@ type Fault =
   | 'ack-status-false-ack'
   | 'ack-status-collapse-claim'
   | 'ack-status-consume-unread'
-  | 'ack-status-unknown-as-missing';
+  | 'ack-status-unknown-as-missing'
+  | 'ack-status-writes-ack';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -526,6 +527,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     observeAuthorityState: async () => ({
       enrolled_clients: [...this.principals.values()].filter((principal) => principal.credential !== null).length,
       enrollment_claims: [...this.invitations.values()].filter((invitation) => invitation.binding !== null).length,
+      activity_acknowledgements: [...this.cubes.values()].reduce(
+        (count, cube) => count + cube.acknowledgements.length,
+        0,
+      ),
+      activity_claims: [...this.cubes.values()].reduce((count, cube) => count + cube.claims.length, 0),
       cubes: this.cubes.size,
       roles: [...this.cubes.values()].reduce((count, cube) => count + cube.roles.size, 0),
       grants: [...this.principals.values()].reduce((count, principal) => count + principal.grants.size, 0),
@@ -1536,6 +1542,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         }
         return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       }
+      if (this.fault === 'ack-status-writes-ack' &&
+          !cube.acknowledgements.some((acknowledgement) =>
+            acknowledgement.logEntryId === entry.id &&
+            acknowledgement.droneId === access.principal.handle.id
+          )) {
+        cube.acknowledgements.push({
+          logEntryId: entry.id,
+          droneId: access.principal.handle.id,
+          acknowledgedAt: this.timestamp(),
+        });
+      }
       const recipients = entry.recipient_drone_ids.map((droneId) => {
         const drone = cube.drones.get(droneId);
         const role = drone === undefined ? undefined : cube.roles.get(drone.roleId);
@@ -2259,6 +2276,7 @@ describe('executable adapter conformance', () => {
     ['collapsed a claim into acknowledgement state', 'ack-status-collapse-claim', 'acks.status-query'],
     ['consumed unread state during status lookup', 'ack-status-consume-unread', 'acks.status-query'],
     ['returned missing acknowledgement state for an unknown entry', 'ack-status-unknown-as-missing', 'acks.status-query'],
+    ['wrote an acknowledgement during status lookup', 'ack-status-writes-ack', 'acks.status-query'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

@@ -120,6 +120,8 @@ export interface ConformanceCubeManagementState {
 export interface ConformanceAuthorityState {
   enrolled_clients: number;
   enrollment_claims: number;
+  activity_acknowledgements: number;
+  activity_claims: number;
   cubes: number;
   roles: number;
   grants: number;
