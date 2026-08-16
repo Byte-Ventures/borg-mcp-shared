@@ -147,7 +147,7 @@ describe('SSE wire codec', () => {
     const event = {
       type: 'error' as const,
       error: {
-        protocol_version: '10' as const,
+        protocol_version: '11' as const,
         error: { code: ErrorCode.CUBE_DELETED, message: 'This cube was deleted.' },
       },
     };

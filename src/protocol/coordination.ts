@@ -16,6 +16,7 @@ import type {
   AppendLogResponse,
   Decision,
   EnrichedStreamEntry,
+  LogVisibility,
   RoutingEcho,
 } from './types.js';
 import { isLabelLine, parseRoleSections } from '../role-section.js';
@@ -44,6 +45,31 @@ export interface ReadLogResult {
   behind_by: number;
   has_more: boolean;
   claims: ClaimRecord[];
+}
+
+export interface AckStatusRequest {
+  entry_id: string;
+}
+
+export interface AckStatusRecipient {
+  drone_id: string;
+  drone_label: string | null;
+  drone_role: string | null;
+  acknowledged_at: string | null;
+}
+
+export interface AckStatusClaim {
+  drone_id: string;
+  drone_label: string | null;
+  drone_role: string | null;
+  claimed_at: string;
+}
+
+export interface AckStatusResult {
+  entry_id: string;
+  visibility: LogVisibility;
+  recipients: AckStatusRecipient[];
+  claims: AckStatusClaim[];
 }
 
 export interface ReassignDroneRequest {
@@ -307,6 +333,80 @@ export function decodeReadLogRequestEnvelope(
   value: unknown,
 ): ProtocolEnvelope<ReadLogRequest> {
   return decodeProtocolEnvelope(value, decodeReadLogRequest);
+}
+
+export function decodeAckStatusRequest(value: unknown): AckStatusRequest {
+  const input = object(value);
+  exact(input, ['entry_id'], ['entry_id']);
+  return { entry_id: decodeUuid(input.entry_id, ['entry_id']) };
+}
+
+export function decodeAckStatusRequestEnvelope(
+  value: unknown,
+): ProtocolEnvelope<AckStatusRequest> {
+  return decodeProtocolEnvelope(value, decodeAckStatusRequest);
+}
+
+function decodeAckStatusRecipient(value: unknown): AckStatusRecipient {
+  const input = object(value);
+  exact(
+    input,
+    ['drone_id', 'drone_label', 'drone_role', 'acknowledged_at'],
+    ['drone_id', 'drone_label', 'drone_role', 'acknowledged_at'],
+  );
+  return {
+    drone_id: decodeUuid(input.drone_id, ['drone_id']),
+    drone_label: nullableString(input.drone_label, 'drone_label', 120),
+    drone_role: nullableString(input.drone_role, 'drone_role', 120),
+    acknowledged_at: input.acknowledged_at === null
+      ? null
+      : decodeCanonicalTimestamp(input.acknowledged_at, ['acknowledged_at']),
+  };
+}
+
+function decodeAckStatusClaim(value: unknown): AckStatusClaim {
+  const input = object(value);
+  exact(
+    input,
+    ['drone_id', 'drone_label', 'drone_role', 'claimed_at'],
+    ['drone_id', 'drone_label', 'drone_role', 'claimed_at'],
+  );
+  return {
+    drone_id: decodeUuid(input.drone_id, ['drone_id']),
+    drone_label: nullableString(input.drone_label, 'drone_label', 120),
+    drone_role: nullableString(input.drone_role, 'drone_role', 120),
+    claimed_at: decodeCanonicalTimestamp(input.claimed_at, ['claimed_at']),
+  };
+}
+
+export function decodeAckStatusResult(value: unknown): AckStatusResult {
+  const input = object(value);
+  exact(
+    input,
+    ['entry_id', 'visibility', 'recipients', 'claims'],
+    ['entry_id', 'visibility', 'recipients', 'claims'],
+  );
+  if (input.visibility !== 'broadcast' && input.visibility !== 'direct') {
+    throw new ProtocolContractError('Invalid acknowledgement-status visibility.');
+  }
+  if (!Array.isArray(input.recipients) || input.recipients.length > 500) {
+    throw new ProtocolContractError('Invalid acknowledgement-status recipients.');
+  }
+  if (!Array.isArray(input.claims) || input.claims.length > 500) {
+    throw new ProtocolContractError('Invalid acknowledgement-status claims.');
+  }
+  return {
+    entry_id: decodeUuid(input.entry_id, ['entry_id']),
+    visibility: input.visibility,
+    recipients: input.recipients.map(decodeAckStatusRecipient),
+    claims: input.claims.map(decodeAckStatusClaim),
+  };
+}
+
+export function decodeAckStatusResultEnvelope(
+  value: unknown,
+): ProtocolEnvelope<AckStatusResult> {
+  return decodeProtocolEnvelope(value, decodeAckStatusResult);
 }
 
 function decodeClaimRecord(value: unknown): ClaimRecord {
