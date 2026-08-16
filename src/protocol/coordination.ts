@@ -479,22 +479,17 @@ function decodeRoutingEcho(value: unknown): RoutingEcho {
   const input = object(value);
   exact(
     input,
-    ['class', 'recipients', 'fellOpen', 'message'],
-    ['class', 'recipients', 'fellOpen', 'message'],
+    ['class', 'recipients'],
+    ['class', 'recipients'],
   );
   if (!Array.isArray(input.recipients) || input.recipients.length > 100) {
     throw new ProtocolContractError('Invalid routing recipient list.');
-  }
-  if (typeof input.fellOpen !== 'boolean') {
-    throw new ProtocolContractError('Invalid routing fell-open flag.');
   }
   return {
     class: nullableString(input.class, 'routing.class', 64),
     recipients: input.recipients.map((recipient) =>
       boundedString(recipient, 'routing.recipients', 120)
     ),
-    fellOpen: input.fellOpen,
-    message: nullableString(input.message, 'routing.message', 512),
   };
 }
 

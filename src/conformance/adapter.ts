@@ -220,12 +220,6 @@ export interface ConformanceAdmin {
     readonly isDefault?: boolean;
     readonly isMandatory?: boolean;
   }): Promise<ConformanceRole>;
-  referenceRoleFromTaxonomy(cube: ConformanceCube, role: ConformanceRole): Promise<void>;
-  configureMessageClassRouting(
-    cube: ConformanceCube,
-    className: string,
-    recipientDroneIds: readonly string[],
-  ): Promise<void>;
   replaceLogEntryId(cube: ConformanceCube, currentId: string, replacementId: string): Promise<void>;
   createDrone(
     principal: ConformancePrincipal,
@@ -396,7 +390,7 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'security.oversize-request', area: 'security' },
   { id: 'security.cross-cube-isolation', area: 'security' },
   { id: 'log.append-idempotency', area: 'log' },
-  { id: 'log.prose-routing-refusal', area: 'log' },
+  { id: 'log.mandatory-addressing', area: 'log' },
   { id: 'log.entry-query', area: 'log' },
   { id: 'log.read-cursor-tuple', area: 'cursor' },
   { id: 'sse.replay-live-transition', area: 'sse' },
@@ -1488,6 +1482,7 @@ export async function runAdapterConformance(
       documentCube,
       createProtocolEnvelope('document-foreign-citation', {
         post_id: '00000000-0000-4000-8000-00000000031f',
+        to: 'broadcast',
         message: 'Foreign evidence must remain hidden.',
         documents: [foreignDocument.id],
       }),
@@ -1529,6 +1524,7 @@ export async function runAdapterConformance(
       documentCube,
       createProtocolEnvelope('document-citation', {
         post_id: '00000000-0000-4000-8000-000000000320',
+        to: 'broadcast',
         message: 'See the document evidence.',
         documents: [created.id, successor.id],
       }),
@@ -1541,6 +1537,7 @@ export async function runAdapterConformance(
       documentCube,
       createProtocolEnvelope('document-citation-conflict', {
         post_id: '00000000-0000-4000-8000-000000000320',
+        to: 'broadcast',
         message: 'See the document evidence.',
         documents: [successor.id],
       }),
@@ -1648,14 +1645,14 @@ export async function runAdapterConformance(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-unknown-citation', {
-        post_id: '00000000-0000-4000-8000-000000000321', message: 'Unknown.', documents: ['unknown_full_id'],
+        post_id: '00000000-0000-4000-8000-000000000321', message: 'Unknown.', to: 'broadcast', documents: ['unknown_full_id'],
       }),
     ), 404, ErrorCode.DOCUMENT_NOT_FOUND, 'Unknown document citation');
     const longAccepted = await environment.operations.append(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-advisory', {
-        post_id: '00000000-0000-4000-8000-000000000322', message: 'x'.repeat(1025),
+        post_id: '00000000-0000-4000-8000-000000000322', message: 'x'.repeat(1025), to: 'broadcast',
       }),
     );
     expectStatus(longAccepted, 201, 'Advisory log append');
@@ -1664,7 +1661,7 @@ export async function runAdapterConformance(
       documentCredential,
       documentCube,
       createProtocolEnvelope('document-hard-cap', {
-        post_id: '00000000-0000-4000-8000-000000000323', message: 'x'.repeat(4097),
+        post_id: '00000000-0000-4000-8000-000000000323', message: 'x'.repeat(4097), to: 'broadcast',
       }),
     ), 413, ErrorCode.CONTENT_TOO_LARGE, 'Hard-cap log append');
     const citedRead = decodeReadLogResultEnvelope((await environment.operations.read(
@@ -1691,6 +1688,7 @@ export async function runAdapterConformance(
     const injectedBody = JSON.stringify(
       createProtocolEnvelope('inject-b1', {
         post_id: '00000000-0000-4000-8000-000000000301',
+        to: 'broadcast',
         message: injectedMessage,
       }),
     );
@@ -1713,6 +1711,7 @@ export async function runAdapterConformance(
       cubeB,
       createProtocolEnvelope('inject-b2', {
         post_id: '00000000-0000-4000-8000-000000000302',
+        to: 'broadcast',
         message: 'post-injection-sentinel',
       }),
     );
@@ -1763,6 +1762,7 @@ export async function runAdapterConformance(
     const baseBody = JSON.stringify(
       createProtocolEnvelope('oversize-a1', {
         post_id: '00000000-0000-4000-8000-000000000303',
+        to: 'broadcast',
         message: 'must-not-persist',
       }),
     );
@@ -1795,6 +1795,7 @@ export async function runAdapterConformance(
       createProtocolEnvelope('append-b1', {
         post_id: '00000000-0000-4000-8000-000000000304',
         message: 'principal-b-secret',
+        to: 'broadcast',
       }),
     );
     expectStatus(secretAppend, 201, 'Principal B append');
@@ -1821,16 +1822,12 @@ export async function runAdapterConformance(
     });
     const firstRecipient = await environment.admin.createDrone(principal, cube, role);
     const secondRecipient = await environment.admin.createDrone(principal, cube, role);
-    await environment.admin.configureMessageClassRouting(cube, 'conformance-review', [firstRecipient.id]);
-    await environment.admin.configureMessageClassRouting(cube, 'conformance-security', [firstRecipient.id]);
     const postId = '00000000-0000-4000-8000-000000000313';
     const initialPayload = {
       post_id: postId,
       message: 'once',
-      visibility: 'direct' as const,
-      recipientDroneIds: [firstRecipient.id],
+      to: [firstRecipient.id],
       class: 'review',
-      to: ['Coordinator'],
     };
     const first = await environment.operations.append(
       credential,
@@ -1841,32 +1838,12 @@ export async function runAdapterConformance(
     const firstResult = decodeAppendLogResultEnvelope(first.body).payload;
     invariant(!firstResult.deduplicated, 'Initial append was reported as deduplicated.');
     for (const [index, vector] of APPEND_LOG_IDEMPOTENCY_CONFORMANCE.entries()) {
-      const classRouting = vector.mutation === 'resolved_class_routing';
-      const vectorPostId = classRouting
-        ? '00000000-0000-4000-8000-000000000314'
-        : postId;
-      if (classRouting) {
-        const baseline = await environment.operations.append(
-          credential,
-          cube,
-          createProtocolEnvelope('append-idempotency-class-baseline', {
-            post_id: vectorPostId,
-            message: 'once',
-            class: 'conformance-review',
-          }),
-        );
-        expectStatus(baseline, 201, 'Resolved class-routing baseline');
-      }
-      const payload = classRouting ? {
-        post_id: vectorPostId,
-        message: 'once',
-        class: 'conformance-security',
-      } : {
+      const payload = {
         ...initialPayload,
         ...(vector.mutation === 'message' ? { message: 'changed' } : {}),
-        ...(vector.mutation === 'visibility' ? { visibility: 'broadcast' as const } : {}),
-        ...(vector.mutation === 'recipient_set' ? { recipientDroneIds: [secondRecipient.id] } : {}),
-        ...(vector.mutation === 'ignored_request_shape' ? { class: 'security', to: ['Security Auditor'] } : {}),
+        ...(vector.mutation === 'audience' ? { to: 'broadcast' as const } : {}),
+        ...(vector.mutation === 'recipient_set' ? { to: [secondRecipient.id] } : {}),
+        ...(vector.mutation === 'classification' ? { class: 'security' } : {}),
       };
       const response = await environment.operations.append(
         vector.actor === 'same' ? credential : otherCredential,
@@ -1894,69 +1871,76 @@ export async function runAdapterConformance(
     );
     expectStatus(read, 200, 'Idempotent append read');
     invariant(
-      decodeReadLogResultEnvelope(read.body).payload.entries.length === 3,
+      decodeReadLogResultEnvelope(read.body).payload.entries.length === 2,
       'Append collision controls persisted the wrong number of entries.',
     );
-    return { persisted_entries: 3, stable_entry: true, deduplicated: true, conflicts: 4, cross_author_created: true };
+    return { persisted_entries: 2, stable_entry: true, deduplicated: true, conflicts: 3, cross_author_created: true };
   });
 
-  await record('log.prose-routing-refusal', async () => {
-    const cube = await environment.admin.createCube('prose-routing-cube');
+  await record('log.mandatory-addressing', async () => {
+    const cube = await environment.admin.createCube('mandatory-addressing-cube');
     await environment.admin.grantCube(principalA, cube);
-    const message = 'START NOW exact slice\nto:[Builder]';
-    const before = await environment.admin.observeAuthorityState();
-    expectError(
-      await environment.operations.append(
-        credentialA,
-        cube,
-        createProtocolEnvelope('prose-routing-refusal', {
-          post_id: '30000000-0000-4000-8000-000000000001',
-          message,
-        }),
-      ),
-      400,
-      ErrorCode.INVALID_INPUT,
-      'Prose-only routing annotation',
-    );
-    assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Prose-only routing refusal');
-
-    const broadcast = await environment.operations.append(
-      credentialA,
-      cube,
-      createProtocolEnvelope('prose-routing-broadcast', {
-        post_id: '30000000-0000-4000-8000-000000000002',
-        message,
-        visibility: 'broadcast',
-      }),
-    );
-    expectStatus(broadcast, 201, 'Explicit-broadcast routing annotation');
-    const structuredTo = await environment.operations.append(
-      credentialA,
-      cube,
-      createProtocolEnvelope('prose-routing-to', {
-        post_id: '30000000-0000-4000-8000-000000000004',
-        message,
-        to: ['Structured Recipient'],
-      }),
-    );
-    expectStatus(structuredTo, 201, 'Structured-to routing annotation');
     const role = await environment.admin.createRole(cube, {
       roleClass: 'worker',
       isHumanSeat: false,
       name: 'Structured Recipient',
     });
     const recipient = await environment.admin.createDrone(principalA, cube, role);
+    const message = 'START NOW exact slice';
+    const before = await environment.admin.observeAuthorityState();
+    expectError(
+      await environment.operations.append(
+        credentialA,
+        cube,
+        createProtocolEnvelope('mandatory-addressing-omitted', {
+          post_id: '30000000-0000-4000-8000-000000000001',
+          message,
+        }),
+      ),
+      400,
+      ErrorCode.INVALID_INPUT,
+      'Omitted mandatory addressing',
+    );
+    assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Mandatory-addressing refusal');
+
+    const broadcast = await environment.operations.append(
+      credentialA,
+      cube,
+      createProtocolEnvelope('mandatory-addressing-broadcast', {
+        post_id: '30000000-0000-4000-8000-000000000002',
+        message,
+        to: 'broadcast',
+      }),
+    );
+    expectStatus(broadcast, 201, 'Explicit broadcast addressing');
+    const broadcastResult = decodeAppendLogResultEnvelope(broadcast.body).payload;
+    invariant(broadcastResult.entry.visibility === 'broadcast', 'Scalar broadcast did not produce broadcast visibility.');
+    invariant(
+      (broadcastResult.entry.recipient_drone_ids?.length ?? 0) === 0,
+      'Scalar broadcast unexpectedly resolved direct recipients.',
+    );
     const directed = await environment.operations.append(
       credentialA,
       cube,
-      createProtocolEnvelope('prose-routing-directed', {
+      createProtocolEnvelope('mandatory-addressing-directed', {
         post_id: '30000000-0000-4000-8000-000000000003',
         message,
-        recipientDroneIds: [recipient.id],
+        to: [recipient.id],
+        class: 'cube-wide',
       }),
     );
-    expectStatus(directed, 201, 'Structured-recipient routing annotation');
-    return { refused_status: 400, code: ErrorCode.INVALID_INPUT, persisted: false, accepted_escapes: 3 };
+    expectStatus(directed, 201, 'Recipient-selector union branch');
+    const directedResult = decodeAppendLogResultEnvelope(directed.body).payload;
+    invariant(directedResult.entry.visibility === 'direct', 'Explicit recipient selectors did not produce direct visibility.');
+    invariant(
+      directedResult.entry.recipient_drone_ids?.includes(recipient.id) === true,
+      'Explicit recipient selectors did not resolve the named recipient.',
+    );
+    invariant(
+      directedResult.entry.recipient_drone_ids?.length === 1,
+      'Classification changed or fell open the explicit recipient set.',
+    );
+    return { refused_status: 400, code: ErrorCode.INVALID_INPUT, persisted: false, broadcast: true, union: true, no_fall_open: true };
   });
 
   await record('log.entry-query', async () => {
@@ -1983,9 +1967,8 @@ export async function runAdapterConformance(
         cube,
         createProtocolEnvelope(`entry-query-append-${index}`, {
           post_id: `40000000-0000-4000-8000-00000000000${index}`,
+          to: [acknowledgedRecipient.id, claimingRecipient.id],
           message: `entry-query-${index}`,
-          visibility: 'direct',
-          recipientDroneIds: [acknowledgedRecipient.id, claimingRecipient.id],
         }),
       );
       expectStatus(response, 201, `Entry-query fixture append ${index}`);
@@ -2100,6 +2083,7 @@ export async function runAdapterConformance(
         cubeA,
         createProtocolEnvelope(`append-a${index + 1}`, {
           post_id: `00000000-0000-4000-8000-${String(305 + index).padStart(12, '0')}`,
+          to: 'broadcast',
           message,
         }),
       );
@@ -2137,6 +2121,7 @@ export async function runAdapterConformance(
         cubeA,
         createProtocolEnvelope('append-a4', {
           post_id: '00000000-0000-4000-8000-000000000308',
+          to: 'broadcast',
           message: 'delta',
         }),
       );
@@ -2164,6 +2149,7 @@ export async function runAdapterConformance(
         cubeA,
         createProtocolEnvelope('append-a5', {
           post_id: '00000000-0000-4000-8000-000000000309',
+          to: 'broadcast',
           message: 'epsilon',
         }),
       );
@@ -2222,9 +2208,8 @@ export async function runAdapterConformance(
       cube,
       createProtocolEnvelope('ack-status-append', {
         post_id: '00000000-0000-4000-8000-000000000310',
+        to: [acknowledgedRecipient.id, claimingRecipient.id],
         message: 'START NOW acknowledgement status fixture',
-        visibility: 'direct',
-        recipientDroneIds: [acknowledgedRecipient.id, claimingRecipient.id],
       }),
     );
     expectStatus(append, 201, 'Acknowledgement-status fixture append');
@@ -2816,8 +2801,7 @@ export async function runAdapterConformance(
         createProtocolEnvelope('evict-direct-target', {
           message: 'must-not-fan-out',
           post_id: '00000000-0000-4000-8000-000000000310',
-          visibility: 'direct',
-          recipientDroneIds: [evictedDrone.id],
+          to: [evictedDrone.id],
         }),
       ),
       404,
@@ -2897,12 +2881,6 @@ export async function runAdapterConformance(
       isHumanSeat: true,
       name: 'Human Seat',
     });
-    const referencedRole = await environment.admin.createRole(roleContractCube, {
-      roleClass: 'worker',
-      isHumanSeat: false,
-      name: 'Routed Reviewer',
-    });
-    await environment.admin.referenceRoleFromTaxonomy(roleContractCube, referencedRole);
     const activeRole = await environment.admin.createRole(roleContractCube, {
       roleClass: 'worker',
       isHumanSeat: false,
@@ -2914,7 +2892,6 @@ export async function runAdapterConformance(
       [defaultRole, ErrorCode.DEFAULT_ROLE_REQUIRED, 'default role'],
       [mandatoryRole, ErrorCode.ROLE_REQUIRED, 'mandatory role'],
       [humanRole, ErrorCode.ROLE_REQUIRED, 'human-seat role'],
-      [referencedRole, ErrorCode.ROLE_REFERENCED, 'taxonomy-referenced role'],
       [activeRole, ErrorCode.ROLE_IN_USE, 'active-drone role'],
     ] as const;
     for (const [index, [role, code, label]] of refusals.entries()) {
@@ -3007,6 +2984,7 @@ export async function runAdapterConformance(
       roleContractCube,
       createProtocolEnvelope('role-delete-attribution', {
         post_id: '00000000-0000-4000-8000-000000000311',
+        to: 'broadcast',
         message: 'attribution survives',
       }),
     );
@@ -3048,7 +3026,6 @@ export async function runAdapterConformance(
         ErrorCode.ROLE_IN_USE,
         ErrorCode.DEFAULT_ROLE_REQUIRED,
         ErrorCode.ROLE_REQUIRED,
-        ErrorCode.ROLE_REFERENCED,
       ],
       in_use_message_actionable: true,
       evicted_drone_retargeted: true,
@@ -3674,6 +3651,7 @@ export async function runAdapterConformance(
       cube,
       createProtocolEnvelope('delete-log', {
         post_id: '00000000-0000-4000-8000-000000000312',
+        to: 'broadcast',
         message: 'deleted with cube',
       }),
     );

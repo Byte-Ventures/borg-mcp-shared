@@ -50,7 +50,7 @@ describe('packed artifact', () => {
     )) as { name: string; version: string; sourceMapCount: number; readmeRelativeLinkCount: number };
     expect(report).toMatchObject({
       name: 'borgmcp-shared',
-      version: '0.15.0',
+      version: '1.0.0',
     });
     expect(report.sourceMapCount).toBeGreaterThan(0);
     expect(report.readmeRelativeLinkCount).toBeGreaterThan(0);
@@ -141,6 +141,7 @@ describe('packed artifact', () => {
           CUBE_TEMPLATES,
           ErrorCode,
           PROTOCOL_VERSION,
+          decodeAppendLogRequest,
           decodeAssociateRepositoryCubeRequest,
           decodeCreateCubeRequest,
           decodeDeleteCubeRequest,
@@ -169,10 +170,48 @@ describe('packed artifact', () => {
           working_repo_name: 'repository',
           repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
         });
+        let omittedAddressingRefused = false;
+        let retiredAddressingRefused = false;
+        try {
+          decodeAppendLogRequest({
+            post_id: '00000000-0000-4000-8000-000000000004',
+            message: 'missing audience',
+          });
+        } catch {
+          omittedAddressingRefused = true;
+        }
+        try {
+          decodeAppendLogRequest({
+            post_id: '00000000-0000-4000-8000-000000000005',
+            message: 'retired audience',
+            to: 'broadcast',
+            visibility: 'broadcast',
+          });
+        } catch {
+          retiredAddressingRefused = true;
+        }
         process.stdout.write(JSON.stringify({
           templates: CUBE_TEMPLATES,
           templateAcceptance: CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
           protocolVersion: PROTOCOL_VERSION,
+          appendRequest: decodeAppendLogRequest({
+            post_id: '00000000-0000-4000-8000-000000000004',
+            message: 'explicit audience',
+            to: ['Builder'],
+          }),
+          omittedAddressingRefused,
+          retiredAddressingRefused,
+          classificationOnlyTaxonomies: Object.values(TEMPLATES).every((template) =>
+            template.message_taxonomy?.every((entry) =>
+              Object.keys(entry).every((key) => ['class', 'prefixes', 'lifecycle'].includes(key))
+            )
+          ),
+          explicitAddressingPlaybooks: Object.values(TEMPLATES).every((template) =>
+            template.roles.every((role) =>
+              role.detailed_description.includes('Every borg_log call must set structured \`to:\`') &&
+              role.detailed_description.includes('\`to: "broadcast"\`')
+            )
+          ),
           deleteRequest: decodeDeleteCubeRequest({}),
           deleteResponse: decodeDeleteCubeResponse({
             cube_id: '00000000-0000-4000-8000-000000000003',
@@ -234,6 +273,15 @@ describe('packed artifact', () => {
         { name: 'rejects a non-string template', template: null, accepts: false },
       ],
       protocolVersion: '12',
+      appendRequest: {
+        post_id: '00000000-0000-4000-8000-000000000004',
+        message: 'explicit audience',
+        to: ['Builder'],
+      },
+      omittedAddressingRefused: true,
+      retiredAddressingRefused: true,
+      classificationOnlyTaxonomies: true,
+      explicitAddressingPlaybooks: true,
       deleteRequest: {},
       deleteResponse: {
         cube_id: '00000000-0000-4000-8000-000000000003',
@@ -325,7 +373,7 @@ describe('packed artifact', () => {
       name: 'borgmcp-shared-broken-consumer',
       private: true,
       version: '0.0.0',
-      dependencies: { 'borgmcp-shared': '0.15.0' },
+      dependencies: { 'borgmcp-shared': '1.0.0' },
     }));
     execFileSync('npm', [
       'install',

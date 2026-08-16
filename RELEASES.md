@@ -74,3 +74,10 @@ Never rerun or move that tag.
 the release live with registry integrity
 `sha512-6t25in3kpkVZTQqbeP65HgObU8GpOY3ewtY2SoaHDtIcJEtoe1LRwh3rguE6VqcqPWBUtmXdOaTMdtBErx5+oA==`.
 Never rerun or move that tag.
+
+`borgmcp-shared@0.14.0` was published on 2026-08-16 and is immutable. Annotated
+tag object `4ecd4e54bbf5a3dd719855ccc4d6f9db3939800f` peels to protected-main commit
+`a69926023d53268131e95b63efd141a17c634e2d`; successful attempt-1 workflow run
+`31957839605` published registry integrity
+`sha512-rKRMxnxTnW+o3WOqtAFoih9IeRKCZw/lltqz7CbjC1riNq52CsZ871o1Fo7Fdk0WqwuzdFQmRJ7qOzPi08Q/QA==`.
+Never rerun or move that tag.

@@ -43,10 +43,9 @@ describe('public conformance vectors', () => {
     expect(APPEND_LOG_IDEMPOTENCY_CONFORMANCE).toEqual([
       expect.objectContaining({ actor: 'same', mutation: 'none', expected: 'deduplicated' }),
       expect.objectContaining({ actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' }),
-      expect.objectContaining({ actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'audience', expected: 'POST_ID_CONFLICT' }),
       expect.objectContaining({ actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' }),
-      expect.objectContaining({ actor: 'same', mutation: 'ignored_request_shape', expected: 'deduplicated' }),
-      expect.objectContaining({ actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' }),
+      expect.objectContaining({ actor: 'same', mutation: 'classification', expected: 'deduplicated' }),
       expect.objectContaining({ actor: 'different', mutation: 'none', expected: 'created' }),
     ]);
   });
@@ -126,7 +125,6 @@ describe('public conformance vectors', () => {
       { status: 409, error: 'DEFAULT_ROLE_REQUIRED', mutation: 'none' },
       { status: 409, error: 'ROLE_REQUIRED', mutation: 'none' },
       { status: 409, error: 'ROLE_REQUIRED', mutation: 'none' },
-      { status: 409, error: 'ROLE_REFERENCED', mutation: 'none' },
       { status: 404, error: 'NOT_FOUND', mutation: 'none' },
     ]);
   });

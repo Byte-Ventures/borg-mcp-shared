@@ -78,7 +78,6 @@ type Fault =
   | 'deny-read-removed-document-get'
   | 'mutate-over-budget-successor'
   | 'cross-cube-leak'
-  | 'skip-message-class-configuration'
   | 'ignore-stream-cursor'
   | 'drop-transition-write'
   | 'keep-stream-after-revoke'
@@ -134,7 +133,6 @@ type Fault =
   | 'allow-active-role-delete'
   | 'allow-default-role-delete'
   | 'allow-required-role-delete'
-  | 'allow-referenced-role-delete'
   | 'reveal-unknown-role-delete'
   | 'wrong-role-in-use-message'
   | 'skip-evicted-role-retarget'
@@ -151,8 +149,8 @@ type Fault =
   | 'ack-status-consume-unread'
   | 'ack-status-unknown-as-missing'
   | 'ack-status-writes-ack'
-  | 'accept-prose-routing-annotation'
-  | 'reject-prose-routing-escape'
+  | 'accept-missing-log-addressing'
+  | 'fall-open-log-addressing'
   | 'entry-query-writes-ack'
   | 'entry-query-consumes-entry'
   | 'entry-query-returns-first-ambiguous'
@@ -176,14 +174,12 @@ interface CubeState {
   template: CubeTemplate | null;
   directive: string;
   taxonomyMarker: string | null;
-  messageClassRouting: Map<string, string[]>;
   entries: EnrichedStreamEntry[];
   posts: Map<string, {
     entry: EnrichedStreamEntry;
     message: string;
     visibility: 'broadcast' | 'direct';
     recipientDroneIds: string[];
-    class: string | null;
     documents: string[];
   }>;
   claims: ReadLogClaim[];
@@ -207,7 +203,6 @@ interface RoleState {
   detailedDescription?: string;
   isDefault?: boolean;
   isMandatory?: boolean;
-  taxonomyReferenced?: boolean;
   templateKind?: 'human_seat' | 'default_worker';
 }
 
@@ -354,7 +349,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cubes.set(handle.id, {
         handle, name: null, workingRepoName: null, repository: null, template: null,
         directive: '', taxonomyMarker: null,
-        messageClassRouting: new Map(),
         entries: [], posts: new Map(), claims: [], acknowledgements: [], decisions: [], expired: new Set(),
         roles: new Map(), drones: new Map(), documents: new Map(),
       });
@@ -388,26 +382,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const handle = { id: this.uuid() };
       this.cube(cube.id).roles.set(handle.id, { handle, ...input });
       return handle;
-    },
-    referenceRoleFromTaxonomy: async (
-      cube: ConformanceCube,
-      role: ConformanceRole,
-    ): Promise<void> => {
-      const state = this.cube(cube.id).roles.get(role.id);
-      if (!state) throw new Error('Cannot reference a foreign role from taxonomy.');
-      state.taxonomyReferenced = true;
-    },
-    configureMessageClassRouting: async (
-      cube: ConformanceCube,
-      className: string,
-      recipientDroneIds: readonly string[],
-    ): Promise<void> => {
-      if (this.fault === 'skip-message-class-configuration') return;
-      const state = this.cube(cube.id);
-      if (recipientDroneIds.some((id) => !state.drones.has(id))) {
-        throw new Error('Cannot route a message class to an unknown drone.');
-      }
-      state.messageClassRouting.set(className, [...recipientDroneIds].sort());
     },
     replaceLogEntryId: async (
       cube: ConformanceCube,
@@ -760,7 +734,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           this.cubes.set(handle.id, {
             handle, name: null, workingRepoName: null, repository: null, template: null,
             directive: '', taxonomyMarker: null,
-            messageClassRouting: new Map(),
             entries: [], posts: new Map(), claims: [], acknowledgements: [], decisions: [], expired: new Set(),
             roles: new Map(), drones: new Map(), documents: new Map(),
           });
@@ -790,7 +763,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           template: null,
           directive: '',
           taxonomyMarker: null,
-          messageClassRouting: new Map(),
           entries: [],
           posts: new Map(),
           claims: [],
@@ -901,7 +873,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         template: envelope.payload.template,
         directive: '',
         taxonomyMarker: null,
-        messageClassRouting: new Map(),
         entries: [],
         posts: new Map(),
         claims: [],
@@ -1361,45 +1332,32 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       try {
         envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
       } catch (error) {
-        if (this.fault !== 'accept-prose-routing-annotation') {
+        if (this.fault !== 'accept-missing-log-addressing') {
           if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
           throw error;
         }
         envelope = decodeProtocolEnvelope(request, (payload) => payload as {
           post_id: string;
           message: string;
-          visibility?: 'broadcast' | 'direct';
-          recipientDroneIds?: string[];
+          to?: 'broadcast' | string[];
           class?: string;
-          to?: string[];
           documents?: string[];
         });
       }
       const cube = this.cube(cubeHandle.id);
-      if (
-        this.fault === 'reject-prose-routing-escape' &&
-        /\bto\s*:\s*\[[^\]\r\n]*\]\s*$/iu.test(envelope.payload.message)
-      ) {
-        return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
-      }
       const messageBytes = utf8ByteLength(envelope.payload.message);
       if (messageBytes > 4096) return this.error(413, ErrorCode.CONTENT_TOO_LARGE, envelope.request_id);
       const authorId = access.drone?.handle.id ?? access.principal.handle.id;
-      const recipients = [...(envelope.payload.recipientDroneIds ?? [])].sort();
-      const usesExplicitDelivery = envelope.payload.visibility !== undefined ||
-        envelope.payload.recipientDroneIds !== undefined;
-      const resolvedClass = usesExplicitDelivery ? null : envelope.payload.class ?? null;
-      if (!usesExplicitDelivery && resolvedClass !== null && !cube.messageClassRouting.has(resolvedClass)) {
-        return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
-      }
-      const resolvedRecipients = usesExplicitDelivery
-        ? recipients
-        : resolvedClass === null ? [] : cube.messageClassRouting.get(resolvedClass) ?? [];
+      const audience = this.fault === 'fall-open-log-addressing' && envelope.payload.class !== undefined
+        ? 'broadcast'
+        : envelope.payload.to ?? 'broadcast';
+      const resolvedRecipients = audience === 'broadcast'
+        ? []
+        : [...audience].sort();
       const resolvedRouting = {
         message: envelope.payload.message,
-        visibility: envelope.payload.visibility ?? 'broadcast',
+        visibility: audience === 'broadcast' ? 'broadcast' as const : 'direct' as const,
         recipientDroneIds: resolvedRecipients,
-        class: resolvedClass,
         documents: [...(envelope.payload.documents ?? [])].sort(),
       };
       const postKey = `${authorId}/${envelope.payload.post_id}`;
@@ -1409,7 +1367,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           message: existing.message,
           visibility: existing.visibility,
           recipientDroneIds: existing.recipientDroneIds,
-          class: existing.class,
           documents: existing.documents,
         })) {
           return this.error(409, ErrorCode.POST_ID_CONFLICT, envelope.request_id);
@@ -1423,7 +1380,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           }),
         };
       }
-      if (recipients.some((id) => {
+      if (resolvedRecipients.some((id) => {
         const recipient = cube.drones.get(id);
         return recipient === undefined ||
           (recipient.evicted && this.fault !== 'keep-evicted-drone-routable');
@@ -1443,7 +1400,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         cube_id: cubeHandle.id,
         drone_id: authorId,
         message: envelope.payload.message,
-        visibility: envelope.payload.visibility ?? 'broadcast',
+        visibility: resolvedRouting.visibility,
         created_at: this.timestamp(),
         drone_label: 'one-of-one-builder',
         role_name: 'Builder',
@@ -1495,6 +1452,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           request = createProtocolEnvelope(envelope.request_id, {
             post_id: envelope.payload.post_id,
             message: 'interpreted-input',
+            to: envelope.payload.to,
           });
         }
       }
@@ -1880,9 +1838,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if ((role.isMandatory || role.isHumanSeat) && this.fault !== 'allow-required-role-delete') {
         return this.error(409, ErrorCode.ROLE_REQUIRED, envelope.request_id);
       }
-      if (role.taxonomyReferenced && this.fault !== 'allow-referenced-role-delete') {
-        return this.error(409, ErrorCode.ROLE_REFERENCED, envelope.request_id);
-      }
       if ([...cube.drones.values()].some(
         (drone) => !drone.evicted && drone.roleId === roleHandle.id,
       ) && this.fault !== 'allow-active-role-delete') {
@@ -2256,17 +2211,6 @@ describe('executable adapter conformance', () => {
     );
   });
 
-  it('rejects a reference adapter without configured message classes', async () => {
-    const report = await runAdapterConformance(
-      new MemoryConformanceEnvironment('skip-message-class-configuration'),
-      fastTimeouts,
-    );
-    expect(report.results).toContainEqual(expect.objectContaining({
-      id: 'log.append-idempotency',
-      ok: false,
-    }));
-  });
-
   it.each([
     ['allowed read-only document put', 'allow-read-document-put', 'documents.lifecycle'],
     ['allowed peer document removal', 'allow-peer-document-remove', 'documents.lifecycle'],
@@ -2338,7 +2282,6 @@ describe('executable adapter conformance', () => {
     ['allowed deletion of an actively assigned role', 'allow-active-role-delete', 'roles.delete-contract'],
     ['allowed deletion of the default role', 'allow-default-role-delete', 'roles.delete-contract'],
     ['allowed deletion of a required role', 'allow-required-role-delete', 'roles.delete-contract'],
-    ['allowed deletion of a taxonomy-referenced role', 'allow-referenced-role-delete', 'roles.delete-contract'],
     ['revealed an unknown role through a typed integrity refusal', 'reveal-unknown-role-delete', 'roles.delete-contract'],
     ['returned an unactionable role-in-use message', 'wrong-role-in-use-message', 'roles.delete-contract'],
     ['left an evicted drone on its deleted role', 'skip-evicted-role-retarget', 'roles.delete-contract'],
@@ -2355,8 +2298,8 @@ describe('executable adapter conformance', () => {
     ['consumed unread state during status lookup', 'ack-status-consume-unread', 'acks.status-query'],
     ['returned missing acknowledgement state for an unknown entry', 'ack-status-unknown-as-missing', 'acks.status-query'],
     ['wrote an acknowledgement during status lookup', 'ack-status-writes-ack', 'acks.status-query'],
-    ['accepted a prose-only routing annotation', 'accept-prose-routing-annotation', 'log.prose-routing-refusal'],
-    ['rejected an explicit routing escape', 'reject-prose-routing-escape', 'log.prose-routing-refusal'],
+    ['accepted omitted log addressing', 'accept-missing-log-addressing', 'log.mandatory-addressing'],
+    ['fell open explicit log addressing', 'fall-open-log-addressing', 'log.mandatory-addressing'],
     ['wrote an acknowledgement during entry lookup', 'entry-query-writes-ack', 'log.entry-query'],
     ['consumed an entry during lookup', 'entry-query-consumes-entry', 'log.entry-query'],
     ['returned the first ambiguous prefix match', 'entry-query-returns-first-ambiguous', 'log.entry-query'],

@@ -21,8 +21,6 @@ export interface TemplateRole {
 export interface MessageTaxonomyClass {
   class: string;
   prefixes?: string[];
-  routing: 'broadcast' | 'directed';
-  default_to?: string[];
   lifecycle?: 'dispatch' | 'completion';
 }
 
@@ -156,7 +154,7 @@ Same-repository workflow policy:
 - Run \`git remote get-url origin\` to determine whether a hosted origin exists.
 - When that command succeeds, publish the branch with \`git push -u origin <branch>\`; the branch is REVIEW-READY only after that push and exact remote-head verification.
 - When that command fails because no origin exists, omit the push; the work is REVIEW-READY when its exact commit SHA is available through the project review mechanism.
-- After every merge to the protected or main branch, broadcast the merge SHA.`;
+- After every merge to the protected or main branch, post the merge SHA with \`to: "broadcast"\`.`;
 
 export const UNIVERSAL_SAFETY_DISCIPLINES = [WAKE_PATH_MONITOR_DISCIPLINE];
 
@@ -179,9 +177,10 @@ Drone addressing:
 const STRUCTURED_MESSAGE_ROUTING_DISCIPLINE = `
 
 Structured message routing:
-- Pass the intended recipient through borg_log's structured \`to:\` parameter for every directed message.
+- Every borg_log call must set structured \`to:\` to either \`"broadcast"\` or a non-empty recipient selector array.
+- Use \`to: "broadcast"\` only when every cube member is the intended audience; otherwise name every intended recipient explicitly.
 - Naming a recipient inside the message text does not route it.
-- The default is broadcast. Without \`to:\`, a matching directed class, or explicit direct visibility, the unrouted message broadcasts to every seat.`;
+- Message classes and prefixes classify lifecycle signals only; they never choose recipients or provide a default audience.`;
 
 const DIRECTED_DISCUSSION_DISCIPLINE = `
 - Use QUESTION, ANSWER, or HEADS-UP with \`to:\` for directed discussion outside the role's terminal workflow signals.`;
@@ -215,82 +214,57 @@ const SOFTWARE_DEV_TAXONOMY: MessageTaxonomy = [
   {
     class: 'status-claim',
     prefixes: ['STARTING', 'PROGRESS', 'ACK', 'PONG', 'PUSHING'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'completion-status',
     prefixes: ['DONE'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
     lifecycle: 'completion',
   },
   {
     class: 'review-request',
     prefixes: ['REVIEW-READY'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'review-feedback',
     prefixes: ['REVIEW-FEEDBACK', 'RQ-FEEDBACK', 'SECURITY-FEEDBACK', 'PD-FEEDBACK', 'PS-FEEDBACK'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'completion-gate',
     prefixes: ['REVIEW-APPROVED', 'RQ-APPROVED', 'SECURITY-APPROVED', 'PD-APPROVED', 'PS-APPROVED'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
     lifecycle: 'completion',
   },
   {
     class: 'blocked-signal',
     prefixes: ['BLOCKED'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'dispatch-routing',
     prefixes: ['START NOW', 'RESUME NOW', 'REVIEW NOW', 'HOLD'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
     lifecycle: 'dispatch',
   },
   {
     class: 'ping',
     prefixes: ['PING'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'peer-question',
     prefixes: ['QUESTION', 'ASK'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'peer-answer',
     prefixes: ['ANSWER'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'peer-heads-up',
     prefixes: ['HEADS-UP'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'finding',
     prefixes: ['PROPOSAL'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'cube-wide',
     prefixes: ['DECISION', 'HALT', 'MERGED'],
-    routing: 'broadcast',
   },
 ];
 
@@ -327,7 +301,7 @@ Communication:
 - Surface decisions, blockers, asks, and material evidence in the human conversation, not only the cube log.
 - Distinguish read-only findings, proposals, completed actions, and actions awaiting authority.
 - Send START NOW, RESUME NOW, REVIEW NOW, and HOLD with \`to:\` to the named implementer or reviewer. Use \`to:\` for every later directed transition.
-- Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT only for an intentional cube-wide human-seat message. After an authorized merge, broadcast MERGED with the exact merge SHA.
+- Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT with \`to: "broadcast"\` only for an intentional cube-wide human-seat message. After an authorized merge, post MERGED with the exact merge SHA and \`to: "broadcast"\`.
 - Keep the primary playbook operational and concise. Delete obsolete, redundant, historical, cautionary, and example-heavy prose; do not relocate it into new runbooks, decisions, contracts, rationale, or case-study archives unless it has a current operational consumer.
 
 Builders implement; reviewers review; you coordinate. Integrate only when authorized.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${GIT_OPERATIONAL_DISCIPLINE_COORDINATOR}${PUSH_DISCIPLINE_COORDINATOR}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}`;
@@ -508,76 +482,53 @@ const STARTER_TAXONOMY: MessageTaxonomy = [
   {
     class: 'status-claim',
     prefixes: ['STARTING', 'PROGRESS', 'ACK', 'PONG'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'completion-status',
     prefixes: ['DONE'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
     lifecycle: 'completion',
   },
   {
     class: 'review-request',
     prefixes: ['REVIEW-READY'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'review-feedback',
     prefixes: ['FEEDBACK'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'completion-gate',
     prefixes: ['APPROVED'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
     lifecycle: 'completion',
   },
   {
     class: 'blocked-signal',
     prefixes: ['BLOCKED'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'dispatch-routing',
     prefixes: ['START NOW', 'RESUME NOW', 'REVIEW NOW', 'HOLD'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
     lifecycle: 'dispatch',
   },
   {
     class: 'ping',
     prefixes: ['PING'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'peer-question',
     prefixes: ['QUESTION', 'ASK'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'peer-answer',
     prefixes: ['ANSWER'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'peer-heads-up',
     prefixes: ['HEADS-UP'],
-    routing: 'directed',
-    default_to: ['coordinator', 'queen'],
   },
   {
     class: 'cube-wide',
     prefixes: ['DECISION', 'HALT'],
-    routing: 'broadcast',
   },
 ];
 
@@ -606,7 +557,7 @@ const STARTER: Template = {
 - Questions, findings, proposals, open queues, and spare capacity do not authorize new work.
 - Route completed work to the Reviewer only when review is required.
 - Send START NOW, RESUME NOW, REVIEW NOW, and HOLD with \`to:\` to the named Worker or Reviewer.
-- Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT only for an intentional cube-wide human-seat message.
+- Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT with \`to: "broadcast"\` only for an intentional cube-wide human-seat message.
 - Ask the human before rescoping, abandoning, waiving, merging, shipping, publishing, or taking an irreversible action unless already delegated.
 - Waiting is valid when work is complete, blocked, under review, or awaiting authority.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${ANTI_PASSIVE_STANDING_DISCIPLINE}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}`,
     },
@@ -642,83 +593,58 @@ const LOCAL_MODEL_TAXONOMY: MessageTaxonomy = [
   {
     class: 'executor-echo',
     prefixes: ['PACKET-ECHO'],
-    routing: 'directed',
-    default_to: ['shaper'],
   },
   {
     class: 'executor-refusal',
     prefixes: ['SPEC-GAP'],
-    routing: 'directed',
-    default_to: ['shaper'],
   },
   {
     class: 'executor-completion',
     prefixes: ['PACKET-DONE'],
-    routing: 'directed',
-    default_to: ['shaper'],
     lifecycle: 'completion',
   },
   {
     class: 'packet-dispatch',
     prefixes: ['EXECUTE PACKET'],
-    routing: 'directed',
-    default_to: ['executor'],
     lifecycle: 'dispatch',
   },
   {
     class: 'packet-verdict',
     prefixes: ['ACCEPT', 'REJECT'],
-    routing: 'directed',
-    default_to: ['executor'],
   },
   {
     class: 'blocked-signal',
     prefixes: ['BLOCKED'],
-    routing: 'directed',
-    default_to: ['director', 'queen'],
   },
   {
     class: 'review-request',
     prefixes: ['REVIEW-READY'],
-    routing: 'directed',
-    default_to: ['director', 'queen'],
   },
   {
     class: 'director-dispatch',
     prefixes: ['DISPATCH', 'HOLD'],
-    routing: 'directed',
-    default_to: ['shaper'],
     lifecycle: 'dispatch',
   },
   {
     class: 'director-approval',
     prefixes: ['APPROVED'],
-    routing: 'directed',
-    default_to: ['shaper'],
     lifecycle: 'completion',
   },
   {
     class: 'peer-question',
     prefixes: ['QUESTION'],
-    routing: 'directed',
-    default_to: ['director', 'queen'],
   },
   {
     class: 'peer-answer',
     prefixes: ['ANSWER'],
-    routing: 'directed',
-    default_to: ['director', 'queen'],
   },
   {
     class: 'peer-heads-up',
     prefixes: ['HEADS-UP'],
-    routing: 'directed',
-    default_to: ['director', 'queen'],
   },
   {
     class: 'cube-wide',
     prefixes: ['DECISION'],
-    routing: 'broadcast',
   },
 ];
 
@@ -754,7 +680,7 @@ Direction and verification:
 - Never approve work you authored. If the Shaper implemented an unconvertible item, you are its independent verifier.
 
 Continuity:
-- Send DISPATCH, HOLD, APPROVED, QUESTION, ANSWER, and HEADS-UP with \`to:\` to the Shaper. Use DECISION only when the message is intentionally cube-wide.
+- Send DISPATCH, HOLD, APPROVED, QUESTION, ANSWER, and HEADS-UP with \`to:\` to the Shaper. Use DECISION with \`to: "broadcast"\` only when the message is intentionally cube-wide.
 - DISPATCH, HOLD, and DECISION are not completion when they leave an authorized follow-on action.
 - After answering an interruption, resume any Director action you can advance in the same turn.
 - Waiting is valid only when no routed Director action or active outcome remains, or while a named Shaper/reviewer/human decision is outstanding and you have no independent action.

@@ -159,20 +159,14 @@ describe('cube templates', () => {
       {
         class: 'executor-echo',
         prefixes: ['PACKET-ECHO'],
-        routing: 'directed',
-        default_to: ['shaper'],
       },
       {
         class: 'executor-refusal',
         prefixes: ['SPEC-GAP'],
-        routing: 'directed',
-        default_to: ['shaper'],
       },
       {
         class: 'executor-completion',
         prefixes: ['PACKET-DONE'],
-        routing: 'directed',
-        default_to: ['shaper'],
         lifecycle: 'completion',
       },
     ]);
@@ -498,23 +492,20 @@ describe('cube templates', () => {
     expect(text).not.toMatch(/persistent mode|intensity level|persona|deliberately reduced version|GitHub/i);
   });
 
-  it('keeps review routing serialized through the coordinating seat', () => {
-    for (const [templateName, template] of Object.entries(TEMPLATES)) {
+  it('keeps review requests classified without encoding an audience', () => {
+    for (const template of Object.values(TEMPLATES)) {
       const review = template.message_taxonomy?.find((entry) => entry.class === 'review-request');
-      expect(review).toMatchObject({
-        routing: 'directed',
-        default_to: templateName === 'local-model'
-          ? ['director', 'queen']
-          : ['coordinator', 'queen'],
-      });
+      expect(review?.prefixes).toEqual(['REVIEW-READY']);
+      expect(Object.keys(review ?? {}).sort()).toEqual(['class', 'prefixes']);
     }
   });
 
-  it('keeps only decisions and halts cube-wide', () => {
+  it('ships classification-only taxonomies with no legacy routing policy', () => {
+    expect(Object.keys(TEMPLATES).sort()).toEqual(['local-model', 'software-dev', 'starter']);
     for (const [templateName, template] of Object.entries(TEMPLATES)) {
       for (const entry of template.message_taxonomy ?? []) {
+        expect(Object.keys(entry).every((key) => ['class', 'prefixes', 'lifecycle'].includes(key))).toBe(true);
         if (entry.class === 'cube-wide') {
-          expect(entry.routing).toBe('broadcast');
           expect(entry.prefixes).toEqual(
             templateName === 'local-model'
               ? ['DECISION']
@@ -522,11 +513,9 @@ describe('cube templates', () => {
                 ? ['DECISION', 'HALT', 'MERGED']
                 : ['DECISION', 'HALT'],
           );
-        } else {
-          expect(entry.routing, `${template.name}/${entry.class}`).toBe('directed');
-          expect(entry.default_to?.length, `${template.name}/${entry.class}`).toBeGreaterThan(0);
         }
       }
+      expect(JSON.stringify(template.message_taxonomy)).not.toMatch(/"(?:routing|default_to)"/);
     }
   });
 
@@ -557,7 +546,7 @@ describe('cube templates', () => {
       'REVIEW-READY only after that push',
       'When that command fails because no origin exists',
       'exact commit SHA is available through the project review mechanism',
-      'broadcast the merge SHA',
+      'post the merge SHA with `to: "broadcast"`',
     ]) {
       expect(SAME_REPOSITORY_WORKFLOW_DISCIPLINE).toContain(phrase);
     }
@@ -650,13 +639,27 @@ describe('cube templates', () => {
     }
 
     for (const template of Object.values(TEMPLATES)) {
-      const text = template.roles.map((role) => role.detailed_description).join('\n');
-      expect(text).toContain('Naming a recipient inside the message text does not route it');
-      expect(text).toContain('unrouted message broadcasts');
+      expect(JSON.stringify(template)).not.toMatch(/"(?:routing|default_to|visibility)"/);
+      for (const role of template.roles) {
+        const text = role.detailed_description;
+        expect(text, `${template.name}/${role.name} rejects prose routing`).toContain(
+          'Naming a recipient inside the message text does not route it',
+        );
+        expect(text, `${template.name}/${role.name} requires explicit addressing`).toContain(
+          'Every borg_log call must set structured `to:`',
+        );
+        expect(text, `${template.name}/${role.name} names scalar broadcast`).toContain('`to: "broadcast"`');
+        expect(text, `${template.name}/${role.name} keeps taxonomy classification-only`).toContain(
+          'never choose recipients or provide a default audience',
+        );
+        expect(text, `${template.name}/${role.name} has no fall-open wording`).not.toMatch(
+          /unrouted message broadcasts|default is broadcast|explicit direct visibility|fall(?:s|ing)? open/i,
+        );
+      }
     }
   });
 
-  it('routes questions, answers, and heads-up messages directly', () => {
+  it('classifies questions, answers, and heads-up messages', () => {
     for (const template of Object.values(TEMPLATES)) {
       for (const [className, prefix] of [
         ['peer-question', 'QUESTION'],
@@ -664,7 +667,6 @@ describe('cube templates', () => {
         ['peer-heads-up', 'HEADS-UP'],
       ]) {
         const entry = template.message_taxonomy?.find((candidate) => candidate.class === className);
-        expect(entry).toMatchObject({ routing: 'directed' });
         expect(entry?.prefixes).toContain(prefix);
       }
     }
@@ -728,7 +730,7 @@ describe('template no-clobber resolution', () => {
     short_description: 'X template.',
     description: 'x',
     cube_directive: 'template directive',
-    message_taxonomy: [{ class: 'status', routing: 'directed', default_to: ['coordinator'] }],
+    message_taxonomy: [{ class: 'status' }],
     roles: [],
   };
 
@@ -747,7 +749,7 @@ describe('template no-clobber resolution', () => {
   });
 
   it('uses an explicit taxonomy and otherwise falls back to the template', () => {
-    const explicit = [{ class: 'custom', routing: 'broadcast' as const }];
+    const explicit = [{ class: 'custom' }];
     expect(resolveMessageTaxonomyForCreate(explicit, template)).toBe(explicit);
     expect(resolveMessageTaxonomyForCreate(null, template)).toBeNull();
     expect(resolveMessageTaxonomyForCreate(undefined, template)).toEqual(template.message_taxonomy);

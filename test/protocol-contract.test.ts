@@ -99,7 +99,7 @@ describe('package and handshake contract', () => {
     ) as { name: string; version: string; publishConfig: { access: string } };
 
     expect(SHARED_PACKAGE_NAME).toBe('borgmcp-shared');
-    expect(SHARED_PACKAGE_VERSION).toBe('0.15.0');
+    expect(SHARED_PACKAGE_VERSION).toBe('1.0.0');
     expect(manifest).toMatchObject({
       name: SHARED_PACKAGE_NAME,
       version: SHARED_PACKAGE_VERSION,
@@ -1095,53 +1095,64 @@ describe('coordination request codecs', () => {
     expect(decodeAppendLogRequest({
       post_id,
       message: 'See evidence.',
+      to: 'broadcast',
       documents: ['doc_full_id', 'doc_other_full_id'],
     })).toEqual({
       post_id,
       message: 'See evidence.',
+      to: 'broadcast',
       documents: ['doc_full_id', 'doc_other_full_id'],
     });
     expect(() => decodeAppendLogRequest({
       post_id,
       message: 'Duplicate.',
+      to: 'broadcast',
       documents: ['doc_full_id', 'doc_full_id'],
     })).toThrow(ProtocolContractError);
     expect(() => decodeAppendLogRequest({ message: 'hello' })).toThrow(ProtocolContractError);
-    expect(() => decodeAppendLogRequest({ post_id: 'not-a-uuid', message: 'hello' })).toThrow(
+    expect(() => decodeAppendLogRequest({ post_id: 'not-a-uuid', message: 'hello', to: 'broadcast' })).toThrow(
       ProtocolContractError,
     );
-    expect(() => decodeAppendLogRequest({ post_id, message: '' })).toThrow(ProtocolContractError);
-    expect(() => decodeAppendLogRequest({ post_id, message: '😀'.repeat(17_000) })).toThrow(
+    expect(() => decodeAppendLogRequest({ post_id, message: '', to: 'broadcast' })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message: '😀'.repeat(17_000), to: 'broadcast' })).toThrow(
       ProtocolContractError,
     );
-    expect(() => decodeAppendLogRequest({ post_id, message: 'hello', credential: 'secret' })).toThrow(
+    expect(() => decodeAppendLogRequest({ post_id, message: 'hello', to: 'broadcast', credential: 'secret' })).toThrow(
       ProtocolContractError,
     );
   });
 
-  it('rejects prose-only terminal routing annotations and preserves explicit routing intent', () => {
+  it('requires exactly one explicit audience union branch and rejects retired routing fields', () => {
     const post_id = '00000000-0000-4000-8000-000000000001';
     const message = 'START NOW exact slice\nto:[Builder]';
     expect(() => decodeAppendLogRequest({ post_id, message })).toThrow(ProtocolContractError);
-    expect(() => decodeAppendLogRequest({ post_id, message: 'START NOW\nTO : [ ]  ' }))
-      .toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: null })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: [] })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: 'all' })).toThrow(ProtocolContractError);
     expect(decodeAppendLogRequest({ post_id, message, to: ['Builder'] })).toEqual({
       post_id,
       message,
       to: ['Builder'],
     });
-    expect(decodeAppendLogRequest({
+    expect(decodeAppendLogRequest({ post_id, message, to: 'broadcast' })).toEqual({
       post_id,
       message,
-      recipientDroneIds: ['00000000-0000-4000-8000-000000000002'],
-    })).toMatchObject({ message, recipientDroneIds: ['00000000-0000-4000-8000-000000000002'] });
-    expect(decodeAppendLogRequest({ post_id, message, visibility: 'broadcast' })).toEqual({
-      post_id,
-      message,
-      visibility: 'broadcast',
+      to: 'broadcast',
     });
-    expect(decodeAppendLogRequest({ post_id, message: 'Discuss to:[Builder]\nnext line' }))
-      .toEqual({ post_id, message: 'Discuss to:[Builder]\nnext line' });
+    expect(() => decodeAppendLogRequest({ post_id, message, to: 'broadcast', visibility: 'broadcast' }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({
+      post_id,
+      message,
+      to: 'broadcast',
+      recipientDroneIds: ['00000000-0000-4000-8000-000000000002'],
+    })).toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: [' Builder'] }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: ['Builder', 'Builder'] }))
+      .toThrow(ProtocolContractError);
+    expect(() => decodeAppendLogRequest({ post_id, message, to: ['Builder\nReviewer'] }))
+      .toThrow(ProtocolContractError);
   });
 
   it('decodes and validates the optional append-log routing response', () => {
@@ -1151,8 +1162,6 @@ describe('coordination request codecs', () => {
       routing: {
         class: 'review',
         recipients: ['one-of-one-reviewer'],
-        fellOpen: false,
-        message: 'Routing applied.',
       },
       unreachableRecipients: [{ id: 'missing-reviewer', label: 'Missing Reviewer' }],
     } satisfies AppendLogResponse;
@@ -1176,6 +1185,7 @@ describe('coordination request codecs', () => {
     expect(decodeAppendLogRequest({
       post_id: '50000000-0000-4000-8000-000000000001',
       message: 'x'.repeat(4097),
+      to: 'broadcast',
     }).message).toHaveLength(4097);
     expect(decodeAppendLogResult({
       entry: appendLogEntry,
@@ -1193,8 +1203,6 @@ describe('coordination request codecs', () => {
     const routing = {
       class: null,
       recipients: [],
-      fellOpen: false,
-      message: null,
     };
     const unknownFieldClasses = [
       { entry: appendLogEntry, deduplicated: false, routing, unknownTopLevel: true },
@@ -1217,14 +1225,12 @@ describe('coordination request codecs', () => {
     const routing = {
       class: 'review',
       recipients: ['one-of-one-reviewer'],
-      fellOpen: false,
-      message: 'Routing applied.',
     };
     const malformed = [
       { ...routing, class: 'x'.repeat(65) },
       { ...routing, recipients: Array.from({ length: 101 }, () => 'reviewer') },
       { ...routing, recipients: ['x'.repeat(121)] },
-      { ...routing, message: 'x'.repeat(513) },
+      { ...routing, fellOpen: false },
     ];
     for (const invalidRouting of malformed) {
       expect(() =>

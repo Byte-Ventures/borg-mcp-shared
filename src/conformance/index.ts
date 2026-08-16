@@ -100,8 +100,6 @@ const APPEND_LOG_ENTRY: EnrichedStreamEntry = {
 const APPEND_LOG_ROUTING = {
   class: 'review',
   recipients: ['one-of-one-reviewer'],
-  fellOpen: false,
-  message: 'Routing applied.',
 } as const;
 
 export interface AppendLogResultConformanceVector {
@@ -119,54 +117,70 @@ export interface AppendLogRequestConformanceVector {
 export interface AppendLogIdempotencyConformanceVector {
   name: string;
   actor: 'same' | 'different';
-  mutation: 'none' | 'message' | 'visibility' | 'recipient_set' | 'ignored_request_shape' | 'resolved_class_routing';
+  mutation: 'none' | 'message' | 'audience' | 'recipient_set' | 'classification';
   expected: 'deduplicated' | 'POST_ID_CONFLICT' | 'created';
 }
 
-/** Author-scoped post identity and exact resolved-routing retry outcomes. */
+/** Author-scoped post identity and exact resolved-delivery retry outcomes. */
 export const APPEND_LOG_IDEMPOTENCY_CONFORMANCE: readonly AppendLogIdempotencyConformanceVector[] = [
   { name: 'deduplicates an exact same-author retry', actor: 'same', mutation: 'none', expected: 'deduplicated' },
   { name: 'rejects a same-author message collision', actor: 'same', mutation: 'message', expected: 'POST_ID_CONFLICT' },
-  { name: 'rejects a same-author visibility collision', actor: 'same', mutation: 'visibility', expected: 'POST_ID_CONFLICT' },
+  { name: 'rejects a same-author audience collision', actor: 'same', mutation: 'audience', expected: 'POST_ID_CONFLICT' },
   { name: 'rejects a same-author recipient-set collision', actor: 'same', mutation: 'recipient_set', expected: 'POST_ID_CONFLICT' },
-  { name: 'deduplicates ignored class selectors with identical resolved delivery', actor: 'same', mutation: 'ignored_request_shape', expected: 'deduplicated' },
-  { name: 'rejects a same-author resolved class-routing collision', actor: 'same', mutation: 'resolved_class_routing', expected: 'POST_ID_CONFLICT' },
+  { name: 'deduplicates changed classification with identical explicit delivery', actor: 'same', mutation: 'classification', expected: 'deduplicated' },
   { name: 'creates an independent cross-author post', actor: 'different', mutation: 'none', expected: 'created' },
 ];
 
 const APPEND_LOG_REQUEST = {
   post_id: '00000000-0000-4000-8000-000000000205',
   message: 'REVIEW-READY: example',
+  to: 'broadcast',
 } satisfies AppendLogRequest;
 
 export const APPEND_LOG_REQUEST_CONFORMANCE: readonly AppendLogRequestConformanceVector[] = [
   { name: 'accepts a canonical post UUID', request: APPEND_LOG_REQUEST, accepts: true },
-  { name: 'rejects an omitted post UUID', request: { message: APPEND_LOG_REQUEST.message }, accepts: false },
+  { name: 'rejects an omitted post UUID', request: { message: APPEND_LOG_REQUEST.message, to: 'broadcast' }, accepts: false },
   { name: 'rejects an invalid post UUID', request: { ...APPEND_LOG_REQUEST, post_id: 'not-a-uuid' }, accepts: false },
   { name: 'rejects unknown request fields', request: { ...APPEND_LOG_REQUEST, extra: true }, accepts: false },
   {
-    name: 'rejects a terminal prose-only routing annotation',
-    request: { ...APPEND_LOG_REQUEST, message: 'START NOW exact slice\nto:[Builder]' },
+    name: 'rejects omitted addressing',
+    request: { post_id: APPEND_LOG_REQUEST.post_id, message: APPEND_LOG_REQUEST.message },
     accepts: false,
   },
   {
-    name: 'accepts the same annotation with structured to routing',
-    request: { ...APPEND_LOG_REQUEST, message: 'START NOW exact slice\nto:[Builder]', to: ['Builder'] },
+    name: 'accepts explicit broadcast addressing',
+    request: APPEND_LOG_REQUEST,
     accepts: true,
   },
   {
-    name: 'accepts the same annotation with structured recipient ids',
-    request: {
-      ...APPEND_LOG_REQUEST,
-      message: 'START NOW exact slice\nto:[Builder]',
-      recipientDroneIds: ['00000000-0000-4000-8000-000000000204'],
-    },
+    name: 'accepts a non-empty recipient selector union branch',
+    request: { ...APPEND_LOG_REQUEST, to: ['Builder', 'id:3336cde1'] },
     accepts: true,
   },
   {
-    name: 'accepts the same annotation with explicit broadcast visibility',
-    request: { ...APPEND_LOG_REQUEST, message: 'START NOW exact slice\nto:[Builder]', visibility: 'broadcast' },
-    accepts: true,
+    name: 'rejects null addressing',
+    request: { ...APPEND_LOG_REQUEST, to: null },
+    accepts: false,
+  },
+  {
+    name: 'rejects an empty recipient selector array',
+    request: { ...APPEND_LOG_REQUEST, to: [] },
+    accepts: false,
+  },
+  {
+    name: 'rejects an arbitrary scalar audience',
+    request: { ...APPEND_LOG_REQUEST, to: 'all' },
+    accepts: false,
+  },
+  {
+    name: 'rejects retired visibility without falling open',
+    request: { ...APPEND_LOG_REQUEST, visibility: 'broadcast' },
+    accepts: false,
+  },
+  {
+    name: 'rejects retired recipient ids without falling open',
+    request: { ...APPEND_LOG_REQUEST, recipientDroneIds: ['00000000-0000-4000-8000-000000000204'] },
+    accepts: false,
   },
 ];
 
@@ -238,13 +252,8 @@ export const APPEND_LOG_RESULT_CONFORMANCE: readonly AppendLogResultConformanceV
     accepts: false,
   },
   {
-    name: 'rejects an invalid routing fell-open flag',
-    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, fellOpen: 'false' } },
-    accepts: false,
-  },
-  {
-    name: 'rejects an invalid routing message',
-    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, message: 7 } },
+    name: 'rejects legacy fall-open routing metadata',
+    response: { entry: APPEND_LOG_ENTRY, deduplicated: false, routing: { ...APPEND_LOG_ROUTING, fellOpen: false } },
     accepts: false,
   },
   {
@@ -907,7 +916,6 @@ export interface RoleDeleteConformanceVector {
     | 'default'
     | 'mandatory'
     | 'human-seat'
-    | 'taxonomy-reference'
     | 'unknown';
   expected:
     | {
@@ -919,7 +927,7 @@ export interface RoleDeleteConformanceVector {
     }
     | {
       status: 409;
-      error: 'ROLE_IN_USE' | 'DEFAULT_ROLE_REQUIRED' | 'ROLE_REQUIRED' | 'ROLE_REFERENCED';
+      error: 'ROLE_IN_USE' | 'DEFAULT_ROLE_REQUIRED' | 'ROLE_REQUIRED';
       mutation: 'none';
       message?: typeof ROLE_IN_USE_DELETE_MESSAGE;
     }
@@ -968,11 +976,6 @@ export const ROLE_DELETE_CONFORMANCE: readonly RoleDeleteConformanceVector[] = [
     name: 'refuses a human-seat role',
     fixture: 'human-seat',
     expected: { status: 409, error: 'ROLE_REQUIRED', mutation: 'none' },
-  },
-  {
-    name: 'refuses a taxonomy default-recipient role',
-    fixture: 'taxonomy-reference',
-    expected: { status: 409, error: 'ROLE_REFERENCED', mutation: 'none' },
   },
   {
     name: 'hides an unknown or inaccessible role',
