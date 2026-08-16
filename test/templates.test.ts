@@ -23,12 +23,11 @@ const ROLE_LIMIT = 51_200;
 const COORDINATOR_ACTIVATION_COPY = [
   'START NOW, RESUME NOW, REVIEW NOW, or HOLD',
   'ACK and claim are receipt only',
-  'STARTING or substantive PROGRESS within 2 minutes',
-  'Directly kick a miss',
-  'After 5 more minutes without substantive response, probe liveness',
-  'reassign only when eligible and authorized',
-  'substantive PROGRESS at least every 10 minutes',
-  'Require immediate BLOCKED',
+  'concrete milestones from the dispatch and acceptance evidence',
+  'one direct status request',
+  'report the evidence to the human',
+  'requires explicit human operator approval for the exact work item and recipient',
+  'Require BLOCKED when safe work stops',
 ];
 
 describe('cube templates', () => {
@@ -267,6 +266,11 @@ describe('cube templates', () => {
       /force-tag-push/i,
       /ship-on-consensus/i,
       /Queen-Direct-Authorized/i,
+      /within 2 minutes/i,
+      /After 5 more minutes/i,
+      /every 10 minutes/i,
+      /expected to finish within 10 minutes/i,
+      /reassign only when eligible and authorized/i,
     ]) {
       expect(text).not.toMatch(forbidden);
     }
@@ -294,6 +298,22 @@ describe('cube templates', () => {
     }
     expect(coordinator.detailed_description).toContain('does not authorize');
     expect(coordinator.detailed_description).toContain('Never manufacture work');
+  });
+
+  it('requires operator approval before any coordinating role changes ownership', () => {
+    const coordinatingRoles = [
+      TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!,
+      TEMPLATES.starter.roles.find((role) => role.name === 'Coordinator')!,
+      TEMPLATES['local-model'].roles.find((role) => role.name === 'Director')!,
+    ];
+
+    for (const role of coordinatingRoles) {
+      expect(role.detailed_description).toContain('one direct status request');
+      expect(role.detailed_description).toContain('report the evidence to the human');
+      expect(role.detailed_description).toContain(
+        'requires explicit human operator approval for the exact work item and recipient',
+      );
+    }
   });
 
   it('back-ports only the ratified live-role operating improvements', () => {
@@ -364,7 +384,8 @@ describe('cube templates', () => {
       .detailed_description;
 
     for (const phrase of [
-      'Omit PROGRESS for work expected to finish within 10 minutes',
+      'Post PROGRESS only when a substantive milestone changes what the Coordinator needs to know',
+      'Do not interrupt slow local work merely to satisfy a reporting cadence',
       'Run focused verification required by the touched surface',
       'do not rerun green CI checks merely to duplicate exact-revision evidence',
       'Check documentation or a separately published site only when the changed behavior, public API, package metadata, or named user claim belongs to that surface',

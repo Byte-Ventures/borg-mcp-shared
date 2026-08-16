@@ -87,6 +87,10 @@ immutable text documents, structured log citations, and bounded log-entry
 advisories. A v9 peer and a v10 peer reject each other during credential-free
 preflight before either peer sends credentials or dispatches an operation.
 
+`borgmcp-shared@0.13.1` retains protocol v10 unchanged. It updates only the
+shipped coordination templates so liveness evidence cannot authorize work
+rerouting or reassignment without explicit human operator approval.
+
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
 successful build alone — they must run the shared conformance suite against the

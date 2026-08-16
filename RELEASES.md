@@ -66,3 +66,11 @@ proportionate Coordinator review gates, focused Builder verification and status
 rules, and the tag-restricted npm staging boundary while preserving its seven
 roles and routing contract. No post-hoc file is represented as tagged notes.
 Never rerun or move that tag.
+
+`borgmcp-shared@0.13.0` is published and immutable. Annotated tag object
+`90022823ec91f4bc7964b2f1be1ef11c5f0e69dd` peels to protected-main commit
+`e9b37697e4f265872d071d738740ee1eaded2ff9`; successful attempt-1 workflow run
+`31897497966` staged the exact candidate. Authorized npm stage approval made
+the release live with registry integrity
+`sha512-6t25in3kpkVZTQqbeP65HgObU8GpOY3ewtY2SoaHDtIcJEtoe1LRwh3rguE6VqcqPWBUtmXdOaTMdtBErx5+oA==`.
+Never rerun or move that tag.
