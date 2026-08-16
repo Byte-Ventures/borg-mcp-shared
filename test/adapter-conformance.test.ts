@@ -155,7 +155,9 @@ type Fault =
   | 'reject-prose-routing-escape'
   | 'entry-query-writes-ack'
   | 'entry-query-consumes-entry'
-  | 'entry-query-returns-first-ambiguous';
+  | 'entry-query-returns-first-ambiguous'
+  | 'entry-query-clears-acks'
+  | 'entry-query-clears-claims';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -1542,6 +1544,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         return this.error(409, ErrorCode.LOG_ENTRY_PREFIX_AMBIGUOUS, envelope.request_id);
       }
       const entry = matches[0];
+      if (this.fault === 'entry-query-clears-acks') cube.acknowledgements = [];
+      if (this.fault === 'entry-query-clears-claims') cube.claims = [];
       if (this.fault === 'entry-query-writes-ack') {
         cube.acknowledgements.push({
           logEntryId: entry.id,
@@ -2356,6 +2360,8 @@ describe('executable adapter conformance', () => {
     ['wrote an acknowledgement during entry lookup', 'entry-query-writes-ack', 'log.entry-query'],
     ['consumed an entry during lookup', 'entry-query-consumes-entry', 'log.entry-query'],
     ['returned the first ambiguous prefix match', 'entry-query-returns-first-ambiguous', 'log.entry-query'],
+    ['cleared acknowledgements during entry lookup', 'entry-query-clears-acks', 'log.entry-query'],
+    ['cleared claims during entry lookup', 'entry-query-clears-claims', 'log.entry-query'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),

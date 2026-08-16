@@ -1962,6 +1962,15 @@ export async function runAdapterConformance(
   await record('log.entry-query', async () => {
     const cube = await environment.admin.createCube('entry-query-cube');
     await environment.admin.grantCube(principalA, cube);
+    const role = await environment.admin.createRole(cube, {
+      roleClass: 'worker',
+      isHumanSeat: false,
+      name: 'Entry Query Worker',
+    });
+    const acknowledgedRecipient = await environment.admin.createDrone(principalA, cube, role);
+    const claimingRecipient = await environment.admin.createDrone(principalA, cube, role);
+    const acknowledgedCredential = await environment.admin.issueManagedDroneSession(acknowledgedRecipient);
+    const claimingCredential = await environment.admin.issueManagedDroneSession(claimingRecipient);
     const ids = [
       '11111111-0000-4000-8000-000000000001',
       '22222222-0000-4000-8000-000000000001',
@@ -1975,7 +1984,8 @@ export async function runAdapterConformance(
         createProtocolEnvelope(`entry-query-append-${index}`, {
           post_id: `40000000-0000-4000-8000-00000000000${index}`,
           message: `entry-query-${index}`,
-          visibility: 'broadcast',
+          visibility: 'direct',
+          recipientDroneIds: [acknowledgedRecipient.id, claimingRecipient.id],
         }),
       );
       expectStatus(response, 201, `Entry-query fixture append ${index}`);
@@ -1983,6 +1993,25 @@ export async function runAdapterConformance(
       await environment.admin.replaceLogEntryId(cube, entry.id, id);
       entries.push({ ...entry, id });
     }
+
+    expectStatus(
+      await environment.operations.ack(
+        acknowledgedCredential,
+        cube,
+        createProtocolEnvelope('entry-query-seed-ack', { entry_id: ids[0], kind: 'ack' }),
+      ),
+      204,
+      'Entry-query acknowledgement seed',
+    );
+    expectStatus(
+      await environment.operations.ack(
+        claimingCredential,
+        cube,
+        createProtocolEnvelope('entry-query-seed-claim', { entry_id: ids[1], kind: 'claim' }),
+      ),
+      204,
+      'Entry-query claim seed',
+    );
 
     const before = await environment.admin.observeAuthorityState();
     for (const [requestId, selector, expectedId] of [
@@ -2019,6 +2048,26 @@ export async function runAdapterConformance(
       'Ambiguous entry query',
     );
     assertStateDelta(before, await environment.admin.observeAuthorityState(), {}, 'Entry query');
+    const acknowledgementStatus = decodeAckStatusResultEnvelope((await environment.operations.ackStatus(
+      credentialA,
+      cube,
+      createProtocolEnvelope('entry-query-ack-status', { entry_id: ids[0] }),
+    )).body).payload;
+    const claimStatus = decodeAckStatusResultEnvelope((await environment.operations.ackStatus(
+      credentialA,
+      cube,
+      createProtocolEnvelope('entry-query-claim-status', { entry_id: ids[1] }),
+    )).body).payload;
+    invariant(
+      acknowledgementStatus.recipients.some((recipient) =>
+        recipient.drone_id === acknowledgedRecipient.id && recipient.acknowledged_at !== null
+      ),
+      'Entry query removed the seeded acknowledgement.',
+    );
+    invariant(
+      claimStatus.claims.some((claim) => claim.drone_id === claimingRecipient.id),
+      'Entry query removed the seeded claim.',
+    );
     const unreadResponse = await environment.operations.read(
       credentialA,
       cube,
@@ -2036,6 +2085,8 @@ export async function runAdapterConformance(
       ambiguous_code: ErrorCode.LOG_ENTRY_PREFIX_AMBIGUOUS,
       unknown_code: ErrorCode.NOT_FOUND,
       unread_entry_available: true,
+      acknowledgement_preserved: true,
+      claim_preserved: true,
       mutation: 'none',
     };
   });
