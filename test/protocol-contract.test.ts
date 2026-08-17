@@ -20,6 +20,7 @@ import {
   type AppendLogResponse,
   PROTOCOL_INFO_PATH,
   PROTOCOL_HTTP_CONTRACT,
+  PROTOCOL_VERSION,
   SHARED_PACKAGE_NAME,
   SHARED_PACKAGE_VERSION,
   ProtocolContractError,
@@ -200,9 +201,9 @@ describe('package and handshake contract', () => {
     expect(decodeProtocolTagPreflight(tagPreflight)).toEqual(tagPreflight);
   });
 
-  it('fails the preflight closed on a mismatched tag before any secret', () => {
-    expect(() => decodeProtocolTagPreflight({ protocol_version: '2' })).toThrowError(
-      expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }),
+  it('fails the preflight closed with a mismatch message tied to the protocol constant', () => {
+    expect(() => decodeProtocolTagPreflight({ protocol_version: 'peer-controlled-version' })).toThrowError(
+      `This client requires protocol v${PROTOCOL_VERSION}. The peer presents a different version. Update \`borgmcp-server\` and \`borgmcp\` to matching releases — server first, then client.`,
     );
     expect(() => decodeProtocolTagPreflight({ protocol_version: '1' })).toThrowError(
       expect.objectContaining({ code: 'UNSUPPORTED_PROTOCOL_VERSION' }),
@@ -258,7 +259,7 @@ describe('package and handshake contract', () => {
       throw new Error('PAYLOAD-DECODER-WAS-CALLED');
     };
     const secretPayload: Record<string, unknown> = { client_credential: marker, [marker]: marker };
-    const staticPreflightMessage = 'This client requires protocol v12. The peer presents a different version. Update `borgmcp-server` and `borgmcp` to matching releases — server first, then client.';
+    const staticPreflightMessage = `This client requires protocol v${PROTOCOL_VERSION}. The peer presents a different version. Update \`borgmcp-server\` and \`borgmcp\` to matching releases — server first, then client.`;
     const boundaries: Array<[string, (protocol_version: unknown) => unknown, string]> = [
       ['tag preflight', (v) => decodeProtocolTagPreflight({ protocol_version: v }), staticPreflightMessage],
       ['generic success envelope', (v) => decodeProtocolEnvelope({ protocol_version: v, request_id: req, payload: secretPayload }, sentinelDecoder), 'Unsupported protocol version.'],
