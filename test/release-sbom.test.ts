@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const VERSION = '1.0.0';
-const DEPENDENCY_VERSION = '1.0.0';
+const VERSION = '1.0.1';
+const DEPENDENCY_VERSION = '1.0.1';
 const INTEGRITY = `sha512-${Buffer.alloc(64).toString('base64')}`;
 const HASH = Buffer.alloc(64).toString('hex');
 
@@ -36,20 +36,20 @@ function createLock(): Record<string, any> {
         },
       },
       'node_modules/bundler': packageEntry('bundler', {
-        dependencies: { 'core-lib': '^1.0.0' },
+        dependencies: { 'core-lib': '^1.0.1' },
         optionalDependencies: {
           'native-linux': DEPENDENCY_VERSION,
           'native-darwin': DEPENDENCY_VERSION,
           'native-linux-musl': DEPENDENCY_VERSION,
         },
         peerDependencies: {
-          'required-peer': '^1.0.0',
-          'optional-peer': '^1.0.0',
+          'required-peer': '^1.0.1',
+          'optional-peer': '^1.0.1',
         },
         peerDependenciesMeta: { 'optional-peer': { optional: true } },
       }),
       'node_modules/test-tool': packageEntry('test-tool', {
-        dependencies: { 'optional-peer': '^1.0.0' },
+        dependencies: { 'optional-peer': '^1.0.1' },
       }),
       'node_modules/core-lib': packageEntry('core-lib'),
       'node_modules/required-peer': packageEntry('required-peer'),
