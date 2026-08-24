@@ -1,8 +1,7 @@
 # Release History
 
-Eight published versions from 0.2.2 through 0.6.2, excluding the isolated 0.4.0
-baseline, predate the canonical release-record convention. Historical incident
-prose below remains their record instead of reconstructed structured entries.
+Historical incident prose below records releases that predate the current
+tag-triggered publication workflow.
 
 `borgmcp-shared@0.4.0` is the published clean-slate v2 baseline and is
 immutable, but its artifact predates the local/self-hosted package cleanup. The

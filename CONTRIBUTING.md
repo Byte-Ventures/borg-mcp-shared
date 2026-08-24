@@ -15,7 +15,10 @@ Runtime dependency changes require explicit justification and a security review.
 
 ## Development Workflow
 
-Use Node.js 20 or newer, then run:
+Use Node.js 22.12.0 or newer. The repository's default development and release
+runtime is Node.js 24.19.0, as pinned in `.nvmrc`.
+
+Then run:
 
 ```sh
 npm install

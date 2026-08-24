@@ -186,6 +186,33 @@ describe('npm publish workflow', () => {
     }
   });
 
+  it('keeps Node support claims aligned with the tested runtimes', async () => {
+    const manifest = JSON.parse(await readFile('package.json', 'utf8')) as {
+      engines: { node: string };
+    };
+    const [readme, contributing, agents, runbook, nvmrc, ci] = await Promise.all([
+      readFile('README.md', 'utf8'),
+      readFile('CONTRIBUTING.md', 'utf8'),
+      readFile('AGENTS.md', 'utf8'),
+      readFile('docs/releasing.md', 'utf8'),
+      readFile('.nvmrc', 'utf8'),
+      readFile('.github/workflows/ci.yml', 'utf8'),
+    ]);
+
+    expect(manifest.engines.node).toBe('>=22.12.0');
+    expect(readme).toContain('Node.js 22.12.0 or newer');
+    expect(contributing).toContain('Node.js 22.12.0 or newer');
+    expect(agents).toContain('minimum Node.js 22.12.0');
+    expect(agents).toContain('release runtime Node.js 24.19.0');
+    expect(runbook).toContain('Node.js 24.19.0 and npm 11.18.0 exactly');
+    expect(nvmrc.trim()).toBe('24.19.0');
+    expect(ci).toContain('node-version: 22.12.0');
+    expect(ci).toContain('node-version: 24.19.0');
+    for (const staleClaim of [readme, contributing, agents, runbook]) {
+      expect(staleClaim).not.toMatch(/Node\.js 20|Node 20|20 and 22/);
+    }
+  });
+
   it('builds generated output before every dist-importing validation lane', async () => {
     const ci = await readFile('.github/workflows/ci.yml', 'utf8');
     const publish = await readFile('.github/workflows/publish.yml', 'utf8');

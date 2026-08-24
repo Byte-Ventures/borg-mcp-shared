@@ -30,8 +30,7 @@ npm and GitHub produce the registry signature and publish attestation as part of
 Trusted Publishing. The repository does not reconstruct or immediately read back
 those records, reconstruct DSSE or SLSA statements, transfer approval tuples
 between runs, rebuild in a second job, or place checksum, SBOM, and report bundles
-on the critical publication path. SBOM portability remains covered by CI and the
-repository's dedicated deterministic SBOM tests.
+on the critical publication path.
 
 ## Permanent Configuration
 
@@ -51,6 +50,8 @@ Keep these controls in place:
 6. Protected `main`, the release-tag ruleset, private vulnerability reporting,
    secret scanning, push protection, and dependency security updates remain
    enabled as repository controls, not per-release evidence snapshots.
+7. CI tests Node.js 22.12.0, the supported minimum, and Node.js 24.19.0. Release
+   reproduction uses Node.js 24.19.0 and npm 11.18.0 exactly.
 
 ## Release Procedure
 
@@ -74,13 +75,6 @@ Keep these controls in place:
 GITHUB_TOKEN="$(gh auth token)" node scripts/create-github-release.mjs <version> --integrity <sha512-SRI>
 ```
 
-Before release preparation or trusted identity verification can pass, the
-greatest stable npm version below the current package version must already have a
-`published` ledger entry. This prevents a later release from silently skipping
-the immediately previous publication. A final `"reconstructed": true` marker
-means the entry was recovered later from the same annotated-tag, Actions-run, and
-npm-integrity authorities; it does not weaken verification or change the outcome.
-
 The workflow stages only `./release/<tarball>`. It never stages from the
 repository directory, a package name, a URL, a prior workflow artifact, or a
 locally rebuilt replacement.
@@ -101,24 +95,20 @@ approves it, the immutable live release has occurred. Never republish, overwrite
 unpublish, or silently substitute a replacement because a later registry read is
 delayed or unavailable.
 
-## Failed-Superseded Recovery
+## Release Preparation
 
-Use failed-superseded recovery only when a failed tag is intentionally abandoned
-before npm accepts a stage, rather than for an ordinary corrected workflow rerun.
-
-Record the failure and prepare a newer version only from a clean tree:
+From a clean tree whose target release notes are already committed, update every
+maintained version carrier together:
 
 ```sh
-npm run release:prepare -- <next-version> \
-  --workflow-run-id <failed-tag-run-id> \
-  --workflow-run-attempt <failed-run-attempt> \
-  --workflow-conclusion failure
+npm run release:prepare -- <next-version>
 ```
 
-The release identity verifier binds the record to the annotated tag, exact
-workflow run and commit, and npm version absence. It does not reconstruct runner
-steps. The generated record is `failed-superseded`; the next release uses a new
-version and annotated tag.
+The command updates the manifest, lock root, shared package constant, packed
+artifact assertion, and package tests. Pull-request CI verifies those current
+files and nonblank release notes without querying prior GitHub Actions runs or
+npm release history. The tag workflow owns tag, ancestry, artifact, ownership,
+provenance, and staging verification.
 
 ## Immutable Historical Evidence
 
@@ -128,7 +118,7 @@ Eight published versions from 0.2.2 through 0.6.2, excluding the isolated 0.4.0
 baseline, are the pre-convention boundary. Their workflow runs ended in failure
 despite registry publication, which the canonical record schema cannot represent,
 so the incident prose remains their record rather than force-fitting them into
-`docs/release-records.json`. The 0.4.2 publication additionally came from a
+structured release ledgers. The 0.4.2 publication additionally came from a
 `workflow_dispatch` run on `main`; 0.4.0 is also excluded from reconstruction.
 
 - `v0.2.0` run `29353763609` and `v0.2.1` run `29355823822` failed before
