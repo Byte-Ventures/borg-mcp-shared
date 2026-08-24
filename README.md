@@ -146,18 +146,25 @@ data, and the runner is test-runner-independent code, so they work with any test
 runner supported by the implementation. Cases cover HTTP and canonical errors,
 credential misuse, isolation and revocation, SSE framing/replay/cursor ordering,
 executable enrollment authority/retry/mismatch/redaction and cube-create
-idempotency, explicit repository resolution/adoption and conflict atomicity,
+idempotency, explicit repository resolution/adoption and conflict outcomes,
 acks, claims, decisions, cube-scoped drone reassignment, role-class
 and single-seat invariants, eviction exclusion, and terminal bearer signaling.
 The same runner covers complete attach reports, own-seat metadata self-healing,
 canonical repository identity, invalid-patch atomicity, cross-cube isolation,
-secret non-echo, and authority/liveness/log non-interference.
+secret non-echo, and protocol-visible metadata non-interference.
 The document lifecycle fixture covers immutable put/get, metadata-only listing,
 removal delisting, and retained exact-id forensic resolution.
 Manage-scoped cube, role, taxonomy, decision, and drone operations also share an
 authority matrix: managing parents may mutate; known same-cube read/write
 parents receive `403 ACCESS_DENIED`; drone sessions remain non-managing; and
 no-grant, foreign, or unknown cubes remain hidden behind `404 NOT_FOUND`.
+Denied role, decision, reassignment, and eviction operations have portable
+protocol readback controls. Cube-directive and taxonomy writes currently have
+no shared read route, so mutation-negative coverage for those two operations
+remains implementation-owned.
+The credential-free protocol preflight likewise has no portable before/after
+state-enumeration route; shared conformance pins its exact response while
+implementations retain mutation-negative coverage for their local state.
 
 Decision write requests cap each `decision` and optional `rationale` field at
 512 UTF-8 bytes independently. Response decoders continue to read longer
@@ -166,9 +173,25 @@ historical values so existing registry entries remain compatible.
 Implement `ConformanceEnvironment` with raw responses from the target adapter,
 then call `runAdapterConformance`. The runner creates and decodes envelopes,
 drives state transitions, and decides pass/fail; adapters do not submit expected
-results. A server or client adapter can run the portable suite against its
-local/self-hosted implementation. The package does not define a second authority,
-migration target, or fallback implementation.
+results. Adapters provide fixture creation plus narrowly scoped deterministic
+cursor, replay-transition, and entry-ID controls. Shared fixtures assert only
+protocol responses, streams, and subsequent protocol queries; persistence
+layout, internal counters, and authority restart are implementation-owned test
+concerns. A failed setup prerequisite is reported as skipped with its cause;
+assertion failures do not change prerequisite availability, and unrelated
+fixtures continue. A server or client adapter can run the portable
+suite against its local/self-hosted implementation. The package does not define
+a second authority, migration target, or fallback implementation.
+
+`ConformanceAdmin` classifies its complete boundary as follows. Fixture setup is
+`reset`, `createPrincipal`, `createCube`, `grantCube`, `revokeCubeGrant`,
+`createRole`, `createDrone`, `issueManagedDroneSession`,
+`revokeManagedDroneSession`, `grantCreateCubeCapability`, `issueDroneSession`,
+`issueSingleUseInvitation`, `prepareRepositoryCube`, and `revokePrincipal`.
+`seedEntryQueryIds` and `expireCursor` are deterministic synthetic controls for
+states that random protocol IDs and wall-clock retention cannot reliably create.
+`armReplayTransition` is the sole synchronization control. The shared boundary
+contains no persistence inspection, internal counters, or process restart.
 
 The package's own suite covers built-in templates, role-section patching,
 broadcast high-water-mark ordering, drone-address formatting, runtime metadata

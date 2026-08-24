@@ -233,10 +233,10 @@ creation as the read-only preflight.
 credential, and client-name mismatches. `ENROLLMENT_REDACTION_CONFORMANCE` pins
 diagnostic redaction for invitation, bearer, and contextual retry-key values
 while preserving unrelated public UUIDs. `ENROLLMENT_AUTHORITY_CONFORMANCE`
-distinguishes ordinary zero-authority enrollment from owner `create_cube`
-authority with zero initial cube state. The executable adapter runner drives
-every retry vector, observes client/capability/cube/role/grant counts, verifies
-secret-free errors, and proves authorized idempotent cube creation. Hostile
+distinguishes ordinary enrollment from owner `create_cube` authority through
+the protocol-visible capability response. The executable adapter runner drives
+every retry vector, verifies secret-free errors, and proves authorized
+idempotent cube creation. Hostile
 reference adapters demonstrate that each retry, authority, and idempotency
 violation fails conformance.
 

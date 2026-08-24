@@ -65,6 +65,8 @@ stream receives one strict protocol error envelope as `event: error` before
 close. Former authorized parent and drone credentials receive
 `410 CUBE_DELETED` for that cube, including after authority restart; callers
 that were never authorized still receive non-enumerating `404 NOT_FOUND`.
+Portable shared conformance verifies the protocol-terminal behavior without
+requiring a process model; restart durability remains implementation-owned.
 
 Published `borgmcp-shared@0.9.0` retains protocol v7 and carries
 the v2 invitation artifact: a canonical opaque token carrying the HTTPS
