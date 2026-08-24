@@ -4,34 +4,29 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PACKAGE_NAME = 'borgmcp-shared';
-const REPOSITORY = 'Byte-Ventures/borg-mcp-shared';
-const WORKFLOW_PATH = '.github/workflows/publish.yml';
-const ALLOWLIST_PATH = 'scripts/release-identity-allowlist.json';
-const RECORDS_PATH = 'docs/release-records.json';
 const PACKAGE_PATH = 'package.json';
 const LOCK_PATH = 'package-lock.json';
+const VERSION_PIN_PATHS = Object.freeze([
+  'scripts/verify-packed-artifact.mjs',
+  'src/protocol/contract.ts',
+  'test/packed-artifact.test.ts',
+  'test/protocol-contract.test.ts',
+]);
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
-const registryVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const sha = /^[0-9a-f]{40}$/u;
-const sri = /^sha512-[A-Za-z0-9+/]{86}==$/u;
 
 function fail(message) {
   throw new Error(message);
 }
 
-function command(name, args, options = {}) {
-  const output = execFileSync(name, args, {
-    cwd: options.cwd,
+function git(root, args, raw = false) {
+  const output = execFileSync('git', args, {
+    cwd: root,
     encoding: 'utf8',
-    input: options.input,
     maxBuffer: 10 * 1024 * 1024,
-    stdio: options.input === undefined ? ['ignore', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  return options.raw ? output : output.trim();
-}
-
-function git(root, args, options = {}) {
-  return command('git', args, { cwd: root, raw: args[0] === 'show', ...options });
+  return raw ? output : output.trim();
 }
 
 function json(raw, description) {
@@ -60,165 +55,30 @@ function compareVersions(left, right) {
   return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
-function decodeRecord(record) {
-  const canonicalKeys = [
-    'outcome', 'version', 'tag', 'tag_object', 'commit', 'tree',
-    'workflow_run_id', 'workflow_run_attempt', 'workflow_conclusion',
-    'verify_job_id', 'publish_job_id', 'artifact_integrity',
-  ];
-  const reconstructedKeys = [...canonicalKeys, 'reconstructed'];
-  const keys = JSON.stringify(Object.keys(record ?? {}));
-  const canonical = keys === JSON.stringify(canonicalKeys);
-  const reconstructed = keys === JSON.stringify(reconstructedKeys) && record?.reconstructed === true;
-  if (record === null || typeof record !== 'object' || Array.isArray(record) ||
-      (!canonical && !reconstructed)) {
-    fail('Release record has an invalid or non-canonical shape.');
+function manifest(raw) {
+  const value = json(raw, PACKAGE_PATH);
+  if (value.name !== PACKAGE_NAME || typeof value.version !== 'string') {
+    fail(`${PACKAGE_PATH} has invalid package identity.`);
   }
-  const published = record.outcome === 'published' &&
-    record.workflow_conclusion === 'success' && record.verify_job_id === null &&
-    record.publish_job_id === null && typeof record.artifact_integrity === 'string' &&
-    sri.test(record.artifact_integrity);
-  const failed = record.outcome === 'failed-superseded' &&
-    record.workflow_conclusion === 'failure' &&
-    ((record.verify_job_id === null && record.publish_job_id === null) ||
-      (Number.isSafeInteger(record.verify_job_id) && record.verify_job_id > 0 &&
-       Number.isSafeInteger(record.publish_job_id) && record.publish_job_id > 0)) &&
-    record.artifact_integrity === null;
-  if ((!published && !failed) || !stableVersion.test(record.version) ||
-      record.tag !== `v${record.version}` || !sha.test(record.tag_object) ||
-      !sha.test(record.commit) || !sha.test(record.tree) ||
-      !Number.isSafeInteger(record.workflow_run_id) || record.workflow_run_id <= 0 ||
-      !Number.isSafeInteger(record.workflow_run_attempt)) {
-    fail('Release record has an invalid or non-canonical shape.');
-  }
-  if (record.workflow_run_attempt <= 0) fail('Release record workflow run attempt must be positive.');
-  return Object.freeze(record);
+  return value;
 }
 
-function decodeRecords(raw) {
-  const records = json(raw, RECORDS_PATH);
-  if (!Array.isArray(records)) fail(`${RECORDS_PATH} must be an array.`);
-  records.forEach(decodeRecord);
-  return records;
-}
-
-export function deriveGitProvenance(root, version) {
-  requireVersion(version, 'Released version');
-  const tag = `v${version}`;
-  const ref = `refs/tags/${tag}`;
-  let type;
-  try {
-    type = git(root, ['cat-file', '-t', ref]);
-  } catch {
-    fail(`Annotated release tag is missing: ${tag}`);
+function lockfile(raw, version) {
+  const value = json(raw, LOCK_PATH);
+  if (value.name !== PACKAGE_NAME || value.version !== version ||
+      value.packages?.['']?.name !== PACKAGE_NAME ||
+      value.packages?.['']?.version !== version) {
+    fail(`${LOCK_PATH} root identity is invalid.`);
   }
-  if (type !== 'tag') fail(`Release tag is not annotated: ${tag}`);
-  return Object.freeze({
-    version,
-    tag,
-    tag_object: git(root, ['rev-parse', `${ref}^{tag}`]),
-    commit: git(root, ['rev-parse', `${ref}^{commit}`]),
-    tree: git(root, ['rev-parse', `${ref}^{commit}^{tree}`]),
-  });
-}
-
-export const systemAuthorities = Object.freeze({
-  githubRun(root, runId, attempt) {
-    return json(command('gh', [
-      'api', `repos/${REPOSITORY}/actions/runs/${runId}/attempts/${attempt}`,
-    ], { cwd: root }), 'GitHub Actions run');
-  },
-  artifactIntegrity(root, version) {
-    return json(command('npm', [
-      'view', `${PACKAGE_NAME}@${version}`, 'dist.integrity', '--json',
-      '--registry=https://registry.npmjs.org',
-    ], { cwd: root }), 'npm artifact integrity');
-  },
-  publishedVersions(root) {
-    return json(command('npm', [
-      'view', PACKAGE_NAME, 'versions', '--json', '--registry=https://registry.npmjs.org',
-    ], { cwd: root }), 'npm published versions');
-  },
-});
-
-function decodePublishedVersions(value) {
-  const versions = typeof value === 'string' ? [value] : value;
-  if (!Array.isArray(versions) || versions.some((version) =>
-    typeof version !== 'string' || !registryVersion.test(version)) ||
-    new Set(versions).size !== versions.length) {
-    fail('npm published-version authority returned an invalid response.');
-  }
-  return versions;
-}
-
-export function verifyReleaseProvenance(root, input, authorities = systemAuthorities) {
-  const record = decodeRecord(input);
-  const provenance = deriveGitProvenance(root, record.version);
-  for (const field of ['tag', 'tag_object', 'commit', 'tree']) {
-    if (record[field] !== provenance[field]) fail(`Release record ${field} does not match the annotated tag authority.`);
-  }
-  const run = authorities.githubRun(root, record.workflow_run_id, record.workflow_run_attempt);
-  if (run.id !== record.workflow_run_id || run.run_attempt !== record.workflow_run_attempt || run.head_sha !== record.commit ||
-      run.head_branch !== record.tag || run.event !== 'push' || run.status !== 'completed' ||
-      run.conclusion !== record.workflow_conclusion || run.path !== WORKFLOW_PATH) {
-    fail('Release record does not match the tag workflow authority.');
-  }
-  if (record.outcome === 'failed-superseded') {
-    if (decodePublishedVersions(authorities.publishedVersions(root)).includes(record.version)) {
-      fail('Failed-superseded release version exists in the npm registry.');
-    }
-  } else if (authorities.artifactIntegrity(root, record.version) !== record.artifact_integrity) {
-    fail('Release record integrity does not match the npm artifact authority.');
-  }
-  return record;
-}
-
-export function createReleaseRecord(root, input, authorities = systemAuthorities) {
-  if (!Number.isSafeInteger(input.workflowRunAttempt) || input.workflowRunAttempt <= 0) {
-    fail('Workflow run attempt must be positive.');
-  }
-  const provenance = deriveGitProvenance(root, input.version);
-  const conclusion = input.workflowConclusion ?? 'success';
-  if (conclusion !== 'success' && conclusion !== 'failure') fail('Workflow conclusion must be success or failure.');
-  const base = {
-    ...provenance,
-    workflow_run_id: input.workflowRunId,
-    workflow_run_attempt: input.workflowRunAttempt,
-    workflow_conclusion: conclusion,
-  };
-  return verifyReleaseProvenance(root, {
-    outcome: conclusion === 'failure' ? 'failed-superseded' : 'published',
-    ...base,
-    verify_job_id: null,
-    publish_job_id: null,
-    artifact_integrity: input.artifactIntegrity ?? null,
-  }, authorities);
-}
-
-function readFiles(root, paths) {
-  return Promise.all(paths.map(async (path) => [path, await readFile(`${root}/${path}`, 'utf8')]));
-}
-
-async function workingFiles(root) {
-  const allowlist = json(await readFile(`${root}/${ALLOWLIST_PATH}`, 'utf8'), ALLOWLIST_PATH);
-  if (!Array.isArray(allowlist.versionPins) || allowlist.versionPins.some((path) => typeof path !== 'string')) {
-    fail(`${ALLOWLIST_PATH} must contain versionPins.`);
-  }
-  const paths = [ALLOWLIST_PATH, PACKAGE_PATH, LOCK_PATH, RECORDS_PATH, ...allowlist.versionPins];
-  return new Map(await readFiles(root, [...new Set(paths)]));
-}
-
-function manifest(files) {
-  const value = json(files.get(PACKAGE_PATH), PACKAGE_PATH);
-  if (value.name !== PACKAGE_NAME || typeof value.version !== 'string') fail(`${PACKAGE_PATH} has invalid package identity.`);
   return value;
 }
 
 function transformVersion(raw, oldVersion, newVersion, path) {
-  const count = raw.split(oldVersion).length - 1;
-  if (count === 0) fail(`Version-pin allowlist entry has no ${oldVersion} assertion: ${path}`);
+  if (!raw.includes(oldVersion)) {
+    fail(`Version carrier has no ${oldVersion} assertion: ${path}`);
+  }
   const result = raw.replaceAll(oldVersion, newVersion);
-  if (result.includes(oldVersion)) fail(`Version-pin assertion was not fully moved: ${path}`);
+  if (result.includes(oldVersion)) fail(`Version carrier was not fully moved: ${path}`);
   return result;
 }
 
@@ -226,7 +86,7 @@ function requireReleaseNotes(root, ref, version) {
   const path = `docs/releases/${version}.md`;
   let notes;
   try {
-    notes = git(root, ['show', `${ref}:${path}`]);
+    notes = git(root, ['show', `${ref}:${path}`], true);
   } catch {
     fail(`Release notes are missing: ${path}`);
   }
@@ -234,141 +94,93 @@ function requireReleaseNotes(root, ref, version) {
   return path;
 }
 
-export function buildReleaseTransform(files, oldVersion, newVersion, record) {
+async function readWorkingFiles(root) {
+  const paths = [PACKAGE_PATH, LOCK_PATH, ...VERSION_PIN_PATHS];
+  return new Map(await Promise.all(paths.map(async (path) => [
+    path,
+    await readFile(`${root}/${path}`, 'utf8'),
+  ])));
+}
+
+export function buildReleaseTransform(files, oldVersion, newVersion) {
   requireVersion(oldVersion, 'Base version');
   requireVersion(newVersion, 'Target version');
-  if (compareVersions(newVersion, oldVersion) <= 0) fail(`Target version ${newVersion} must be newer than ${oldVersion}.`);
-  const baseManifest = manifest(files);
-  if (baseManifest.version !== oldVersion) fail('Base package version does not match the release record.');
-  const lock = json(files.get(LOCK_PATH), LOCK_PATH);
-  if (lock.name !== PACKAGE_NAME || lock.version !== oldVersion || lock.packages?.['']?.version !== oldVersion) {
-    fail(`${LOCK_PATH} root identity is invalid.`);
+  if (compareVersions(newVersion, oldVersion) <= 0) {
+    fail(`Target version ${newVersion} must be newer than ${oldVersion}.`);
   }
-  const records = decodeRecords(files.get(RECORDS_PATH));
-  if (records.some((existing) => existing.version === oldVersion)) fail(`Release record already exists for ${oldVersion}.`);
-  const allowlist = json(files.get(ALLOWLIST_PATH), ALLOWLIST_PATH);
-  const transformed = new Map();
-  transformed.set(PACKAGE_PATH, canonical({ ...baseManifest, version: newVersion }));
-  transformed.set(LOCK_PATH, canonical({ ...lock, version: newVersion, packages: { ...lock.packages, '': { ...lock.packages[''], version: newVersion } } }));
-  for (const path of allowlist.versionPins) transformed.set(path, transformVersion(files.get(path), oldVersion, newVersion, path));
-  transformed.set(RECORDS_PATH, canonical([...records, record]));
+  const baseManifest = manifest(files.get(PACKAGE_PATH));
+  if (baseManifest.version !== oldVersion) fail('Base package version is invalid.');
+  const baseLock = lockfile(files.get(LOCK_PATH), oldVersion);
+  const transformed = new Map([
+    [PACKAGE_PATH, canonical({ ...baseManifest, version: newVersion })],
+    [LOCK_PATH, canonical({
+      ...baseLock,
+      version: newVersion,
+      packages: {
+        ...baseLock.packages,
+        '': { ...baseLock.packages[''], version: newVersion },
+      },
+    })],
+  ]);
+  for (const path of VERSION_PIN_PATHS) {
+    transformed.set(path, transformVersion(files.get(path), oldVersion, newVersion, path));
+  }
   return transformed;
 }
 
-function publishedAnchor(root, files, version, authorities) {
-  const records = decodeRecords(files.get(RECORDS_PATH))
-    .filter((record) => record.outcome === 'published' && compareVersions(record.version, version) < 0)
-    .sort((left, right) => compareVersions(right.version, left.version));
-  if (records.length === 0) fail('Failed-superseded release requires an earlier published provenance anchor.');
-  return verifyReleaseProvenance(root, records[0], authorities);
-}
-
-function requirePreviousPublishedRecord(root, files, version, authorities) {
-  const previous = decodePublishedVersions(authorities.publishedVersions(root))
-    .filter((candidate) => stableVersion.test(candidate) && compareVersions(candidate, version) < 0)
-    .sort(compareVersions)
-    .at(-1);
-  if (previous === undefined) return;
-  const recorded = decodeRecords(files.get(RECORDS_PATH))
-    .some((candidate) => candidate.version === previous && candidate.outcome === 'published');
-  if (!recorded) fail(`Immediately previous published version is missing from release records: ${previous}`);
-}
-
-export async function prepareRelease(root, targetVersion, evidence, authorities = systemAuthorities) {
-  if (git(root, ['status', '--porcelain']) !== '') fail('release:prepare requires a clean working tree.');
+export async function prepareRelease(root, targetVersion) {
+  if (git(root, ['status', '--porcelain']) !== '') {
+    fail('release:prepare requires a clean working tree.');
+  }
   requireVersion(targetVersion, 'Target version');
   requireReleaseNotes(root, 'HEAD', targetVersion);
-  const files = await workingFiles(root);
-  const oldVersion = manifest(files).version;
-  requirePreviousPublishedRecord(root, files, oldVersion, authorities);
-  const record = createReleaseRecord(root, {
-    version: oldVersion,
-    workflowRunId: evidence.workflowRunId,
-    workflowRunAttempt: evidence.workflowRunAttempt,
-    workflowConclusion: evidence.workflowConclusion,
-    artifactIntegrity: evidence.artifactIntegrity,
-  }, authorities);
-  const anchor = record.outcome === 'published' ? record : publishedAnchor(root, files, oldVersion, authorities);
-  for (const candidate of [record, anchor]) {
-    try {
-      git(root, ['merge-base', '--is-ancestor', candidate.commit, 'HEAD']);
-    } catch {
-      fail('Release provenance commit is not an ancestor of the preparation base.');
-    }
-  }
-  const transformed = buildReleaseTransform(files, oldVersion, targetVersion, record);
+  const files = await readWorkingFiles(root);
+  const oldVersion = requireVersion(manifest(files.get(PACKAGE_PATH)).version, 'Base version');
+  const transformed = buildReleaseTransform(files, oldVersion, targetVersion);
   await Promise.all([...transformed].map(([path, raw]) => writeFile(`${root}/${path}`, raw)));
-  return Object.freeze({ oldVersion, newVersion: targetVersion, record, provenanceAnchor: anchor, paths: [...transformed.keys()].sort() });
+  return Object.freeze({
+    oldVersion,
+    newVersion: targetVersion,
+    paths: [...transformed.keys()].sort(),
+  });
 }
 
-export function verifyReleaseIdentity(root, base, candidate, authorities = systemAuthorities) {
-  if (!sha.test(base) || !sha.test(candidate)) fail('Release identity refs must be exact 40-character commit SHAs.');
+export function verifyReleaseIdentity(root, base, candidate) {
+  if (!sha.test(base) || !sha.test(candidate)) {
+    fail('Release identity refs must be exact 40-character commit SHAs.');
+  }
   try {
     git(root, ['merge-base', '--is-ancestor', base, candidate]);
   } catch {
     fail('Release identity base must be an ancestor of the candidate.');
   }
-  const allowlistRaw = git(root, ['show', `${base}:${ALLOWLIST_PATH}`]);
-  const allowlist = json(allowlistRaw, ALLOWLIST_PATH);
-  const paths = [ALLOWLIST_PATH, PACKAGE_PATH, LOCK_PATH, RECORDS_PATH, ...allowlist.versionPins];
-  const readRef = (ref, path) => git(root, ['show', `${ref}:${path}`]);
+  const readRef = (ref, path) => git(root, ['show', `${ref}:${path}`], true);
+  const paths = [PACKAGE_PATH, LOCK_PATH, ...VERSION_PIN_PATHS];
   const baseFiles = new Map(paths.map((path) => [path, readRef(base, path)]));
   const candidateFiles = new Map(paths.map((path) => [path, readRef(candidate, path)]));
-  const oldVersion = manifest(baseFiles).version;
-  requirePreviousPublishedRecord(root, candidateFiles, oldVersion, authorities);
-  const records = decodeRecords(candidateFiles.get(RECORDS_PATH));
-  const record = records.at(-1);
-  if (!record || record.version !== oldVersion) fail(`Candidate has no generated release record for ${oldVersion}.`);
-  const verified = verifyReleaseProvenance(root, record, authorities);
-  const anchor = verified.outcome === 'published' ? verified : publishedAnchor(root, candidateFiles, oldVersion, authorities);
-  for (const provenance of [verified, anchor]) {
-    try {
-      git(root, ['merge-base', '--is-ancestor', provenance.commit, base]);
-    } catch {
-      fail('Release provenance commit is not an ancestor of the release identity base.');
-    }
-  }
-  const newVersion = requireVersion(manifest(candidateFiles).version, 'Candidate version');
-  if (compareVersions(newVersion, oldVersion) <= 0) {
-    fail(`Candidate version ${newVersion} must be newer than ${oldVersion}.`);
+  const oldVersion = requireVersion(manifest(baseFiles.get(PACKAGE_PATH)).version, 'Base version');
+  lockfile(baseFiles.get(LOCK_PATH), oldVersion);
+  const newVersion = requireVersion(manifest(candidateFiles.get(PACKAGE_PATH)).version, 'Candidate version');
+  lockfile(candidateFiles.get(LOCK_PATH), newVersion);
+  const expected = buildReleaseTransform(baseFiles, oldVersion, newVersion);
+  for (const [path, raw] of expected) {
+    if (candidateFiles.get(path) !== raw) fail(`Release identity carrier is stale or changed unexpectedly: ${path}`);
   }
   const notesPath = requireReleaseNotes(root, candidate, newVersion);
-  const candidateManifest = manifest(candidateFiles);
-  const candidateLock = json(candidateFiles.get(LOCK_PATH), LOCK_PATH);
-  if (candidateLock.name !== PACKAGE_NAME || candidateLock.version !== newVersion ||
-      candidateLock.packages?.['']?.version !== newVersion) fail(`${LOCK_PATH} root identity is invalid.`);
-  for (const path of allowlist.versionPins) {
-    const raw = candidateFiles.get(path);
-    if (!raw.includes(newVersion) || raw.includes(oldVersion)) fail(`Version-pin assertion is stale: ${path}`);
-  }
-  if (candidateManifest.version !== newVersion) fail('Candidate package version is invalid.');
-  return Object.freeze({ base, candidate, oldVersion, newVersion, paths: [PACKAGE_PATH, LOCK_PATH, RECORDS_PATH, notesPath, ...allowlist.versionPins].sort() });
-}
-
-function parsePrepare(args) {
-  const [version, ...flags] = args;
-  if (!version || flags.length % 2 !== 0) fail('Usage: release:prepare <version> --workflow-run-id <id> --workflow-run-attempt <n> [--workflow-conclusion <success|failure>] [--artifact-integrity <sha512-SRI>]');
-  const values = new Map();
-  for (let index = 0; index < flags.length; index += 2) {
-    if (!['--workflow-run-id', '--workflow-run-attempt', '--workflow-conclusion', '--artifact-integrity'].includes(flags[index]) || values.has(flags[index])) fail(`Invalid release:prepare flag: ${flags[index]}`);
-    values.set(flags[index], flags[index + 1]);
-  }
-  const workflowRunId = Number(values.get('--workflow-run-id'));
-  const workflowRunAttempt = Number(values.get('--workflow-run-attempt'));
-  if (!Number.isSafeInteger(workflowRunId) || workflowRunId <= 0 || !Number.isSafeInteger(workflowRunAttempt)) fail('release:prepare requires a positive run id and attempt.');
-  if (workflowRunAttempt <= 0) fail('release:prepare requires a positive run id and attempt.');
-  const workflowConclusion = values.get('--workflow-conclusion') ?? 'success';
-  const artifactIntegrity = values.get('--artifact-integrity');
-  if (workflowConclusion === 'failure' && artifactIntegrity !== undefined) fail('A failed-superseded release forbids artifact integrity.');
-  if (workflowConclusion === 'success' && (!artifactIntegrity || !sri.test(artifactIntegrity))) fail('A successful release requires a canonical SHA-512 SRI.');
-  return { version, evidence: { workflowRunId, workflowRunAttempt, workflowConclusion, ...(artifactIntegrity === undefined ? {} : { artifactIntegrity }) } };
+  return Object.freeze({
+    base,
+    candidate,
+    oldVersion,
+    newVersion,
+    paths: [...paths, notesPath].sort(),
+  });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === 'prepare') {
-    const parsed = parsePrepare(args);
-    console.log(JSON.stringify(await prepareRelease(process.cwd(), parsed.version, parsed.evidence), null, 2));
+    if (args.length !== 1) fail('Usage: release-identity.mjs prepare <version>');
+    console.log(JSON.stringify(await prepareRelease(process.cwd(), args[0]), null, 2));
   } else if (operation === 'verify') {
     if (args.length !== 2) fail('Usage: release-identity.mjs verify <base-sha> <candidate-sha>');
     console.log(JSON.stringify(verifyReleaseIdentity(process.cwd(), args[0], args[1]), null, 2));

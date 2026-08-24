@@ -56,7 +56,7 @@ describe('packed artifact', () => {
     expect(report.readmeRelativeLinkCount).toBeGreaterThan(0);
   });
 
-  it('requires the release ledger linked by the packed README', async () => {
+  it('requires the release history linked by the packed README', async () => {
     const tarball = await repack(async (root) => {
       await rm(join(root, 'RELEASES.md'));
     });
