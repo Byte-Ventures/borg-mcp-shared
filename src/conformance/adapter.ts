@@ -757,7 +757,7 @@ export async function runAdapterConformance(
         kind: 'origin' as const,
         value: 'https://github.com/Byte-Ventures/repository-one',
       },
-      template: 'default',
+      template: 'software-dev',
     };
     const droneCredential = await environment.admin.issueDroneSession(ownerPrincipal);
     expectSecretFreeError(
@@ -3552,7 +3552,7 @@ export async function runAdapterConformance(
       name: 'Disposable Cube',
       working_repo_name: 'disposable-cube',
       repository: { kind: 'local' as const, value: '00000000-0000-4000-8000-000000000707' },
-      template: 'default' as const,
+      template: 'software-dev' as const,
     };
     const createResponse = await environment.operations.createCube(
       creator.credential,

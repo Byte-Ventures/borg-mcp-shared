@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   ANTI_PASSIVE_STANDING_DISCIPLINE,
   COORDINATOR_FINDING_DISPATCH_DISCIPLINE,
-  LEGACY_DEFAULT_TEMPLATE_LABEL,
   NEW_CUBE_TEMPLATE_PRESENTATIONS,
   REVIEWER_FINDING_DISCIPLINE,
   SAME_REPOSITORY_WORKFLOW_DISCIPLINE,
@@ -34,10 +33,13 @@ describe('cube templates', () => {
   it('registers the built-in templates', () => {
     expect(listTemplateNames()).toEqual(['software-dev', 'starter', 'local-model']);
     expect(getTemplate('missing')).toBeNull();
+    for (const inherited of ['toString', 'constructor', '__proto__']) {
+      expect(getTemplate(inherited)).toBeNull();
+    }
+    for (const name of listTemplateNames()) expect(getTemplate(name)).toBe(TEMPLATES[name]);
   });
 
   it('owns the exact host-neutral template presentation copy', () => {
-    expect(LEGACY_DEFAULT_TEMPLATE_LABEL).toBe('Default (legacy)');
     expect(NEW_CUBE_TEMPLATE_PRESENTATIONS).toEqual([
       {
         name: 'software-dev',

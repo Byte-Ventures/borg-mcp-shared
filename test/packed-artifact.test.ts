@@ -150,9 +150,9 @@ describe('packed artifact', () => {
           decodeResolveRepositoryCubeResponse,
         } from 'borgmcp-shared/protocol';
         import {
-          LEGACY_DEFAULT_TEMPLATE_LABEL,
           NEW_CUBE_TEMPLATE_PRESENTATIONS,
           TEMPLATES,
+          getTemplate,
         } from 'borgmcp-shared/templates';
         import {
           CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE,
@@ -227,7 +227,9 @@ describe('packed artifact', () => {
           request,
           association,
           unresolved: decodeResolveRepositoryCubeResponse({ result: 'none' }),
-          legacyLabel: LEGACY_DEFAULT_TEMPLATE_LABEL,
+          inheritedTemplateKeysRejected: ['toString', 'constructor', '__proto__'].every(
+            (name) => getTemplate(name) === null
+          ),
           presentations: NEW_CUBE_TEMPLATE_PRESENTATIONS,
           softwareDevelopment: {
             label: TEMPLATES['software-dev'].label,
@@ -263,16 +265,16 @@ describe('packed artifact', () => {
     delete report.localModel.roleText;
 
     expect(report).toEqual({
-      templates: ['default', 'software-dev', 'starter', 'local-model'],
+      templates: ['software-dev', 'starter', 'local-model'],
       templateAcceptance: [
-        { name: 'accepts the legacy default template', template: 'default', accepts: true },
         { name: 'accepts the software-development template', template: 'software-dev', accepts: true },
         { name: 'accepts the starter template', template: 'starter', accepts: true },
         { name: 'accepts the local-model template', template: 'local-model', accepts: true },
+        { name: 'rejects the removed default template', template: 'default', accepts: false },
         { name: 'rejects an unknown template name', template: 'custom', accepts: false },
         { name: 'rejects a non-string template', template: null, accepts: false },
       ],
-      protocolVersion: '12',
+      protocolVersion: '13',
       appendRequest: {
         post_id: '00000000-0000-4000-8000-000000000004',
         message: 'explicit audience',
@@ -307,7 +309,7 @@ describe('packed artifact', () => {
         repository: { kind: 'local', value: '00000000-0000-4000-8000-000000000002' },
       },
       unresolved: { result: 'none' },
-      legacyLabel: 'Default (legacy)',
+      inheritedTemplateKeysRejected: true,
       presentations: [
         {
           name: 'software-dev',
