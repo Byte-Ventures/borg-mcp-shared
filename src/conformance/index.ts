@@ -656,9 +656,9 @@ export interface AssociateRepositoryCubeConformanceVector {
       status: 200;
     }
     | {
-      outcome: 'repository_conflict' | 'cube_conflict';
+      outcome: 'repository_conflict';
       status: 409;
-      error: 'REPOSITORY_ALREADY_ASSOCIATED' | 'CUBE_ALREADY_ASSOCIATED';
+      error: 'REPOSITORY_ALREADY_ASSOCIATED';
       diagnostic_disclosure: 'none';
     };
 }
@@ -687,14 +687,12 @@ readonly AssociateRepositoryCubeConformanceVector[] = [
     },
   },
   {
-    name: 'cube already bound to another repository conflicts without mutation',
+    name: 'a second repository may associate with the same explicit cube',
     initial: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
     retry: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_TWO },
     expected: {
-      outcome: 'cube_conflict',
-      status: 409,
-      error: 'CUBE_ALREADY_ASSOCIATED',
-      diagnostic_disclosure: 'none',
+      outcome: 'resolved',
+      status: 200,
     },
   },
 ];
@@ -949,7 +947,6 @@ export interface RoleRationaleConformanceVector {
     | 'unknown-role'
     | 'inaccessible-role'
     | 'unknown-section'
-    | 'ambiguous-role-name'
     | 'invalid-selector';
   expected:
     | { status: 200; canonical_heading: true; exact_body: true; mutation: 'none' }
@@ -983,11 +980,6 @@ export const ROLE_RATIONALE_CONFORMANCE: readonly RoleRationaleConformanceVector
     name: 'returns a typed refusal for an unknown section',
     fixture: 'unknown-section',
     expected: { status: 404, error: 'ROLE_SECTION_NOT_FOUND', mutation: 'none' },
-  },
-  {
-    name: 'rejects a role name with multiple case-insensitive matches',
-    fixture: 'ambiguous-role-name',
-    expected: { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
   },
   {
     name: 'rejects malformed or ambiguous selectors',

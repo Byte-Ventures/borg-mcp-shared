@@ -814,6 +814,20 @@ export async function runAdapterConformance(
     const createdResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create', cubeRequest));
     expectStatus(createdResponse, 201, 'Owner cube create');
     const created = decodeCreateCubeResponseEnvelope(createdResponse.body).payload;
+    expectError(
+      await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-case-variant-duplicate', {
+        ...cubeRequest,
+        retry_key: '00000000-0000-4000-8000-000000000214',
+        name: 'repository one',
+        repository: {
+          kind: 'origin' as const,
+          value: 'https://github.com/Byte-Ventures/repository-one-case-variant',
+        },
+      })),
+      409,
+      ErrorCode.INVALID_INPUT,
+      'Same-owner case-variant cube name',
+    );
     const createdRoleProbes = new Map<string, {
       role: unknown;
       droneId: string;
@@ -1158,26 +1172,27 @@ export async function runAdapterConformance(
       same(await resolve('repository-resolve-alternate-after-repository-conflict', alternateResolveRequest), { result: 'none' }),
       'Repository conflict created an alternate binding.',
     );
-    expectSecretFreeError(
-      await environment.operations.associateRepositoryCube(
-        credentialA,
-        createProtocolEnvelope('repository-associate-cube-conflict', {
-          cube_id: cubeA.id,
-          ...alternateResolveRequest,
-        }),
+    const alternateAssociationResponse = await environment.operations.associateRepositoryCube(
+      credentialA,
+      createProtocolEnvelope('repository-associate-second-repository', {
+        cube_id: cubeA.id,
+        ...alternateResolveRequest,
+      }),
+    );
+    expectStatus(alternateAssociationResponse, 200, 'Second repository association');
+    const alternateAuthoritative = decodeAssociateRepositoryCubeResponseEnvelope(
+      alternateAssociationResponse.body,
+    ).payload;
+    invariant(
+      same(await resolve('repository-resolve-after-second-association', resolveRequest), authoritative),
+      'Second repository association changed the authoritative original binding.',
+    );
+    invariant(
+      same(
+        await resolve('repository-resolve-alternate-after-second-association', alternateResolveRequest),
+        alternateAuthoritative,
       ),
-      409,
-      ErrorCode.CUBE_ALREADY_ASSOCIATED,
-      'Cube-to-other-repository conflict',
-      [cubeA.id, repository.value, 'https://github.com/Byte-Ventures/other-repository'],
-    );
-    invariant(
-      same(await resolve('repository-resolve-after-cube-conflict', resolveRequest), authoritative),
-      'Cube conflict changed the authoritative original binding.',
-    );
-    invariant(
-      same(await resolve('repository-resolve-alternate-after-cube-conflict', alternateResolveRequest), { result: 'none' }),
-      'Cube conflict created the refused alternate binding.',
+      'Second repository association was not observable.',
     );
     const preparedB = await environment.admin.prepareRepositoryCube(cubeB, {
       name: 'Other Client Legacy Cube',
@@ -1254,7 +1269,7 @@ export async function runAdapterConformance(
       resolved: true,
       idempotent: true,
       repository_conflict: ErrorCode.REPOSITORY_ALREADY_ASSOCIATED,
-      cube_conflict: ErrorCode.CUBE_ALREADY_ASSOCIATED,
+      multiple_repositories_per_cube: true,
       inaccessible: ErrorCode.ACCESS_DENIED,
       inaccessible_binding_hidden: true,
       cross_client_binding_hidden: true,
@@ -3233,24 +3248,25 @@ export async function runAdapterConformance(
       name: 'Ambiguous Role',
       detailedDescription,
     });
-    await environment.admin.createRole(roleContractCube, {
-      roleClass: 'worker',
-      isHumanSeat: false,
-      name: 'AMBIGUOUS ROLE',
-      detailedDescription,
-    });
     expectError(
-      await environment.operations.roleRationale(
-        roleContractReadCredential,
+      await environment.operations.createRole(
+        roleContractCredential,
         roleContractCube,
-        createProtocolEnvelope('rationale-ambiguous-role', {
-          role: 'ambiguous role',
-          section: 'Workflow rationale',
-        }),
+        createProtocolEnvelope('role-case-variant-duplicate', { name: 'AMBIGUOUS ROLE' }),
+      ),
+      409,
+      ErrorCode.INVALID_INPUT,
+      'Case-variant duplicate role name',
+    );
+    expectError(
+      await environment.operations.createRole(
+        roleContractCredential,
+        roleContractCube,
+        createProtocolEnvelope('role-invalid-character', { name: 'Invalid/Role' }),
       ),
       400,
       ErrorCode.INVALID_INPUT,
-      'Ambiguous role rationale lookup',
+      'Invalid role name character',
     );
     expectError(
       await environment.operations.roleRationale(
@@ -3273,7 +3289,8 @@ export async function runAdapterConformance(
       unknown_role_code: ErrorCode.ROLE_NOT_FOUND,
       inaccessible_role_code: ErrorCode.ROLE_NOT_FOUND,
       unknown_section_code: ErrorCode.ROLE_SECTION_NOT_FOUND,
-      ambiguous_role_code: ErrorCode.INVALID_INPUT,
+      case_variant_duplicate_status: 409,
+      invalid_name_code: ErrorCode.INVALID_INPUT,
       invalid_selector_code: ErrorCode.INVALID_INPUT,
     };
   });

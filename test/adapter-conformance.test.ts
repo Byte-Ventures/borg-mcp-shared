@@ -87,7 +87,7 @@ type Fault =
   | 'interpret-injection-input'
   | 'accept-oversize-request'
   | 'mutate-repository-conflict-on-error'
-  | 'mutate-cube-conflict-on-error'
+  | 'drop-second-repository-association'
   | 'mutate-inaccessible-binding-on-error'
   | 'mutate-unassociated-repository-resolve'
   | 'accept-retry-key-mismatch'
@@ -113,6 +113,9 @@ type Fault =
   | 'leak-original-retry-key'
   | 'leak-original-credential'
   | 'leak-cube-retry-diagnostic'
+  | 'accept-case-variant-cube-name'
+  | 'accept-case-variant-role-name'
+  | 'accept-invalid-role-name'
   | 'allow-worker-queen-promotion'
   | 'allow-occupied-human-seat'
   | 'allow-cross-cube-drone-management'
@@ -157,7 +160,6 @@ type Fault =
   | 'normalize-rationale-body'
   | 'wrong-rationale-role-code'
   | 'wrong-rationale-section-code'
-  | 'accept-ambiguous-rationale-role'
   | 'append-rationale-section'
   | 'oversize-rationale-body'
   | 'ack-status-false-ack'
@@ -681,6 +683,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           body: createProtocolEnvelope(envelope.request_id, { ...associated, result: 'resolved' }),
         };
       }
+      const caseVariantNameExists = [...auth.principal.grants].some(([cubeId]) => {
+        const cube = this.cubes.get(cubeId);
+        return cube?.name?.toLowerCase() === envelope.payload.name.toLowerCase();
+      });
+      if (caseVariantNameExists && this.fault !== 'accept-case-variant-cube-name') {
+        return this.error(409, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
       const handle = { id: this.uuid() };
       const humanSeatRoleId = this.uuid();
       const defaultWorkerRoleId = this.uuid();
@@ -1034,20 +1043,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         }
         return this.error(409, ErrorCode.REPOSITORY_ALREADY_ASSOCIATED, envelope.request_id);
       }
-      const cubeBinding = [...this.repositoryAssociations.entries()].find(
-        ([associationKey, association]) =>
-          associationKey.startsWith(`${auth.principal.handle.id}/`) && association.cube_id === cube.handle.id,
-      );
-      if (cubeBinding && cubeBinding[0] !== key) {
-        if (this.fault === 'mutate-cube-conflict-on-error') {
-          this.repositoryAssociations.set(key, {
-            ...cubeBinding[1],
-            working_repo_name: envelope.payload.working_repo_name,
-            repository: envelope.payload.repository,
-          });
-        }
-        return this.error(409, ErrorCode.CUBE_ALREADY_ASSOCIATED, envelope.request_id);
-      }
       if (repositoryBinding) {
         return {
           status: 200,
@@ -1077,7 +1072,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         default_worker_role_id: defaultWorkerRoleId,
         access: 'manage',
       };
-      this.repositoryAssociations.set(key, response);
+      if (!(this.fault === 'drop-second-repository-association' &&
+          envelope.request_id === 'repository-associate-second-repository')) {
+        this.repositoryAssociations.set(key, response);
+      }
       return { status: 200, body: createProtocolEnvelope(envelope.request_id, response) };
     },
     attach: async (credential: string, request: unknown): Promise<ConformanceHttpResponse> => {
@@ -1566,8 +1564,19 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const access = this.authorizeManager(credential, cubeHandle.id);
       if (access.error) return access.error;
       const envelope = decodeProtocolEnvelope(request, (payload) => payload as { name: string });
+      const cube = this.cube(cubeHandle.id);
+      if (typeof envelope.payload.name !== 'string' ||
+          (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/u.test(envelope.payload.name) &&
+            this.fault !== 'accept-invalid-role-name')) {
+        return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
+      if ([...cube.roles.values()].some((role) =>
+        role.name?.toLowerCase() === envelope.payload.name.toLowerCase()
+      ) && this.fault !== 'accept-case-variant-role-name') {
+        return this.error(409, ErrorCode.INVALID_INPUT, envelope.request_id);
+      }
       const handle = { id: this.uuid() };
-      this.cube(cubeHandle.id).roles.set(handle.id, {
+      cube.roles.set(handle.id, {
         handle,
         roleClass: 'worker',
         isHumanSeat: false,
@@ -1855,8 +1864,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       );
       if (
         !cube.roles.has(selector) &&
-        matchingNames.length > 1 &&
-        this.fault !== 'accept-ambiguous-rationale-role'
+        matchingNames.length > 1
       ) {
         return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
       }
@@ -2291,7 +2299,7 @@ describe('executable adapter conformance', () => {
     ['denied read-only removed document get', 'deny-read-removed-document-get', 'documents.lifecycle'],
     ['mutated predecessor before budget refusal', 'mutate-over-budget-successor', 'documents.lifecycle'],
     ['mutated a repository binding while returning its conflict', 'mutate-repository-conflict-on-error', 'repository.explicit-association'],
-    ['created an alternate binding while returning a cube conflict', 'mutate-cube-conflict-on-error', 'repository.explicit-association'],
+    ['reported but did not persist a second repository association', 'drop-second-repository-association', 'repository.explicit-association'],
     ['mutated a hidden binding while returning access denied', 'mutate-inaccessible-binding-on-error', 'repository.explicit-association'],
     ['created a repository binding during read-only resolution', 'mutate-unassociated-repository-resolve', 'repository.explicit-association'],
     ['cross-cube leak', 'cross-cube-leak', 'security.cross-cube-isolation'],
@@ -2318,6 +2326,7 @@ describe('executable adapter conformance', () => {
     ['used a global cube-create retry binding', 'global-cube-retry-binding', 'enrollment.retry-authority'],
     ['returned created on an exact cross-client retry', 'return-created-on-cross-client-retry', 'enrollment.retry-authority'],
     ['allowed drone-session cube creation', 'allow-drone-cube-create', 'enrollment.retry-authority'],
+    ['accepted a same-owner case-variant cube name', 'accept-case-variant-cube-name', 'enrollment.retry-authority'],
     ['leaked original invitation', 'leak-original-invitation', 'enrollment.retry-authority'],
     ['leaked original retry key', 'leak-original-retry-key', 'enrollment.retry-authority'],
     ['leaked original credential', 'leak-original-credential', 'enrollment.retry-authority'],
@@ -2365,7 +2374,8 @@ describe('executable adapter conformance', () => {
     ['normalized the exact rationale section body', 'normalize-rationale-body', 'roles.rationale-contract'],
     ['collapsed the unknown-role rationale code', 'wrong-rationale-role-code', 'roles.rationale-contract'],
     ['collapsed the unknown-section rationale code', 'wrong-rationale-section-code', 'roles.rationale-contract'],
-    ['accepted an ambiguous case-insensitive rationale role name', 'accept-ambiguous-rationale-role', 'roles.rationale-contract'],
+    ['accepted a case-variant duplicate role name', 'accept-case-variant-role-name', 'roles.rationale-contract'],
+    ['accepted an invalid role-name character', 'accept-invalid-role-name', 'roles.rationale-contract'],
     ['returned a neighboring rationale section', 'append-rationale-section', 'roles.rationale-contract'],
     ['returned an oversized rationale section', 'oversize-rationale-body', 'roles.rationale-contract'],
     ['reported a false acknowledgement', 'ack-status-false-ack', 'acks.status-query'],
