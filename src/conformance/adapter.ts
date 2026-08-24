@@ -814,28 +814,38 @@ export async function runAdapterConformance(
     const createdResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create', cubeRequest));
     expectStatus(createdResponse, 201, 'Owner cube create');
     const created = decodeCreateCubeResponseEnvelope(createdResponse.body).payload;
-    const createdRoleShapes = new Map<string, unknown>();
+    const createdRoleProbes = new Map<string, {
+      role: unknown;
+      droneId: string;
+      sessionCredential: string;
+    }>();
     for (const [kind, roleId, roleClass, isHumanSeat, marker] of [
       ['human-seat', created.human_seat_role_id, 'queen', true, 'H'],
       ['default-worker', created.default_worker_role_id, 'worker', false, 'D'],
     ] as const) {
+      const sessionCredential = marker.repeat(43);
       const attached = await environment.operations.attach(
         ownerCredential,
         createProtocolEnvelope(`cube-create-${kind}-probe`, {
           cube_id: created.cube_id,
           role_id: roleId,
-          session_credential: marker.repeat(43),
+          session_credential: sessionCredential,
         }),
       );
       expectStatus(attached, 200, `Created ${kind} role probe`);
-      const attachedRole = decodeAttachResponseEnvelope(attached.body).payload.role;
+      const attachedPayload = decodeAttachResponseEnvelope(attached.body).payload;
+      const attachedRole = attachedPayload.role;
       invariant(
         attachedRole.id === roleId &&
         attachedRole.role_class === roleClass &&
         attachedRole.is_human_seat === isHumanSeat,
         `Created ${kind} role identity did not match its protocol role.`,
       );
-      createdRoleShapes.set(kind, attachedRole);
+      createdRoleProbes.set(kind, {
+        role: attachedRole,
+        droneId: attachedPayload.drone.id,
+        sessionCredential,
+      });
     }
     const retriedCreateResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-retry', cubeRequest));
     expectStatus(retriedCreateResponse, 201, 'Exact cube-create retry');
@@ -876,21 +886,24 @@ export async function runAdapterConformance(
         [cubeRequest.retry_key],
       );
     }
-    for (const [kind, roleId, marker] of [
-      ['human-seat', created.human_seat_role_id, 'J'],
-      ['default-worker', created.default_worker_role_id, 'K'],
+    for (const [kind, roleId] of [
+      ['human-seat', created.human_seat_role_id],
+      ['default-worker', created.default_worker_role_id],
     ] as const) {
+      const initialProbe = createdRoleProbes.get(kind);
+      invariant(initialProbe !== undefined, `Missing initial ${kind} role probe.`);
       const attached = await environment.operations.attach(
         ownerCredential,
         createProtocolEnvelope(`cube-create-${kind}-post-refusal-probe`, {
           cube_id: created.cube_id,
           role_id: roleId,
-          session_credential: marker.repeat(43),
+          session_credential: initialProbe.sessionCredential,
+          prior_drone_id: initialProbe.droneId,
         }),
       );
       expectStatus(attached, 200, `Post-refusal ${kind} role probe`);
       invariant(
-        same(decodeAttachResponseEnvelope(attached.body).payload.role, createdRoleShapes.get(kind)),
+        same(decodeAttachResponseEnvelope(attached.body).payload.role, initialProbe.role),
         `Cube-create retry refusal changed the full ${kind} role shape.`,
       );
     }
@@ -932,6 +945,8 @@ export async function runAdapterConformance(
       ['human-seat', crossClientCreated.human_seat_role_id, created.human_seat_role_id, 'V'],
       ['default-worker', crossClientCreated.default_worker_role_id, created.default_worker_role_id, 'W'],
     ] as const) {
+      const originalProbe = createdRoleProbes.get(kind);
+      invariant(originalProbe !== undefined, `Missing original ${kind} role probe.`);
       const attached = await environment.operations.attach(
         ordinaryCredential,
         createProtocolEnvelope(`cube-cross-client-${kind}-probe`, {
@@ -943,7 +958,7 @@ export async function runAdapterConformance(
       expectStatus(attached, 200, `Cross-client ${kind} role probe`);
       const attachedRole = decodeAttachResponseEnvelope(attached.body).payload.role;
       invariant(
-        same({ ...attachedRole, id: originalRoleId }, createdRoleShapes.get(kind)),
+        same({ ...attachedRole, id: originalRoleId }, originalProbe.role),
         `Cross-client ${kind} role did not match the full template role shape.`,
       );
     }

@@ -727,8 +727,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         working_repo_name: envelope.payload.working_repo_name,
         repository: envelope.payload.repository,
         template: envelope.payload.template,
-        human_seat_role_id: this.fault === 'swap-created-role-identities' ? defaultWorkerRoleId : humanSeatRoleId,
-        default_worker_role_id: this.fault === 'swap-created-role-identities' ? humanSeatRoleId : defaultWorkerRoleId,
+        human_seat_role_id: this.fault === 'swap-created-role-identities' && envelope.request_id === 'cube-create'
+          ? defaultWorkerRoleId
+          : humanSeatRoleId,
+        default_worker_role_id: this.fault === 'swap-created-role-identities' && envelope.request_id === 'cube-create'
+          ? humanSeatRoleId
+          : defaultWorkerRoleId,
         access: 'manage' as const,
       };
       this.cubeCreateBindings.set(bindingKey, {
@@ -1095,6 +1099,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         : undefined;
       const reused = drone !== undefined && drone.principalId === auth.principal.handle.id && !drone.evicted;
       if (drone && !reused) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      if (!drone && role.isHumanSeat && [...cube.drones.values()].some(
+        (candidate) => !candidate.evicted && candidate.sessionState === 'active' &&
+          candidate.roleId === role.handle.id,
+      )) {
+        return this.error(409, ErrorCode.ROLE_IN_USE, envelope.request_id);
+      }
       if (!drone) {
         const handle = { id: this.uuid() };
         drone = {
