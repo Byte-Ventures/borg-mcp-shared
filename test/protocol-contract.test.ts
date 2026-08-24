@@ -464,19 +464,30 @@ describe('package and handshake contract', () => {
       'SUBSCRIPTION_REQUIRED',
       'MISSING_PARAMETER',
       'RATE_LIMIT_EXCEEDED',
-      'INTERNAL_ERROR',
       'DATABASE_ERROR',
       'EXTERNAL_SERVICE_ERROR',
       'ROLE_HAS_FROZEN_DRONES',
       'DRONE_FROZEN',
       'CURSOR_INVALID',
-      'SESSION_REJECTED',
     ]) {
       expect(() => decodeProtocolErrorEnvelope({
         protocol_version: '13',
         error: { code, message: 'Removed error.' },
       }), code).toThrow(ProtocolContractError);
       expect(sharedApi.ErrorCode).not.toHaveProperty(code);
+    }
+  });
+
+  it('retains represented session rejection and server failure outcomes', () => {
+    expect(PROTOCOL_HTTP_CONTRACT.session_rejected_status).toBe(401);
+    for (const code of ['SESSION_REJECTED', 'INTERNAL_ERROR']) {
+      expect(
+        decodeProtocolErrorEnvelope({
+          protocol_version: '13',
+          error: { code, message: 'Represented error.' },
+        }),
+      ).toMatchObject({ error: { code } });
+      expect(sharedApi.ErrorCode).toHaveProperty(code, code);
     }
   });
 

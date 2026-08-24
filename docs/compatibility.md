@@ -110,7 +110,10 @@ The next `borgmcp-shared` release carries protocol v13. It removes the legacy
 `default` cube-template identifier and unrepresented error codes. Every accepted
 cube-template identifier now resolves through the canonical named-template
 registry. A v12 peer and a v13 peer reject each other during credential-free
-preflight before either changed contract is dispatched.
+preflight before either changed contract is dispatched. Client adoption of v13
+must stop sending `template: 'default'` from its cube-creation requests and
+remove its `LEGACY_DEFAULT_TEMPLATE_LABEL` import; the shared v13 release must
+not ship until coordinated client and server releases are ready.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
