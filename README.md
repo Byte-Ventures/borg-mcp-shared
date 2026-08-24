@@ -162,6 +162,9 @@ Denied role, decision, reassignment, and eviction operations have portable
 protocol readback controls. Cube-directive and taxonomy writes currently have
 no shared read route, so mutation-negative coverage for those two operations
 remains implementation-owned.
+The credential-free protocol preflight likewise has no portable before/after
+state-enumeration route; shared conformance pins its exact response while
+implementations retain mutation-negative coverage for their local state.
 
 Decision write requests cap each `decision` and optional `rationale` field at
 512 UTF-8 bytes independently. Response decoders continue to read longer

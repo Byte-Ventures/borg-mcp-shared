@@ -715,6 +715,29 @@ export async function runAdapterConformance(
             200,
             `${purpose} ${vector.name} original credential probe`,
           );
+          const capabilityProbe = await environment.operations.createCube(
+            initialPayload.client_credential,
+            createProtocolEnvelope(`retry-${index}-${purpose}-capability-probe`, {
+              retry_key: `10000000-0000-4000-8000-${String(index + (purpose === 'owner' ? 700 : 600)).padStart(12, '0')}`,
+              name: `${purpose} capability probe ${index}`,
+              working_repo_name: `${purpose}-capability-probe-${index}`,
+              repository: {
+                kind: 'local',
+                value: `20000000-0000-4000-8000-${String(index + (purpose === 'owner' ? 700 : 600)).padStart(12, '0')}`,
+              },
+              template: 'software-dev',
+            }),
+          );
+          if (purpose === 'owner') {
+            expectStatus(capabilityProbe, 201, `${purpose} ${vector.name} capability probe`);
+          } else {
+            expectError(
+              capabilityProbe,
+              403,
+              ErrorCode.ACCESS_DENIED,
+              `${purpose} ${vector.name} capability probe`,
+            );
+          }
         } catch (error) {
           retryVectorErrors.push(
             `${purpose} ${vector.name}: ${error instanceof Error ? error.message : String(error)}`,
@@ -976,6 +999,21 @@ export async function runAdapterConformance(
       working_repo_name: 'legacy-repository',
       repository,
     };
+    const alternateResolveRequest = {
+      working_repo_name: 'other-repository',
+      repository: {
+        kind: 'origin' as const,
+        value: 'https://github.com/Byte-Ventures/other-repository',
+      },
+    };
+    const resolve = async (requestId: string, request: typeof resolveRequest) => {
+      const response = await environment.operations.resolveRepositoryCube(
+        credentialA,
+        createProtocolEnvelope(requestId, request),
+      );
+      expectStatus(response, 200, requestId);
+      return decodeResolveRepositoryCubeResponseEnvelope(response.body).payload;
+    };
     const noneResponse = await environment.operations.resolveRepositoryCube(
       credentialA,
       createProtocolEnvelope('repository-resolve-none', resolveRequest),
@@ -984,6 +1022,10 @@ export async function runAdapterConformance(
     invariant(
       same(decodeResolveRepositoryCubeResponseEnvelope(noneResponse.body).payload, { result: 'none' }),
       'Unassociated repository did not return explicit none.',
+    );
+    invariant(
+      same(await resolve('repository-resolve-none-readback', resolveRequest), { result: 'none' }),
+      'Read-only repository resolution created an association.',
     );
     const associationRequest = { cube_id: cubeA.id, ...resolveRequest };
     expectSecretFreeError(
@@ -1054,22 +1096,34 @@ export async function runAdapterConformance(
       'Repository-to-other-cube conflict',
       [cubeA.id, cubeC.id, repository.value],
     );
+    invariant(
+      same(await resolve('repository-resolve-after-repository-conflict', resolveRequest), authoritative),
+      'Repository conflict changed the authoritative original binding.',
+    );
+    invariant(
+      same(await resolve('repository-resolve-alternate-after-repository-conflict', alternateResolveRequest), { result: 'none' }),
+      'Repository conflict created an alternate binding.',
+    );
     expectSecretFreeError(
       await environment.operations.associateRepositoryCube(
         credentialA,
         createProtocolEnvelope('repository-associate-cube-conflict', {
           cube_id: cubeA.id,
-          working_repo_name: 'other-repository',
-          repository: {
-            kind: 'origin',
-            value: 'https://github.com/Byte-Ventures/other-repository',
-          },
+          ...alternateResolveRequest,
         }),
       ),
       409,
       ErrorCode.CUBE_ALREADY_ASSOCIATED,
       'Cube-to-other-repository conflict',
       [cubeA.id, repository.value, 'https://github.com/Byte-Ventures/other-repository'],
+    );
+    invariant(
+      same(await resolve('repository-resolve-after-cube-conflict', resolveRequest), authoritative),
+      'Cube conflict changed the authoritative original binding.',
+    );
+    invariant(
+      same(await resolve('repository-resolve-alternate-after-cube-conflict', alternateResolveRequest), { result: 'none' }),
+      'Cube conflict created the refused alternate binding.',
     );
     const preparedB = await environment.admin.prepareRepositoryCube(cubeB, {
       name: 'Other Client Legacy Cube',
@@ -1123,7 +1177,24 @@ export async function runAdapterConformance(
       'Inaccessible existing repository binding',
       [cubeA.id, cubeC.id, repository.value],
     );
+    const hiddenAfterRefusal = await resolve('repository-resolve-after-inaccessible-refusal', resolveRequest);
+    const alternateAfterRefusal = await resolve(
+      'repository-resolve-alternate-after-inaccessible-refusal',
+      alternateResolveRequest,
+    );
     await environment.admin.grantCube(principalA, cubeA);
+    invariant(
+      same(hiddenAfterRefusal, { result: 'none' }),
+      'Inaccessible-binding refusal changed the hidden authoritative binding.',
+    );
+    invariant(
+      same(alternateAfterRefusal, { result: 'none' }),
+      'Inaccessible-binding refusal created an alternate binding.',
+    );
+    invariant(
+      same(await resolve('repository-resolve-restored-after-inaccessible-refusal', resolveRequest), authoritative),
+      'Inaccessible-binding refusal did not preserve the original binding.',
+    );
     return {
       none: true,
       resolved: true,
@@ -1721,6 +1792,17 @@ export async function runAdapterConformance(
       directedResult.entry.recipient_drone_ids?.length === 1,
       'Classification changed or fell open the explicit recipient set.',
     );
+    const readback = await environment.operations.read(
+      credentialA,
+      cube,
+      createProtocolEnvelope('mandatory-addressing-readback', { cursor: null, limit: 10 }),
+    );
+    expectStatus(readback, 200, 'Mandatory-addressing persistence readback');
+    const persistedIds = decodeReadLogResultEnvelope(readback.body).payload.entries.map((entry) => entry.id);
+    invariant(
+      same(persistedIds, [broadcastResult.entry.id, directedResult.entry.id]),
+      'Rejected mandatory-addressing append was persisted.',
+    );
     return { refused_status: 400, code: ErrorCode.INVALID_INPUT, persisted: false, broadcast: true, union: true, no_fall_open: true };
   });
 
@@ -1847,8 +1929,8 @@ export async function runAdapterConformance(
     expectStatus(unreadResponse, 200, 'Entry-query unread read');
     const unread = decodeReadLogResultEnvelope(unreadResponse.body).payload;
     invariant(
-      unread.entries.length === entries.length && entries.every((entry) => unread.entries.some((item) => item.id === entry.id)),
-      'Entry query consumed or advanced unread activity.',
+      same(unread.entries, entries),
+      'Entry query mutated, consumed, or advanced unread activity.',
     );
     return {
       full_uuid: true,
@@ -2090,18 +2172,6 @@ export async function runAdapterConformance(
         distinct.recipients.find((recipient) => recipient.drone_id === claimingRecipient.id)?.acknowledged_at === null,
       'Acknowledgement status conflated acknowledgement and claim records.',
     );
-    const unreadResponse = await environment.operations.read(
-      credentialA,
-      cube,
-      createProtocolEnvelope('ack-status-unread', { cursor: null, limit: 10 }),
-    );
-    expectStatus(unreadResponse, 200, 'Post-query unread read');
-    const unread = decodeReadLogResultEnvelope(unreadResponse.body).payload;
-    invariant(
-      unread.entries.length === 1 && unread.entries[0].id === entry.id,
-      'Acknowledgement-status query advanced unread delivery state.',
-    );
-
     expectError(
       await environment.operations.ackStatus(
         credentialA,
@@ -2113,6 +2183,17 @@ export async function runAdapterConformance(
       404,
       ErrorCode.NOT_FOUND,
       'Unknown acknowledgement-status entry',
+    );
+    const unreadResponse = await environment.operations.read(
+      credentialA,
+      cube,
+      createProtocolEnvelope('ack-status-unread', { cursor: null, limit: 10 }),
+    );
+    expectStatus(unreadResponse, 200, 'Post-query unread read');
+    const unread = decodeReadLogResultEnvelope(unreadResponse.body).payload;
+    invariant(
+      same(unread.entries, [entry]),
+      'Acknowledgement-status query mutated or advanced unread delivery state.',
     );
     return {
       missing_acknowledgement: null,
@@ -2197,6 +2278,7 @@ export async function runAdapterConformance(
   let metadataDroneB!: ConformanceDrone;
   let metadataSessionA = '';
   await record('security.drone-management-authorization', async () => {
+    const observationCredential = await environment.admin.issueDroneSession(principalA);
     workerRoleA = await environment.admin.createRole(cubeA, {
       roleClass: 'worker', isHumanSeat: false,
     });
@@ -2223,6 +2305,10 @@ export async function runAdapterConformance(
       deniedCredentials.push({ access: access as 'read' | 'write', credential });
     }
     for (const { access, credential } of deniedCredentials) {
+      const rosterBefore = await environment.operations.listDrones(observationCredential, cubeA);
+      expectStatus(rosterBefore, 200, `${access} principal pre-denial roster`);
+      const workerBefore = listedDrone(rosterBefore, managedWorker.id);
+      invariant(workerBefore, `${access} principal pre-denial roster omitted the managed worker.`);
       expectError(
         await environment.operations.reassignDrone(
           credential,
@@ -2244,6 +2330,12 @@ export async function runAdapterConformance(
         403,
         ErrorCode.ACCESS_DENIED,
         `${access} principal eviction`,
+      );
+      const rosterAfter = await environment.operations.listDrones(observationCredential, cubeA);
+      expectStatus(rosterAfter, 200, `${access} principal post-denial roster`);
+      invariant(
+        same(listedDrone(rosterAfter, managedWorker.id), workerBefore),
+        `${access} principal management denial mutated the managed worker.`,
       );
     }
     return { read_status: 403, write_status: 403, manage_required: true };
@@ -2343,10 +2435,13 @@ export async function runAdapterConformance(
         expectStatus(response, 200, 'Matrix decision observation');
         return decodeDecisionsResultEnvelope(response.body).payload;
       }
-      if (operationName === 'drone-reassign') {
+      if (operationName === 'drone-reassign' || operationName === 'drone-evict') {
         const response = await environment.operations.listDrones(credentialA, cubeA);
         expectStatus(response, 200, 'Matrix drone observation');
-        return listedDrone(response, managedWorker.id);
+        return listedDrone(
+          response,
+          operationName === 'drone-reassign' ? managedWorker.id : evictionTarget.id,
+        );
       }
       return null;
     };
@@ -2764,15 +2859,19 @@ export async function runAdapterConformance(
       name: 'Active Worker',
       detailedDescription: refusalRationale,
     });
-    await environment.admin.createDrone(roleContractPrincipal, roleContractCube, activeRole);
+    const activeDrone = await environment.admin.createDrone(roleContractPrincipal, roleContractCube, activeRole);
+    const activeRosterBefore = await environment.operations.listDrones(roleContractCredential, roleContractCube);
+    expectStatus(activeRosterBefore, 200, 'Pre-refusal active-role roster');
+    const activeDroneBefore = listedDrone(activeRosterBefore, activeDrone.id);
+    invariant(activeDroneBefore, 'Pre-refusal roster omitted the active-role drone.');
 
     const refusals = [
-      [defaultRole, ErrorCode.DEFAULT_ROLE_REQUIRED, 'default role'],
-      [mandatoryRole, ErrorCode.ROLE_REQUIRED, 'mandatory role'],
-      [humanRole, ErrorCode.ROLE_REQUIRED, 'human-seat role'],
-      [activeRole, ErrorCode.ROLE_IN_USE, 'active-drone role'],
+      [defaultRole, ErrorCode.DEFAULT_ROLE_REQUIRED, 'default role', 'Default Worker', 'worker', false],
+      [mandatoryRole, ErrorCode.ROLE_REQUIRED, 'mandatory role', 'Mandatory Worker', 'worker', false],
+      [humanRole, ErrorCode.ROLE_REQUIRED, 'human-seat role', 'Human Seat', 'queen', true],
+      [activeRole, ErrorCode.ROLE_IN_USE, 'active-drone role', 'Active Worker', 'worker', false],
     ] as const;
-    for (const [index, [role, code, label]] of refusals.entries()) {
+    for (const [index, [role, code, label, roleName, roleClass, isHumanSeat]] of refusals.entries()) {
       const response = await environment.operations.deleteRole(
         roleContractCredential,
         roleContractCube,
@@ -2785,6 +2884,12 @@ export async function runAdapterConformance(
         invariant(
           message === ROLE_IN_USE_DELETE_MESSAGE,
           'ROLE_IN_USE did not direct the caller to reassign or evict the drones first.',
+        );
+        const roster = await environment.operations.listDrones(roleContractCredential, roleContractCube);
+        expectStatus(roster, 200, 'Active-role refusal roster readback');
+        invariant(
+          same(listedDrone(roster, activeDrone.id), activeDroneBefore),
+          'Active-role deletion refusal changed the active drone.',
         );
       }
       const retained = await environment.operations.roleRationale(
@@ -2799,11 +2904,39 @@ export async function runAdapterConformance(
       const retainedPayload = decodeRoleRationaleResultEnvelope(retained.body).payload;
       invariant(
         retainedPayload.role_id === role.id &&
+          retainedPayload.role_name === roleName &&
           same(retainedPayload.section, {
             heading: 'Workflow rationale',
             body: refusalRationale,
           }),
         `Retained ${label} rationale lookup returned a different role or section.`,
+      );
+      const shapeSession = `${String(index).repeat(42)}S`;
+      const shapeProbe = await environment.operations.attach(
+        roleContractCredential,
+        createProtocolEnvelope(`delete-refusal-${index}-shape-probe`, {
+          cube_id: roleContractCube.id,
+          role_id: role.id,
+          session_credential: shapeSession,
+        }),
+      );
+      expectStatus(shapeProbe, 200, `Retained ${label} shape probe`);
+      const shapePayload = decodeAttachResponseEnvelope(shapeProbe.body).payload;
+      invariant(
+        shapePayload.role.id === role.id &&
+          shapePayload.role.role_class === roleClass &&
+          shapePayload.role.is_human_seat === isHumanSeat,
+        `Retained ${label} shape probe returned changed role semantics.`,
+      );
+      expectStatus(
+        await environment.operations.evictDrone(
+          roleContractCredential,
+          roleContractCube,
+          { id: shapePayload.drone.id },
+          createProtocolEnvelope(`delete-refusal-${index}-shape-cleanup`, {}),
+        ),
+        200,
+        `Retained ${label} shape cleanup`,
       );
     }
 
@@ -2824,6 +2957,7 @@ export async function runAdapterConformance(
       roleClass: 'worker',
       isHumanSeat: false,
       name: 'Disposable Worker',
+      detailedDescription: refusalRationale,
     });
     expectError(
       await environment.operations.deleteRole(
@@ -2835,6 +2969,51 @@ export async function runAdapterConformance(
       403,
       ErrorCode.ACCESS_DENIED,
       'Delete role with read authority',
+    );
+    const retainedDeletable = await environment.operations.roleRationale(
+      roleContractReadCredential,
+      roleContractCube,
+      createProtocolEnvelope('delete-role-read-denied-readback', {
+        role: deletableRole.id,
+        section: 'Workflow rationale',
+      }),
+    );
+    expectStatus(retainedDeletable, 200, 'Read-denied retained role rationale lookup');
+    const retainedDeletablePayload = decodeRoleRationaleResultEnvelope(retainedDeletable.body).payload;
+    invariant(
+      retainedDeletablePayload.role_id === deletableRole.id &&
+        retainedDeletablePayload.role_name === 'Disposable Worker' &&
+        same(retainedDeletablePayload.section, {
+          heading: 'Workflow rationale',
+          body: refusalRationale,
+        }),
+      'Read-authority deletion denial changed the target role.',
+    );
+    const shapeProbe = await environment.operations.attach(
+      roleContractCredential,
+      createProtocolEnvelope('delete-role-read-denied-shape-probe', {
+        cube_id: roleContractCube.id,
+        role_id: deletableRole.id,
+        session_credential: 'S'.repeat(43),
+      }),
+    );
+    expectStatus(shapeProbe, 200, 'Read-denied retained role shape probe');
+    const shapePayload = decodeAttachResponseEnvelope(shapeProbe.body).payload;
+    invariant(
+      shapePayload.role.id === deletableRole.id &&
+        shapePayload.role.role_class === 'worker' &&
+        shapePayload.role.is_human_seat === false,
+      'Read-authority deletion denial changed the target role shape.',
+    );
+    expectStatus(
+      await environment.operations.evictDrone(
+        roleContractCredential,
+        roleContractCube,
+        { id: shapePayload.drone.id },
+        createProtocolEnvelope('delete-role-read-denied-shape-cleanup', {}),
+      ),
+      200,
+      'Read-denied retained role shape cleanup',
     );
     const deleted = await environment.operations.deleteRole(
       roleContractCredential,
@@ -3305,7 +3484,13 @@ export async function runAdapterConformance(
       'Metadata seat eviction',
     );
     rejectedStates.push(['evicted', evicted, evictedSession, 410, ErrorCode.DRONE_EVICTED]);
-    for (const [label, _drone, session, status, code] of rejectedStates) {
+    for (const [label, drone, session, status, code] of rejectedStates) {
+      const rosterBefore = label === 'revoked'
+        ? await environment.operations.listDrones(credentialA, cubeA)
+        : null;
+      if (rosterBefore) expectStatus(rosterBefore, 200, 'Pre-denial revoked metadata roster');
+      const droneBefore = rosterBefore ? listedDrone(rosterBefore, drone.id) : null;
+      if (rosterBefore) invariant(droneBefore, 'Pre-denial roster omitted the revoked metadata seat.');
       expectError(
         await environment.operations.selfMetadataUpdate(
           session,
@@ -3316,6 +3501,14 @@ export async function runAdapterConformance(
         code,
         `${label} metadata session`,
       );
+      if (droneBefore) {
+        const rosterAfter = await environment.operations.listDrones(credentialA, cubeA);
+        expectStatus(rosterAfter, 200, 'Post-denial revoked metadata roster');
+        invariant(
+          same(listedDrone(rosterAfter, drone.id), droneBefore),
+          'Revoked metadata denial mutated the protocol-visible seat.',
+        );
+      }
     }
     return {
       own_seat_only: true,
@@ -3567,6 +3760,17 @@ export async function runAdapterConformance(
     await environment.admin.grantCube(writer.principal, cube, 'write');
     const drone = await environment.admin.createDrone(creator.principal, cube, role);
     const droneCredential = await environment.admin.issueManagedDroneSession(drone);
+    const roleProbeSession = 'T'.repeat(43);
+    const initialRoleProbe = await environment.operations.attach(
+      manager.credential,
+      createProtocolEnvelope('delete-role-shape-baseline', {
+        cube_id: cube.id,
+        role_id: role.id,
+        session_credential: roleProbeSession,
+      }),
+    );
+    expectStatus(initialRoleProbe, 200, 'Deletion default-role shape baseline');
+    const roleProbeDrone = decodeAttachResponseEnvelope(initialRoleProbe.body).payload.drone;
     const append = await environment.operations.append(
       creator.credential,
       cube,
@@ -3588,6 +3792,49 @@ export async function runAdapterConformance(
       cube,
       createProtocolEnvelope('delete-decision', { topic: 'cleanup', decision: 'delete' }),
     ), 201, 'Deletion fixture decision');
+    const readDenialState = async (label: string): Promise<unknown> => {
+      const decisions = await environment.operations.listDecisions(
+        manager.credential,
+        cube,
+        createProtocolEnvelope(`delete-${label}-decision-readback`, {}),
+      );
+      expectStatus(decisions, 200, `${label} deletion decision readback`);
+      const active = decodeDecisionsResultEnvelope(decisions.body).payload.decisions;
+      const log = await environment.operations.read(
+        manager.credential,
+        cube,
+        createProtocolEnvelope(`delete-${label}-log-readback`, { cursor: null, limit: 500 }),
+      );
+      expectStatus(log, 200, `${label} deletion log readback`);
+      const logPayload = decodeReadLogResultEnvelope(log.body).payload;
+      const roster = await environment.operations.listDrones(manager.credential, cube);
+      expectStatus(roster, 200, `${label} deletion roster readback`);
+      const roleReadback = await environment.operations.attach(
+        manager.credential,
+        createProtocolEnvelope(`delete-${label}-role-readback`, {
+          cube_id: cube.id,
+          role_id: role.id,
+          prior_drone_id: roleProbeDrone.id,
+          session_credential: roleProbeSession,
+        }),
+      );
+      expectStatus(roleReadback, 200, `${label} deletion role readback`);
+      const rolePayload = decodeAttachResponseEnvelope(roleReadback.body).payload.role;
+      return {
+        decisions: active,
+        entries: logPayload.entries,
+        claims: logPayload.claims,
+        drone: listedDrone(roster, drone.id),
+        role: rolePayload,
+      };
+    };
+    const denialBaseline = await readDenialState('baseline');
+    const assertDenialState = async (label: string): Promise<void> => {
+      invariant(
+        same(await readDenialState(label), denialBaseline),
+        `${label} cube deletion denial mutated protocol-visible cube state.`,
+      );
+    };
 
     for (const [kind, credential] of [
       ['read', reader.credential],
@@ -3604,6 +3851,7 @@ export async function runAdapterConformance(
         ErrorCode.ACCESS_DENIED,
         `${kind} cube deletion`,
       );
+      await assertDenialState(kind);
     }
     expectError(
       await environment.operations.deleteCube(
@@ -3615,6 +3863,7 @@ export async function runAdapterConformance(
       ErrorCode.NOT_FOUND,
       'Never-authorized cube deletion',
     );
+    await assertDenialState('outsider');
 
     const parentStream = await environment.operations.openStream(manager.credential, cube, null);
     const droneStream = await environment.operations.openStream(droneCredential, cube, null);

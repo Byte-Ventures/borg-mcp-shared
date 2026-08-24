@@ -84,7 +84,12 @@ type Fault =
   | 'keep-stream-after-revoke'
   | 'interpret-injection-input'
   | 'accept-oversize-request'
+  | 'mutate-repository-conflict-on-error'
+  | 'mutate-cube-conflict-on-error'
+  | 'mutate-inaccessible-binding-on-error'
+  | 'mutate-unassociated-repository-resolve'
   | 'accept-retry-key-mismatch'
+  | 'grant-capability-on-enrollment-retry'
   | 'accept-credential-mismatch'
   | 'accept-client-name-mismatch'
   | 'leak-retry-diagnostic'
@@ -117,17 +122,28 @@ type Fault =
   | 'hide-known-manage-denial'
   | 'reveal-unknown-manage-denial'
   | 'revoke-session-on-eviction-denial'
+  | 'mutate-target-on-eviction-denial'
+  | 'mutate-managed-drone-on-nonmanage-denial'
   | 'reveal-cross-cube-drone-session'
   | 'metadata-cross-seat-write'
   | 'metadata-partial-invalid-write'
   | 'metadata-derived-role-mutation'
   | 'metadata-raw-echo'
+  | 'metadata-revoked-session-write'
   | 'allow-non-manage-cube-delete'
+  | 'mutate-cube-on-delete-denial'
+  | 'mutate-default-role-shape-on-delete-denial'
   | 'incomplete-cube-delete-cascade'
   | 'drop-cube-delete-terminal-event'
   | 'reveal-deleted-cube-on-delete'
   | 'allow-active-role-delete'
   | 'delete-role-on-refusal'
+  | 'rename-role-on-refusal'
+  | 'rename-role-on-read-denial'
+  | 'mutate-role-shape-on-read-denial'
+  | 'reassign-active-drone-on-role-refusal'
+  | 'mutate-role-shape-on-refusal'
+  | 'mutate-active-drone-on-role-refusal'
   | 'allow-default-role-delete'
   | 'allow-required-role-delete'
   | 'reveal-unknown-role-delete'
@@ -145,13 +161,16 @@ type Fault =
   | 'ack-status-consume-unread'
   | 'ack-status-unknown-as-missing'
   | 'ack-status-writes-ack'
+  | 'ack-status-mutates-entry-on-error'
   | 'accept-missing-log-addressing'
+  | 'persist-missing-addressing-on-error'
   | 'fall-open-log-addressing'
   | 'entry-query-writes-ack'
   | 'entry-query-consumes-entry'
   | 'entry-query-returns-first-ambiguous'
   | 'entry-query-clears-acks'
-  | 'entry-query-clears-claims';
+  | 'entry-query-clears-claims'
+  | 'entry-query-mutates-entry-on-error';
 
 interface PrincipalState {
   handle: ConformancePrincipal;
@@ -553,6 +572,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           }
           return this.error(401, ErrorCode.AUTH_INVALID);
         }
+        if (
+          this.fault === 'grant-capability-on-enrollment-retry' &&
+          invitation.purpose === 'client'
+        ) {
+          this.principal(invitation.principalId).serverCapabilities.add('create_cube');
+        }
         return {
           status: 201,
           body: createProtocolEnvelope(envelope.request_id, invitation.binding.response),
@@ -714,7 +739,19 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const access = this.fault === 'allow-non-manage-cube-delete'
         ? this.authorize(credential, cubeHandle.id)
         : this.authorizeManager(credential, cubeHandle.id);
-      if (access.error) return access.error;
+      if (access.error) {
+        if (this.fault === 'mutate-cube-on-delete-denial') {
+          const deniedCube = this.cubes.get(cubeHandle.id);
+          if (deniedCube) deniedCube.decisions = [];
+        }
+        if (this.fault === 'mutate-default-role-shape-on-delete-denial') {
+          const deniedCube = this.cubes.get(cubeHandle.id);
+          const deniedRole = deniedCube && [...deniedCube.roles.values()]
+            .find((role) => role.templateKind === 'default_worker');
+          if (deniedRole) deniedRole.roleClass = 'queen';
+        }
+        return access.error;
+      }
       const envelope = decodeDeleteCubeRequestEnvelope(request);
       const cube = this.cube(cubeHandle.id);
       const principalIds = new Set(
@@ -919,6 +956,30 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const key = `${auth.principal.handle.id}/${envelope.payload.repository.kind}/${envelope.payload.repository.value}`;
       const associated = this.repositoryAssociations.get(key);
       const visible = associated && auth.principal.grants.get(associated.cube_id) === 'manage';
+      if (
+        this.fault === 'mutate-unassociated-repository-resolve' &&
+        envelope.request_id === 'repository-resolve-none' &&
+        !associated
+      ) {
+        const cube = [...this.cubes.values()].find((candidate) =>
+          auth.principal.grants.get(candidate.handle.id) === 'manage' && candidate.name && candidate.template
+        );
+        const humanSeatRole = cube && [...cube.roles.values()].find((role) => role.templateKind === 'human_seat');
+        const defaultWorkerRole = cube && [...cube.roles.values()].find((role) => role.templateKind === 'default_worker');
+        if (cube?.name && cube.template && humanSeatRole && defaultWorkerRole) {
+          this.repositoryAssociations.set(key, {
+            result: 'resolved',
+            cube_id: cube.handle.id,
+            name: cube.name,
+            working_repo_name: envelope.payload.working_repo_name,
+            repository: envelope.payload.repository,
+            template: cube.template,
+            human_seat_role_id: humanSeatRole.handle.id,
+            default_worker_role_id: defaultWorkerRole.handle.id,
+            access: 'manage',
+          });
+        }
+      }
       return {
         status: 200,
         body: createProtocolEnvelope(
@@ -943,7 +1004,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const repositoryBinding = this.repositoryAssociations.get(key);
       if (repositoryBinding && repositoryBinding.cube_id !== cube.handle.id) {
         if (auth.principal.grants.get(repositoryBinding.cube_id) !== 'manage') {
+          if (this.fault === 'mutate-inaccessible-binding-on-error') {
+            this.repositoryAssociations.set(key, { ...repositoryBinding, cube_id: cube.handle.id });
+          }
           return this.error(403, ErrorCode.ACCESS_DENIED, envelope.request_id);
+        }
+        if (this.fault === 'mutate-repository-conflict-on-error') {
+          this.repositoryAssociations.set(key, { ...repositoryBinding, cube_id: cube.handle.id });
         }
         return this.error(409, ErrorCode.REPOSITORY_ALREADY_ASSOCIATED, envelope.request_id);
       }
@@ -952,6 +1019,13 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           associationKey.startsWith(`${auth.principal.handle.id}/`) && association.cube_id === cube.handle.id,
       );
       if (cubeBinding && cubeBinding[0] !== key) {
+        if (this.fault === 'mutate-cube-conflict-on-error') {
+          this.repositoryAssociations.set(key, {
+            ...cubeBinding[1],
+            working_repo_name: envelope.payload.working_repo_name,
+            repository: envelope.payload.repository,
+          });
+        }
         return this.error(409, ErrorCode.CUBE_ALREADY_ASSOCIATED, envelope.request_id);
       }
       if (repositoryBinding) {
@@ -1061,7 +1135,15 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       request: unknown,
     ): Promise<ConformanceHttpResponse> => {
       const auth = this.authenticate(credential);
-      if (auth.error) return auth.error;
+      if (auth.error) {
+        if (this.fault === 'metadata-revoked-session-write') {
+          for (const cube of this.cubes.values()) {
+            const deniedDrone = [...cube.drones.values()].find((drone) => drone.credential === credential);
+            if (deniedDrone) deniedDrone.metadata.agent_kind = 'claude';
+          }
+        }
+        return auth.error;
+      }
       if (!auth.droneSession || !auth.drone) return this.error(403, ErrorCode.ACCESS_DENIED);
       if (auth.drone.cubeId !== cubeHandle.id) return this.error(404, ErrorCode.NOT_FOUND);
       let envelope;
@@ -1111,10 +1193,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const access = this.authorize(credential, cubeHandle.id);
       if (access.error) return access.error;
       let envelope;
+      let rejectAfterPersist = false;
       try {
         envelope = decodeProtocolEnvelope(request, decodeAppendLogRequest);
       } catch (error) {
-        if (this.fault !== 'accept-missing-log-addressing') {
+        if (
+          this.fault !== 'accept-missing-log-addressing' &&
+          this.fault !== 'persist-missing-addressing-on-error'
+        ) {
           if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
           throw error;
         }
@@ -1125,6 +1211,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           class?: string;
           documents?: string[];
         });
+        rejectAfterPersist = this.fault === 'persist-missing-addressing-on-error';
       }
       const cube = this.cube(cubeHandle.id);
       if (this.fault === 'keep-evicted-drone-routable' &&
@@ -1212,6 +1299,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           stream.queue.push(frame);
         }
       }
+      if (rejectAfterPersist) return this.error(400, ErrorCode.INVALID_INPUT, envelope.request_id);
       return {
         status: 201,
         body: createProtocolEnvelope(envelope.request_id, {
@@ -1291,7 +1379,12 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const matches = envelope.payload.entry_id.length === 36
         ? cube.entries.filter((entry) => entry.id === envelope.payload.entry_id)
         : cube.entries.filter((entry) => entry.id.startsWith(envelope.payload.entry_id));
-      if (matches.length === 0) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      if (matches.length === 0) {
+        if (this.fault === 'entry-query-mutates-entry-on-error' && cube.entries[0]) {
+          cube.entries[0].message = 'mutated by rejected entry query';
+        }
+        return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
+      }
       if (matches.length > 1 && this.fault !== 'entry-query-returns-first-ambiguous') {
         return this.error(409, ErrorCode.LOG_ENTRY_PREFIX_AMBIGUOUS, envelope.request_id);
       }
@@ -1359,6 +1452,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const cube = this.cube(cubeHandle.id);
       const entry = cube.entries.find((candidate) => candidate.id === envelope.payload.entry_id);
       if (!entry) {
+        if (this.fault === 'ack-status-mutates-entry-on-error' && cube.entries[0]) {
+          cube.entries[0].message = 'mutated by rejected acknowledgement query';
+        }
         if (this.fault === 'ack-status-unknown-as-missing') {
           return {
             status: 200,
@@ -1592,6 +1688,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'revoke-session-on-eviction-denial') {
           this.drone(droneHandle.id).sessionState = 'revoked';
         }
+        if (
+          (this.fault === 'mutate-target-on-eviction-denial' &&
+            envelope.request_id === 'matrix-drone-evict') ||
+          (this.fault === 'mutate-managed-drone-on-nonmanage-denial' &&
+            envelope.request_id.endsWith('-evict-denied'))
+        ) {
+          this.drone(droneHandle.id).label = 'mutated-after-denial';
+        }
         return access.error;
       }
       const drone = this.cube(cubeHandle.id).drones.get(droneHandle.id) ??
@@ -1613,8 +1717,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       roleHandle: ConformanceRole,
       request: unknown,
     ): Promise<ConformanceHttpResponse> => {
-      const access = this.authorizeManager(credential, cubeHandle.id);
-      if (access.error) return access.error;
       let envelope;
       try {
         envelope = decodeDeleteRoleRequestEnvelope(request);
@@ -1623,6 +1725,27 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         throw error;
       }
       const cube = this.cube(cubeHandle.id);
+      const access = this.authorizeManager(credential, cubeHandle.id);
+      if (access.error) {
+        if (
+          this.fault === 'rename-role-on-read-denial' &&
+          envelope.request_id === 'delete-role-read-denied'
+        ) {
+          const deniedRole = cube.roles.get(roleHandle.id);
+          if (deniedRole) deniedRole.name = 'Renamed After Read Denial';
+        }
+        if (
+          this.fault === 'mutate-role-shape-on-read-denial' &&
+          envelope.request_id === 'delete-role-read-denied'
+        ) {
+          const deniedRole = cube.roles.get(roleHandle.id);
+          if (deniedRole) {
+            deniedRole.roleClass = 'queen';
+            deniedRole.isHumanSeat = true;
+          }
+        }
+        return access.error;
+      }
       const role = cube.roles.get(roleHandle.id);
       if (!role) {
         return this.error(
@@ -1633,14 +1756,24 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       if (role.isDefault && this.fault !== 'allow-default-role-delete') {
         if (this.fault === 'delete-role-on-refusal') cube.roles.delete(roleHandle.id);
+        if (this.fault === 'rename-role-on-refusal') role.name = 'Renamed After Refusal';
+        if (this.fault === 'mutate-role-shape-on-refusal') role.roleClass = 'queen';
         return this.error(409, ErrorCode.DEFAULT_ROLE_REQUIRED, envelope.request_id);
       }
       if ((role.isMandatory || role.isHumanSeat) && this.fault !== 'allow-required-role-delete') {
         return this.error(409, ErrorCode.ROLE_REQUIRED, envelope.request_id);
       }
-      if ([...cube.drones.values()].some(
+      const activeDrone = [...cube.drones.values()].find(
         (drone) => !drone.evicted && drone.roleId === roleHandle.id,
-      ) && this.fault !== 'allow-active-role-delete') {
+      );
+      if (activeDrone && this.fault !== 'allow-active-role-delete') {
+        if (this.fault === 'reassign-active-drone-on-role-refusal') {
+          const alternateRole = [...cube.roles.values()].find((candidate) => candidate.handle.id !== roleHandle.id);
+          if (alternateRole) activeDrone.roleId = alternateRole.handle.id;
+        }
+        if (this.fault === 'mutate-active-drone-on-role-refusal') {
+          activeDrone.label = 'mutated-after-role-refusal';
+        }
         return this.error(
           409,
           ErrorCode.ROLE_IN_USE,
@@ -2084,6 +2217,10 @@ describe('executable adapter conformance', () => {
     ['allowed read-only document removal', 'allow-read-document-remove', 'documents.lifecycle'],
     ['denied read-only removed document get', 'deny-read-removed-document-get', 'documents.lifecycle'],
     ['mutated predecessor before budget refusal', 'mutate-over-budget-successor', 'documents.lifecycle'],
+    ['mutated a repository binding while returning its conflict', 'mutate-repository-conflict-on-error', 'repository.explicit-association'],
+    ['created an alternate binding while returning a cube conflict', 'mutate-cube-conflict-on-error', 'repository.explicit-association'],
+    ['mutated a hidden binding while returning access denied', 'mutate-inaccessible-binding-on-error', 'repository.explicit-association'],
+    ['created a repository binding during read-only resolution', 'mutate-unassociated-repository-resolve', 'repository.explicit-association'],
     ['cross-cube leak', 'cross-cube-leak', 'security.cross-cube-isolation'],
     ['ignored replay cursor', 'ignore-stream-cursor', 'sse.replay-live-transition'],
     ['dropped replay-transition write', 'drop-transition-write', 'sse.replay-live-transition'],
@@ -2091,6 +2228,7 @@ describe('executable adapter conformance', () => {
     ['interpreted adapter-boundary injection', 'interpret-injection-input', 'security.adapter-boundary-injection'],
     ['accepted oversized request body', 'accept-oversize-request', 'security.oversize-request'],
     ['accepted enrollment credential mismatch', 'accept-credential-mismatch', 'enrollment.retry-authority'],
+    ['granted create-cube authority on an exact enrollment retry', 'grant-capability-on-enrollment-retry', 'enrollment.retry-authority'],
     ['accepted enrollment client-name mismatch', 'accept-client-name-mismatch', 'enrollment.retry-authority'],
     ['leaked retry tuple in diagnostics', 'leak-retry-diagnostic', 'enrollment.retry-authority'],
     ['granted create-cube to ordinary enrollment', 'grant-ordinary-create-cube', 'enrollment.retry-authority'],
@@ -2117,21 +2255,32 @@ describe('executable adapter conformance', () => {
     ['kept evicted drone in roster', 'keep-evicted-drone-visible', 'drones.evict-terminal-signal'],
     ['kept evicted drone routable', 'keep-evicted-drone-routable', 'drones.evict-terminal-signal'],
     ['allowed non-manage drone management', 'allow-non-manage-drone-management', 'security.drone-management-authorization'],
+    ['mutated a managed drone while denying non-manage eviction', 'mutate-managed-drone-on-nonmanage-denial', 'security.drone-management-authorization'],
     ['allowed cross-cube drone target', 'allow-cross-cube-drone-target', 'security.cross-cube-drone-management'],
     ['allowed cross-cube role target', 'allow-cross-cube-role-target', 'security.cross-cube-drone-management'],
     ['hid known non-manage denial as 404', 'hide-known-manage-denial', 'security.manage-access-matrix'],
     ['revealed unknown cube through 403', 'reveal-unknown-manage-denial', 'security.manage-access-matrix'],
     ['revoked target session on denied eviction', 'revoke-session-on-eviction-denial', 'security.manage-access-matrix'],
+    ['mutated an eviction target while denying eviction', 'mutate-target-on-eviction-denial', 'security.manage-access-matrix'],
     ['revealed cross-cube target to bound drone session', 'reveal-cross-cube-drone-session', 'security.cross-cube-drone-management'],
     ['wrote metadata to another seat', 'metadata-cross-seat-write', 'security.metadata-own-seat'],
     ['partially wrote an invalid metadata patch', 'metadata-partial-invalid-write', 'security.metadata-invalid-atomic'],
     ['derived a role mutation from metadata', 'metadata-derived-role-mutation', 'security.metadata-own-seat'],
     ['echoed raw hostile metadata', 'metadata-raw-echo', 'security.metadata-secret-non-echo'],
+    ['wrote revoked-session metadata while returning session revoked', 'metadata-revoked-session-write', 'security.metadata-own-seat'],
     ['allowed non-manage cube deletion', 'allow-non-manage-cube-delete', 'cubes.delete-terminal-cascade'],
+    ['mutated cube state while denying deletion', 'mutate-cube-on-delete-denial', 'cubes.delete-terminal-cascade'],
+    ['changed default role shape while denying deletion', 'mutate-default-role-shape-on-delete-denial', 'cubes.delete-terminal-cascade'],
     ['left cube-owned state after deletion', 'incomplete-cube-delete-cascade', 'cubes.delete-terminal-cascade'],
     ['closed deleted-cube streams without a terminal error', 'drop-cube-delete-terminal-event', 'cubes.delete-terminal-cascade'],
     ['allowed deletion of an actively assigned role', 'allow-active-role-delete', 'roles.delete-contract'],
     ['deleted a role while returning an integrity refusal', 'delete-role-on-refusal', 'roles.delete-contract'],
+    ['renamed a role while returning an integrity refusal', 'rename-role-on-refusal', 'roles.delete-contract'],
+    ['renamed a role while denying read-authority deletion', 'rename-role-on-read-denial', 'roles.delete-contract'],
+    ['changed role shape while denying read-authority deletion', 'mutate-role-shape-on-read-denial', 'roles.delete-contract'],
+    ['reassigned an active drone while refusing role deletion', 'reassign-active-drone-on-role-refusal', 'roles.delete-contract'],
+    ['changed role shape while returning an integrity refusal', 'mutate-role-shape-on-refusal', 'roles.delete-contract'],
+    ['mutated an active drone while refusing role deletion', 'mutate-active-drone-on-role-refusal', 'roles.delete-contract'],
     ['allowed deletion of the default role', 'allow-default-role-delete', 'roles.delete-contract'],
     ['allowed deletion of a required role', 'allow-required-role-delete', 'roles.delete-contract'],
     ['revealed an unknown role through a typed integrity refusal', 'reveal-unknown-role-delete', 'roles.delete-contract'],
@@ -2149,13 +2298,16 @@ describe('executable adapter conformance', () => {
     ['consumed unread state during status lookup', 'ack-status-consume-unread', 'acks.status-query'],
     ['returned missing acknowledgement state for an unknown entry', 'ack-status-unknown-as-missing', 'acks.status-query'],
     ['wrote an acknowledgement during status lookup', 'ack-status-writes-ack', 'acks.status-query'],
+    ['mutated an entry while rejecting status lookup', 'ack-status-mutates-entry-on-error', 'acks.status-query'],
     ['accepted omitted log addressing', 'accept-missing-log-addressing', 'log.mandatory-addressing'],
+    ['persisted omitted log addressing while returning invalid input', 'persist-missing-addressing-on-error', 'log.mandatory-addressing'],
     ['fell open explicit log addressing', 'fall-open-log-addressing', 'log.mandatory-addressing'],
     ['wrote an acknowledgement during entry lookup', 'entry-query-writes-ack', 'log.entry-query'],
     ['consumed an entry during lookup', 'entry-query-consumes-entry', 'log.entry-query'],
     ['returned the first ambiguous prefix match', 'entry-query-returns-first-ambiguous', 'log.entry-query'],
     ['cleared acknowledgements during entry lookup', 'entry-query-clears-acks', 'log.entry-query'],
     ['cleared claims during entry lookup', 'entry-query-clears-claims', 'log.entry-query'],
+    ['mutated an entry while rejecting entry lookup', 'entry-query-mutates-entry-on-error', 'log.entry-query'],
   ] as const)('rejects a hostile environment with %s', async (_name, fault, fixture) => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment(fault),
