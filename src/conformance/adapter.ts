@@ -814,6 +814,7 @@ export async function runAdapterConformance(
     const createdResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-create', cubeRequest));
     expectStatus(createdResponse, 201, 'Owner cube create');
     const created = decodeCreateCubeResponseEnvelope(createdResponse.body).payload;
+    const createdRoleShapes = new Map<string, unknown>();
     for (const [kind, roleId, roleClass, isHumanSeat, marker] of [
       ['human-seat', created.human_seat_role_id, 'queen', true, 'H'],
       ['default-worker', created.default_worker_role_id, 'worker', false, 'D'],
@@ -834,6 +835,7 @@ export async function runAdapterConformance(
         attachedRole.is_human_seat === isHumanSeat,
         `Created ${kind} role identity did not match its protocol role.`,
       );
+      createdRoleShapes.set(kind, attachedRole);
     }
     const retriedCreateResponse = await environment.operations.createCube(ownerCredential, createProtocolEnvelope('cube-retry', cubeRequest));
     expectStatus(retriedCreateResponse, 201, 'Exact cube-create retry');
@@ -874,6 +876,24 @@ export async function runAdapterConformance(
         [cubeRequest.retry_key],
       );
     }
+    for (const [kind, roleId, marker] of [
+      ['human-seat', created.human_seat_role_id, 'J'],
+      ['default-worker', created.default_worker_role_id, 'K'],
+    ] as const) {
+      const attached = await environment.operations.attach(
+        ownerCredential,
+        createProtocolEnvelope(`cube-create-${kind}-post-refusal-probe`, {
+          cube_id: created.cube_id,
+          role_id: roleId,
+          session_credential: marker.repeat(43),
+        }),
+      );
+      expectStatus(attached, 200, `Post-refusal ${kind} role probe`);
+      invariant(
+        same(decodeAttachResponseEnvelope(attached.body).payload.role, createdRoleShapes.get(kind)),
+        `Cube-create retry refusal changed the full ${kind} role shape.`,
+      );
+    }
     const sameAssociationVector = CREATE_CUBE_ASSOCIATION_CONFORMANCE.find(
       (vector) => vector.expected.outcome === 'resolved',
     );
@@ -908,6 +928,25 @@ export async function runAdapterConformance(
     expectStatus(crossClientResponse, 201, 'Cross-client cube create with reused retry key');
     const crossClientCreated = decodeCreateCubeResponseEnvelope(crossClientResponse.body).payload;
     invariant(crossClientCreated.cube_id !== created.cube_id, 'Cross-client retry key reused another client\'s cube.');
+    for (const [kind, roleId, originalRoleId, marker] of [
+      ['human-seat', crossClientCreated.human_seat_role_id, created.human_seat_role_id, 'V'],
+      ['default-worker', crossClientCreated.default_worker_role_id, created.default_worker_role_id, 'W'],
+    ] as const) {
+      const attached = await environment.operations.attach(
+        ordinaryCredential,
+        createProtocolEnvelope(`cube-cross-client-${kind}-probe`, {
+          cube_id: crossClientCreated.cube_id,
+          role_id: roleId,
+          session_credential: marker.repeat(43),
+        }),
+      );
+      expectStatus(attached, 200, `Cross-client ${kind} role probe`);
+      const attachedRole = decodeAttachResponseEnvelope(attached.body).payload.role;
+      invariant(
+        same({ ...attachedRole, id: originalRoleId }, createdRoleShapes.get(kind)),
+        `Cross-client ${kind} role did not match the full template role shape.`,
+      );
+    }
     const crossClientRetry = await environment.operations.createCube(
       ordinaryCredential,
       createProtocolEnvelope('cube-cross-client-retry', crossClientRequest),

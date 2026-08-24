@@ -97,7 +97,9 @@ type Fault =
   | 'omit-owner-create-cube'
   | 'allow-ordinary-cube-create'
   | 'duplicate-exact-cube-retry'
+  | 'mutate-created-role-on-retry-refusal'
   | 'grant-created-cube-to-wrong-client'
+  | 'grant-cross-client-cube-to-wrong-client'
   | 'swap-created-role-identities'
   | 'overwrite-credential-on-reject'
   | 'owner-only-overwrite-on-reject'
@@ -648,6 +650,14 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           !same(binding.repository, envelope.payload.repository) ||
           binding.template !== envelope.payload.template
         ) {
+          if (this.fault === 'mutate-created-role-on-retry-refusal') {
+            const cube = this.cube(binding.response.cube_id);
+            const defaultRole = cube.roles.get(binding.response.default_worker_role_id);
+            if (defaultRole) {
+              defaultRole.roleClass = 'queen';
+              defaultRole.isHumanSeat = true;
+            }
+          }
           return this.error(409, ErrorCode.INVALID_INPUT);
         }
         return {
@@ -699,7 +709,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         drones: new Map(),
         documents: new Map(),
       });
-      if (this.fault === 'grant-created-cube-to-wrong-client' && envelope.request_id === 'cube-create') {
+      if (
+        (this.fault === 'grant-created-cube-to-wrong-client' && envelope.request_id === 'cube-create') ||
+        (this.fault === 'grant-cross-client-cube-to-wrong-client' &&
+          envelope.request_id === 'cube-cross-client')
+      ) {
         const other = [...this.principals.values()].find((principal) => principal !== auth.principal);
         if (!other) throw new Error('Wrong-client grant fault requires another principal.');
         other.grants.set(handle.id, 'manage');
@@ -2235,7 +2249,9 @@ describe('executable adapter conformance', () => {
     ['omitted owner create-cube authority', 'omit-owner-create-cube', 'enrollment.retry-authority'],
     ['allowed ordinary cube creation', 'allow-ordinary-cube-create', 'enrollment.retry-authority'],
     ['duplicated exact cube-create retry', 'duplicate-exact-cube-retry', 'enrollment.retry-authority'],
+    ['mutated a created role while rejecting a retry mismatch', 'mutate-created-role-on-retry-refusal', 'enrollment.retry-authority'],
     ['granted created cube to wrong client', 'grant-created-cube-to-wrong-client', 'enrollment.retry-authority'],
+    ['granted cross-client cube to wrong client', 'grant-cross-client-cube-to-wrong-client', 'enrollment.retry-authority'],
     ['swapped created role identities', 'swap-created-role-identities', 'enrollment.retry-authority'],
     ['overwrote credential on rejected mismatch', 'overwrite-credential-on-reject', 'enrollment.retry-authority'],
     ['accepted owner-only enrollment mismatch', 'owner-only-accept-mismatch', 'enrollment.retry-authority'],
