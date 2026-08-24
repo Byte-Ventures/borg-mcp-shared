@@ -155,8 +155,7 @@ after ambiguous transport failure. `name` is the bounded user-selected cube
 name. `working_repo_name` is derived repository display metadata and does not
 identify or authorize the repository. `repository` is either an exact canonical
 public origin or a client-generated opaque local UUID. `template` accepts
-`software-dev`, `starter`, `local-model`, or the compatible legacy `default`
-seed. The request
+`software-dev`, `starter`, or `local-model`. The request
 cannot supply cube or role IDs, an owner, access, grant target, capability,
 arbitrary template data, local paths, raw origins, modules, commands, or
 repository credentials.
@@ -164,9 +163,7 @@ repository credentials.
 The server binds `(authenticated client, retry_key)` to the exact cube name,
 repository identity, and template. A successful transaction atomically creates
 one cube, the selected template directive, roles and flags, message taxonomy,
-and exactly one creator `manage` grant. The legacy `default` input retains its
-empty directive, platform Coordinator, default Builder, and no taxonomy. The
-authoritative response is:
+and exactly one creator `manage` grant. The authoritative response is:
 
 ```json
 {

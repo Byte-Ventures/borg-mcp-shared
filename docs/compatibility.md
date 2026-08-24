@@ -106,6 +106,12 @@ message taxonomy classifies prefixes and lifecycle only, and routing never falls
 open. A v11 peer and a v12 peer reject each other during credential-free
 preflight before either new contract is dispatched.
 
+The next `borgmcp-shared` release carries protocol v13. It removes the legacy
+`default` cube-template identifier and unrepresented error codes. Every accepted
+cube-template identifier now resolves through the canonical named-template
+registry. A v12 peer and a v13 peer reject each other during credential-free
+preflight before either changed contract is dispatched.
+
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a
 successful build alone — they must run the shared conformance suite against the

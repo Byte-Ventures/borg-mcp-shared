@@ -103,7 +103,6 @@ export const PROTOCOL_HTTP_CONTRACT = {
   auth_missing_status: 401,
   auth_invalid_status: 401,
   session_revoked_status: 401,
-  session_rejected_status: 401,
   cursor_expired_status: 410,
   cube_deleted_status: 410,
   drone_evicted_status: 410,
@@ -192,7 +191,7 @@ export type EnrollmentExchangeResponse =
   | ClientEnrollmentExchangeResponse
   | OwnerEnrollmentExchangeResponse;
 
-export const CUBE_TEMPLATES = ['default', 'software-dev', 'starter', 'local-model'] as const;
+export const CUBE_TEMPLATES = ['software-dev', 'starter', 'local-model'] as const;
 export type CubeTemplate = (typeof CUBE_TEMPLATES)[number];
 
 export type CreateCubeRepository =

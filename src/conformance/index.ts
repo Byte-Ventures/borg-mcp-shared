@@ -465,7 +465,7 @@ const CREATE_CUBE_INITIAL: CreateCubeRequest = {
   name: 'Repository One',
   working_repo_name: 'repository-one',
   repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-one' },
-  template: 'default',
+  template: 'software-dev',
 };
 
 export interface CubeTemplateAcceptanceConformanceVector {
@@ -474,13 +474,13 @@ export interface CubeTemplateAcceptanceConformanceVector {
   accepts: boolean;
 }
 
-/** Protocol v6's complete closed acceptance set for cube-creation templates. */
+/** Protocol v13's complete closed acceptance set for cube-creation templates. */
 export const CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE:
 readonly CubeTemplateAcceptanceConformanceVector[] = [
-  { name: 'accepts the legacy default template', template: 'default', accepts: true },
   { name: 'accepts the software-development template', template: 'software-dev', accepts: true },
   { name: 'accepts the starter template', template: 'starter', accepts: true },
   { name: 'accepts the local-model template', template: 'local-model', accepts: true },
+  { name: 'rejects the removed default template', template: 'default', accepts: false },
   { name: 'rejects an unknown template name', template: 'custom', accepts: false },
   { name: 'rejects a non-string template', template: null, accepts: false },
 ];
@@ -508,7 +508,7 @@ export const CREATE_CUBE_RETRY_CONFORMANCE: readonly CreateCubeRetryConformanceV
   {
     name: 'template mismatch is rejected',
     initial: CREATE_CUBE_INITIAL,
-    retry: { ...CREATE_CUBE_INITIAL, template: 'software-dev' },
+    retry: { ...CREATE_CUBE_INITIAL, template: 'starter' },
     expected: { outcome: 'retry_tuple_mismatch', status: 409, error: 'INVALID_INPUT' },
   },
   {
