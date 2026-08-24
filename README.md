@@ -84,9 +84,10 @@ Key paths in the repository-first HTTP contract include:
   inferring identity from a cube name.
 - `PUT /api/repository-cubes/association` atomically binds an explicitly
   confirmed cube ID and canonical repository identity for a caller with cube
-  `manage` authority. The same binding is idempotent; repository and cube
-  conflicts return distinct non-enumerating error codes, and a conflict,
-  validation failure, or permission failure performs no mutation.
+  `manage` authority. The same binding is idempotent, multiple repositories may
+  bind to one cube, and a repository bound to a different cube returns a
+  non-enumerating conflict. A conflict, validation failure, or permission
+  failure performs no mutation.
 - `DELETE /api/cubes/:cubeId` requires cube `manage` authority and atomically
   deletes the cube and its scoped state. Formerly authorized callers receive
   `410 CUBE_DELETED`, while callers that were never authorized still receive
@@ -179,9 +180,14 @@ protocol responses, streams, and subsequent protocol queries; persistence
 layout, internal counters, and authority restart are implementation-owned test
 concerns. A failed setup prerequisite is reported as skipped with its cause;
 assertion failures do not change prerequisite availability, and unrelated
-fixtures continue. A server or client adapter can run the portable
-suite against its local/self-hosted implementation. The package does not define
-a second authority, migration target, or fallback implementation.
+fixtures continue. A server or client adapter can run the portable suite against
+its local/self-hosted implementation. The package does not define a second
+authority, migration target, or fallback implementation.
+
+The 1.1.0 suite was measured at 156 requests per credential within one `reset`
+epoch. Adapters running the suite must provision a budget of at least 192
+requests per credential per epoch so conformance does not consume the
+implementation's limit.
 
 `ConformanceAdmin` classifies its complete boundary as follows. Fixture setup is
 `reset`, `createPrincipal`, `createCube`, `grantCube`, `revokeCubeGrant`,

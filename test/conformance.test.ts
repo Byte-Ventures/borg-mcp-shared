@@ -136,7 +136,6 @@ describe('public conformance vectors', () => {
       { status: 404, error: 'ROLE_NOT_FOUND', mutation: 'none' },
       { status: 404, error: 'ROLE_SECTION_NOT_FOUND', mutation: 'none' },
       { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
-      { status: 400, error: 'INVALID_INPUT', mutation: 'none' },
     ]);
   });
 
@@ -217,7 +216,7 @@ describe('public conformance vectors', () => {
     expect(decodeResolveRepositoryCubeRequest(resolved.request)).toEqual(resolved.request);
     expect(resolved.expected).toEqual({ outcome: 'resolved', status: 200 });
 
-    const [idempotent, repositoryConflict, cubeConflict] = ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE;
+    const [idempotent, repositoryConflict, secondAssociation] = ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE;
     expect(decodeAssociateRepositoryCubeRequest(idempotent.initial)).toEqual(idempotent.initial);
     expect(idempotent.retry).toEqual(idempotent.initial);
     expect(idempotent.expected.outcome).toBe('resolved');
@@ -228,13 +227,9 @@ describe('public conformance vectors', () => {
       .toBe('REPOSITORY_ALREADY_ASSOCIATED');
     expect('diagnostic_disclosure' in repositoryConflict.expected &&
       repositoryConflict.expected.diagnostic_disclosure).toBe('none');
-    expect(cubeConflict.initial.cube_id).toBe(cubeConflict.retry.cube_id);
-    expect(cubeConflict.initial.repository).not.toEqual(cubeConflict.retry.repository);
-    expect(cubeConflict.expected.outcome).toBe('cube_conflict');
-    expect('error' in cubeConflict.expected && cubeConflict.expected.error)
-      .toBe('CUBE_ALREADY_ASSOCIATED');
-    expect('diagnostic_disclosure' in cubeConflict.expected &&
-      cubeConflict.expected.diagnostic_disclosure).toBe('none');
+    expect(secondAssociation.initial.cube_id).toBe(secondAssociation.retry.cube_id);
+    expect(secondAssociation.initial.repository).not.toEqual(secondAssociation.retry.repository);
+    expect(secondAssociation.expected).toEqual({ outcome: 'resolved', status: 200 });
     expect(REPOSITORY_CUBE_PERMISSION_CONFORMANCE[0].expected).toEqual({
       status: 403,
       error: 'ACCESS_DENIED',
