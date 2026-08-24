@@ -36,8 +36,6 @@ export interface Template {
   message_taxonomy?: MessageTaxonomy;
 }
 
-export const LEGACY_DEFAULT_TEMPLATE_LABEL = 'Default (legacy)';
-
 export const NEW_CUBE_TEMPLATE_PRESENTATIONS = [
   {
     name: 'software-dev',
@@ -790,7 +788,7 @@ export const TEMPLATES: Record<string, Template> = {
 };
 
 export function getTemplate(name: string): Template | null {
-  return TEMPLATES[name] ?? null;
+  return Object.hasOwn(TEMPLATES, name) ? TEMPLATES[name] : null;
 }
 
 export function listTemplateNames(): string[] {
