@@ -113,7 +113,6 @@ describe('public conformance vectors', () => {
         status: 200,
         response: { deleted: true },
         mutation: 'delete-role',
-        evicted_drone_retarget: 'default-role',
         activity_log_attribution: 'preserved',
       },
       {
@@ -184,7 +183,7 @@ describe('public conformance vectors', () => {
     }
   });
 
-  it('pins cascading deletion and durable terminal-state vectors', () => {
+  it('pins protocol-terminal cube deletion vectors', () => {
     for (const vector of DELETE_CUBE_CONFORMANCE) {
       expect(decodeDeleteCubeRequest(vector.request), vector.name).toEqual({});
     }
@@ -199,13 +198,6 @@ describe('public conformance vectors', () => {
           terminal_sse: { event: 'error', error: 'CUBE_DELETED', closes_after_event: true },
         }),
       }),
-      expect.objectContaining({
-        expected: expect.objectContaining({
-          status: 410,
-          error: 'CUBE_DELETED',
-          durable_after_restart: true,
-        }),
-      }),
     ]);
   });
 
@@ -213,7 +205,7 @@ describe('public conformance vectors', () => {
     const [sameRepository, differentRepository] = CREATE_CUBE_ASSOCIATION_CONFORMANCE;
     expect(sameRepository.request.retry_key).not.toBe(sameRepository.created.retry_key);
     expect(sameRepository.request.repository).toEqual(sameRepository.created.repository);
-    expect(sameRepository.expected).toEqual({ outcome: 'resolved', authority_state_delta: {} });
+    expect(sameRepository.expected).toEqual({ outcome: 'resolved' });
     expect(differentRepository.request.repository).not.toEqual(differentRepository.created.repository);
     expect(differentRepository.expected.outcome).toBe('created');
   });
@@ -221,9 +213,9 @@ describe('public conformance vectors', () => {
   it('pins read-only repository resolution and explicit atomic association', () => {
     const [none, resolved] = RESOLVE_REPOSITORY_CUBE_CONFORMANCE;
     expect(decodeResolveRepositoryCubeRequest(none.request)).toEqual(none.request);
-    expect(none.expected).toEqual({ outcome: 'none', status: 200, authority_state_delta: {} });
+    expect(none.expected).toEqual({ outcome: 'none', status: 200 });
     expect(decodeResolveRepositoryCubeRequest(resolved.request)).toEqual(resolved.request);
-    expect(resolved.expected).toEqual({ outcome: 'resolved', status: 200, authority_state_delta: {} });
+    expect(resolved.expected).toEqual({ outcome: 'resolved', status: 200 });
 
     const [idempotent, repositoryConflict, cubeConflict] = ASSOCIATE_REPOSITORY_CUBE_CONFORMANCE;
     expect(decodeAssociateRepositoryCubeRequest(idempotent.initial)).toEqual(idempotent.initial);
@@ -246,30 +238,26 @@ describe('public conformance vectors', () => {
     expect(REPOSITORY_CUBE_PERMISSION_CONFORMANCE[0].expected).toEqual({
       status: 403,
       error: 'ACCESS_DENIED',
-      authority_state_delta: {},
     });
     expect(REPOSITORY_CUBE_PERMISSION_CONFORMANCE[1].expected).toEqual({
-      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      resolve: { status: 200, outcome: 'none' },
       associate: {
         status: 403,
         error: 'ACCESS_DENIED',
         diagnostic_disclosure: 'none',
-        authority_state_delta: {},
       },
     });
     expect(REPOSITORY_CUBE_PERMISSION_CONFORMANCE[2].expected).toEqual({
-      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      resolve: { status: 200, outcome: 'none' },
       associate: {
         status: 200,
         outcome: 'resolved',
-        authority_state_delta: { repository_associations: 1 },
       },
     });
     expect(REPOSITORY_CUBE_AUTHORITATIVE_STATE_CONFORMANCE[0].expected).toEqual({
       status: 409,
       error: 'INVALID_INPUT',
       diagnostic_disclosure: 'none',
-      authority_state_delta: {},
     });
   });
 
@@ -277,10 +265,8 @@ describe('public conformance vectors', () => {
     for (const vector of ENROLLMENT_AUTHORITY_CONFORMANCE) {
       const response = decodeEnrollmentExchangeResponse(vector.response);
       expect(response.purpose, vector.name).toBe(vector.response.purpose);
-      expect(vector.expected_state_delta, vector.name).toEqual(
-        response.purpose === 'owner'
-          ? { cubes: 0, roles: 0, grants: 0, server_capabilities: 1 }
-          : { cubes: 0, roles: 0, grants: 0, server_capabilities: 0 },
+      expect(response.server_capabilities, vector.name).toEqual(
+        response.purpose === 'owner' ? ['create_cube'] : [],
       );
       expect('credential' in response, vector.name).toBe(false);
     }

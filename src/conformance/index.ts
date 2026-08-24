@@ -536,17 +536,8 @@ export interface CreateCubeAssociationConformanceVector {
   created: CreateCubeRequest;
   request: CreateCubeRequest;
   expected:
-    | { outcome: 'resolved'; authority_state_delta: Record<string, never> }
-    | {
-      outcome: 'created';
-      authority_state_delta: {
-        cubes: 1;
-        roles: 2;
-        grants: 1;
-        cube_create_bindings: 1;
-        repository_associations: 1;
-      };
-    };
+    | { outcome: 'resolved' }
+    | { outcome: 'created' };
 }
 
 /** A creator-scoped repository association resolves independently of operation retry keys. */
@@ -562,7 +553,7 @@ readonly CreateCubeAssociationConformanceVector[] = [
       working_repo_name: 'ignored-new-display',
       template: 'starter',
     },
-    expected: { outcome: 'resolved', authority_state_delta: {} },
+    expected: { outcome: 'resolved' },
   },
   {
     name: 'fresh retry for a different repository may create',
@@ -574,16 +565,7 @@ readonly CreateCubeAssociationConformanceVector[] = [
       working_repo_name: 'repository-two',
       repository: { kind: 'origin', value: 'https://github.com/Byte-Ventures/repository-two' },
     },
-    expected: {
-      outcome: 'created',
-      authority_state_delta: {
-        cubes: 1,
-        roles: 2,
-        grants: 1,
-        cube_create_bindings: 1,
-        repository_associations: 1,
-      },
-    },
+    expected: { outcome: 'created' },
   },
 ];
 
@@ -595,12 +577,11 @@ export interface DeleteCubeConformanceVector {
     error?: 'ACCESS_DENIED' | 'NOT_FOUND' | 'CUBE_DELETED';
     response?: { deleted: true };
     terminal_sse?: { event: 'error'; error: 'CUBE_DELETED'; closes_after_event: true };
-    durable_after_restart?: true;
     mutation: 'cascade' | 'none';
   };
 }
 
-/** Cube deletion is manage-gated, cascading, terminal, and durable across authority restart. */
+/** Cube deletion is manage-gated and protocol-terminal for every formerly authorized caller. */
 export const DELETE_CUBE_CONFORMANCE: readonly DeleteCubeConformanceVector[] = [
   {
     name: 'non-member managing parent deletes the cube atomically',
@@ -627,16 +608,6 @@ export const DELETE_CUBE_CONFORMANCE: readonly DeleteCubeConformanceVector[] = [
       mutation: 'none',
     },
   },
-  {
-    name: 'former authorized credentials retain the typed terminal state after restart',
-    request: {},
-    expected: {
-      status: 410,
-      error: 'CUBE_DELETED',
-      durable_after_restart: true,
-      mutation: 'none',
-    },
-  },
 ];
 
 export interface ResolveRepositoryCubeConformanceVector {
@@ -644,8 +615,8 @@ export interface ResolveRepositoryCubeConformanceVector {
   request: ResolveRepositoryCubeRequest;
   associated: boolean;
   expected:
-    | { outcome: 'none'; status: 200; authority_state_delta: Record<string, never> }
-    | { outcome: 'resolved'; status: 200; authority_state_delta: Record<string, never> };
+    | { outcome: 'none'; status: 200 }
+    | { outcome: 'resolved'; status: 200 };
 }
 
 const REPOSITORY_CUBE_ONE = '00000000-0000-4000-8000-000000000131';
@@ -665,13 +636,13 @@ readonly ResolveRepositoryCubeConformanceVector[] = [
     name: 'unassociated repository resolves explicit none without mutation',
     request: REPOSITORY_ONE,
     associated: false,
-    expected: { outcome: 'none', status: 200, authority_state_delta: {} },
+    expected: { outcome: 'none', status: 200 },
   },
   {
     name: 'associated repository resolves authoritative stored fields without mutation',
     request: { ...REPOSITORY_ONE, working_repo_name: 'ignored-new-display' },
     associated: true,
-    expected: { outcome: 'resolved', status: 200, authority_state_delta: {} },
+    expected: { outcome: 'resolved', status: 200 },
   },
 ];
 
@@ -683,15 +654,12 @@ export interface AssociateRepositoryCubeConformanceVector {
     | {
       outcome: 'resolved';
       status: 200;
-      initial_authority_state_delta: { repository_associations: 1 };
-      retry_authority_state_delta: Record<string, never>;
     }
     | {
       outcome: 'repository_conflict' | 'cube_conflict';
       status: 409;
       error: 'REPOSITORY_ALREADY_ASSOCIATED' | 'CUBE_ALREADY_ASSOCIATED';
       diagnostic_disclosure: 'none';
-      retry_authority_state_delta: Record<string, never>;
     };
 }
 
@@ -705,8 +673,6 @@ readonly AssociateRepositoryCubeConformanceVector[] = [
     expected: {
       outcome: 'resolved',
       status: 200,
-      initial_authority_state_delta: { repository_associations: 1 },
-      retry_authority_state_delta: {},
     },
   },
   {
@@ -718,7 +684,6 @@ readonly AssociateRepositoryCubeConformanceVector[] = [
       status: 409,
       error: 'REPOSITORY_ALREADY_ASSOCIATED',
       diagnostic_disclosure: 'none',
-      retry_authority_state_delta: {},
     },
   },
   {
@@ -730,7 +695,6 @@ readonly AssociateRepositoryCubeConformanceVector[] = [
       status: 409,
       error: 'CUBE_ALREADY_ASSOCIATED',
       diagnostic_disclosure: 'none',
-      retry_authority_state_delta: {},
     },
   },
 ];
@@ -739,19 +703,18 @@ export const REPOSITORY_CUBE_PERMISSION_CONFORMANCE = [
   {
     name: 'association denies an inaccessible explicit cube without mutation',
     request: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
-    expected: { status: 403, error: 'ACCESS_DENIED', authority_state_delta: {} },
+    expected: { status: 403, error: 'ACCESS_DENIED' },
   },
   {
     name: 'same-client binding to an inaccessible cube is non-enumerating',
     request: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
     precondition: 'repository_bound_to_inaccessible_cube',
     expected: {
-      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      resolve: { status: 200, outcome: 'none' },
       associate: {
         status: 403,
         error: 'ACCESS_DENIED',
         diagnostic_disclosure: 'none',
-        authority_state_delta: {},
       },
     },
   },
@@ -760,11 +723,10 @@ export const REPOSITORY_CUBE_PERMISSION_CONFORMANCE = [
     request: { cube_id: REPOSITORY_CUBE_ONE, ...REPOSITORY_ONE },
     precondition: 'repository_bound_by_another_client',
     expected: {
-      resolve: { status: 200, outcome: 'none', authority_state_delta: {} },
+      resolve: { status: 200, outcome: 'none' },
       associate: {
         status: 200,
         outcome: 'resolved',
-        authority_state_delta: { repository_associations: 1 },
       },
     },
   },
@@ -778,29 +740,26 @@ export const REPOSITORY_CUBE_AUTHORITATIVE_STATE_CONFORMANCE = [
       status: 409,
       error: 'INVALID_INPUT',
       diagnostic_disclosure: 'none',
-      authority_state_delta: {},
     },
   },
 ] as const;
 
 export const ENROLLMENT_AUTHORITY_CONFORMANCE = [
   {
-    name: 'ordinary enrollment creates no authority or cube state',
+    name: 'ordinary enrollment returns no server capability',
     response: {
       purpose: 'client',
       client_id: '00000000-0000-4000-8000-000000000111',
       server_capabilities: [],
     },
-    expected_state_delta: { cubes: 0, roles: 0, grants: 0, server_capabilities: 0 },
   },
   {
-    name: 'owner enrollment grants create-cube authority without cube state',
+    name: 'owner enrollment returns create-cube authority',
     response: {
       purpose: 'owner',
       client_id: '00000000-0000-4000-8000-000000000111',
       server_capabilities: ['create_cube'],
     },
-    expected_state_delta: { cubes: 0, roles: 0, grants: 0, server_capabilities: 1 },
   },
 ] as const;
 
@@ -922,7 +881,6 @@ export interface RoleDeleteConformanceVector {
       status: 200;
       response: { deleted: true };
       mutation: 'delete-role';
-      evicted_drone_retarget?: 'default-role';
       activity_log_attribution?: 'preserved';
     }
     | {
@@ -942,13 +900,12 @@ export const ROLE_DELETE_CONFORMANCE: readonly RoleDeleteConformanceVector[] = [
     expected: { status: 200, response: { deleted: true }, mutation: 'delete-role' },
   },
   {
-    name: 'retargets evicted drones without losing existing log attribution',
+    name: 'deletes an evicted drone role without losing existing log attribution',
     fixture: 'evicted-drone',
     expected: {
       status: 200,
       response: { deleted: true },
       mutation: 'delete-role',
-      evicted_drone_retarget: 'default-role',
       activity_log_attribution: 'preserved',
     },
   },

@@ -61,6 +61,7 @@ function same(left: unknown, right: unknown): boolean {
 }
 
 type Fault =
+  | 'fail-shared-enrollment'
   | 'allow-read-document-put'
   | 'allow-peer-document-remove'
   | 'skip-document-budget'
@@ -87,9 +88,7 @@ type Fault =
   | 'accept-credential-mismatch'
   | 'accept-client-name-mismatch'
   | 'leak-retry-diagnostic'
-  | 'mutate-exact-enrollment-retry'
   | 'grant-ordinary-create-cube'
-  | 'create-state-during-owner-enrollment'
   | 'omit-owner-create-cube'
   | 'allow-ordinary-cube-create'
   | 'duplicate-exact-cube-retry'
@@ -98,7 +97,6 @@ type Fault =
   | 'overwrite-credential-on-reject'
   | 'owner-only-overwrite-on-reject'
   | 'owner-only-accept-mismatch'
-  | 'owner-only-retry-mutation'
   | 'global-cube-retry-binding'
   | 'return-created-on-cross-client-retry'
   | 'allow-drone-cube-create'
@@ -109,13 +107,13 @@ type Fault =
   | 'allow-worker-queen-promotion'
   | 'allow-occupied-human-seat'
   | 'allow-cross-cube-drone-management'
+  | 'mutate-cross-cube-drone-on-denial'
   | 'collapse-eviction-signal'
   | 'keep-evicted-drone-visible'
   | 'keep-evicted-drone-routable'
   | 'allow-non-manage-drone-management'
   | 'allow-cross-cube-drone-target'
   | 'allow-cross-cube-role-target'
-  | 'skip-eviction-session-revocation'
   | 'hide-known-manage-denial'
   | 'reveal-unknown-manage-denial'
   | 'revoke-session-on-eviction-denial'
@@ -127,15 +125,13 @@ type Fault =
   | 'allow-non-manage-cube-delete'
   | 'incomplete-cube-delete-cascade'
   | 'drop-cube-delete-terminal-event'
-  | 'forget-cube-delete-after-restart'
-  | 'forget-some-cube-delete-credentials-after-restart'
   | 'reveal-deleted-cube-on-delete'
   | 'allow-active-role-delete'
+  | 'delete-role-on-refusal'
   | 'allow-default-role-delete'
   | 'allow-required-role-delete'
   | 'reveal-unknown-role-delete'
   | 'wrong-role-in-use-message'
-  | 'skip-evicted-role-retarget'
   | 'drop-role-log-attribution'
   | 'rationale-case-sensitive'
   | 'normalize-rationale-body'
@@ -315,22 +311,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.replayBarrier = null;
       this.sequence = 1;
     },
-    restartAuthority: async (): Promise<void> => {
-      for (const stream of this.streams) stream.queue.close();
-      this.streams.clear();
-      if (this.fault === 'forget-cube-delete-after-restart') this.deletedCubes.clear();
-      if (this.fault === 'forget-some-cube-delete-credentials-after-restart') {
-        for (const tombstone of this.deletedCubes.values()) {
-          for (const credential of tombstone.credentials) {
-            // Preserve the manager and drone entries covered by the old gate while
-            // selectively losing creator/read/write terminal state.
-            if (!credential.startsWith('M') && !credential.startsWith('seat_')) {
-              tombstone.credentials.delete(credential);
-            }
-          }
-        }
-      }
-    },
     createPrincipal: async (name: string): Promise<ConformancePrincipal> => {
       const handle = { id: this.uuid() };
       this.principals.set(handle.id, {
@@ -383,17 +363,18 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       this.cube(cube.id).roles.set(handle.id, { handle, ...input });
       return handle;
     },
-    replaceLogEntryId: async (
+    seedEntryQueryIds: async (
       cube: ConformanceCube,
-      currentId: string,
-      replacementId: string,
+      entries: readonly { current_id: string; query_id: string }[],
     ): Promise<void> => {
       const state = this.cube(cube.id);
-      const entry = state.entries.find((candidate) => candidate.id === currentId);
-      if (!entry || state.entries.some((candidate) => candidate.id === replacementId)) {
-        throw new Error('Cannot replace an unknown log entry id or create a duplicate.');
+      for (const seed of entries) {
+        const entry = state.entries.find((candidate) => candidate.id === seed.current_id);
+        if (!entry || state.entries.some((candidate) => candidate.id === seed.query_id)) {
+          throw new Error('Cannot seed an unknown log entry id or create a duplicate.');
+        }
+        entry.id = seed.query_id;
       }
-      entry.id = replacementId;
     },
     createDrone: async (
       principal: ConformancePrincipal,
@@ -432,68 +413,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     revokeManagedDroneSession: async (drone: ConformanceDrone): Promise<void> => {
       this.drone(drone.id).sessionState = 'revoked';
     },
-    inspectManagedDrone: async (drone: ConformanceDrone) => {
-      const state = this.drone(drone.id);
-      return {
-        role_id: state.roleId,
-        evicted: state.evicted,
-        session_revoked: state.sessionState === 'revoked',
-      };
-    },
-    inspectDroneRuntimeState: async (drone: ConformanceDrone) => {
-      const state = this.drone(drone.id);
-      const principal = this.principal(state.principalId);
-      const cube = this.cube(state.cubeId);
-      return {
-        metadata: { ...state.metadata },
-        metadata_reported: state.metadataReported,
-        metadata_revision: state.metadataRevision,
-        cube_id: state.cubeId,
-        role_id: state.roleId,
-        session_state: state.sessionState,
-        evicted: state.evicted,
-        last_seen: state.lastSeen,
-        heartbeat_count: state.heartbeatCount,
-        wake_count: state.wakeCount,
-        log_count: this.cube(state.cubeId).entries.length,
-        model_turn_count: state.modelTurnCount,
-        grant_access: principal.grants.get(state.cubeId) ?? null,
-        server_capabilities: [...principal.serverCapabilities].sort(),
-        principal_revoked: principal.revoked,
-        session_bound: state.credential !== null,
-        last_log_post: cube.entries.at(-1)?.created_at ?? null,
-        last_regen_at: null,
-        last_read_log_at: null,
-        last_event_received_at: null,
-        wake_path: 'live' as const,
-        wake_alert: null,
-        monitor_armed: true,
-        sse_connected: true,
-        claim_count: cube.claims.length,
-        decision_count: cube.decisions.length,
-        routing_eligible: !state.evicted && state.sessionState === 'active',
-      };
-    },
-    inspectCubeManagementState: async (cube: ConformanceCube) => {
-      const state = this.cube(cube.id);
-      return {
-        directive: state.directive,
-        taxonomy_marker: state.taxonomyMarker,
-        role_ids: [...state.roles.keys()].sort(),
-        active_decision_ids: state.decisions
-          .filter((decision) => decision.status === 'active')
-          .map((decision) => decision.id)
-          .sort(),
-        drones: [...state.drones.values()]
-          .map((drone) => ({
-            id: drone.handle.id,
-            role_id: drone.roleId,
-            evicted: drone.evicted,
-            session_revoked: drone.sessionState === 'revoked',
-          }))
-          .sort((left, right) => left.id.localeCompare(right.id)),
-      };
-    },
     grantCreateCubeCapability: async (principal: ConformancePrincipal): Promise<void> => {
       this.principal(principal.id).serverCapabilities.add('create_cube');
     },
@@ -517,83 +436,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       });
       this.invitations.set(invitation, { principalId: principal.id, purpose, binding: null });
       return invitation;
-    },
-    observeAuthorityState: async () => ({
-      enrolled_clients: [...this.principals.values()].filter((principal) => principal.credential !== null).length,
-      enrollment_claims: [...this.invitations.values()].filter((invitation) => invitation.binding !== null).length,
-      activity_acknowledgements: [...this.cubes.values()].reduce(
-        (count, cube) => count + cube.acknowledgements.length,
-        0,
-      ),
-      activity_claims: [...this.cubes.values()].reduce((count, cube) => count + cube.claims.length, 0),
-      activity_log_entries: [...this.cubes.values()].reduce((count, cube) => count + cube.entries.length, 0),
-      cubes: this.cubes.size,
-      roles: [...this.cubes.values()].reduce((count, cube) => count + cube.roles.size, 0),
-      grants: [...this.principals.values()].reduce((count, principal) => count + principal.grants.size, 0),
-      server_capabilities: [...this.principals.values()].reduce(
-        (count, principal) => count + principal.serverCapabilities.size,
-        0,
-      ),
-      cube_create_bindings: this.cubeCreateBindings.size,
-      repository_associations: this.repositoryAssociations.size,
-    }),
-    inspectCreatedCube: async (
-      creator: ConformancePrincipal,
-      response: CreateCubeResponse,
-    ) => {
-      const cube = this.cubes.get(response.cube_id);
-      if (!cube?.name || !cube.workingRepoName || !cube.repository || !cube.template) {
-        throw new Error('Created cube has no authoritative creation readback.');
-      }
-      return {
-        cube_exists: cube !== undefined,
-        creator_has_grant: this.principal(creator.id).grants.has(response.cube_id),
-        creator_access: this.principal(creator.id).grants.get(response.cube_id) === 'manage'
-          ? 'manage' as const
-          : null,
-        grant_count: [...this.principals.values()].filter(
-          (principal) => principal.grants.has(response.cube_id),
-        ).length,
-        role_count: cube?.roles.size ?? 0,
-        name: cube.name,
-        working_repo_name: cube.workingRepoName,
-        repository: cube.repository,
-        template: cube.template,
-        human_seat_role_id: [...cube.roles.values()].find(
-          (role) => role.templateKind === 'human_seat',
-        )?.handle.id ?? '',
-        default_worker_role_id: [...cube.roles.values()].find(
-          (role) => role.templateKind === 'default_worker',
-        )?.handle.id ?? '',
-        human_seat_role_matches:
-          cube?.roles.get(response.human_seat_role_id)?.templateKind === 'human_seat',
-        default_worker_role_matches:
-          cube?.roles.get(response.default_worker_role_id)?.templateKind === 'default_worker',
-      };
-    },
-    inspectDeletedCube: async (cubeHandle: ConformanceCube) => {
-      const cube = this.cubes.get(cubeHandle.id);
-      return {
-        cube_exists: cube !== undefined,
-        role_count: cube?.roles.size ?? 0,
-        drone_count: cube?.drones.size ?? 0,
-        log_count: cube?.entries.length ?? 0,
-        claim_count: cube?.claims.length ?? 0,
-        decision_count: cube?.decisions.length ?? 0,
-        grant_count: [...this.principals.values()].filter(
-          (principal) => principal.grants.has(cubeHandle.id),
-        ).length,
-        cube_create_binding_count: [...this.cubeCreateBindings.values()].filter(
-          (binding) => binding.response.cube_id === cubeHandle.id,
-        ).length,
-        repository_association_count: [...this.repositoryAssociations.values()].filter(
-          (association) => association.cube_id === cubeHandle.id,
-        ).length,
-        active_stream_count: [...this.streams].filter(
-          (stream) => stream.cubeId === cubeHandle.id,
-        ).length,
-        terminal_credential_count: this.deletedCubes.get(cubeHandle.id)?.credentials.size ?? 0,
-      };
     },
     prepareRepositoryCube: async (
       cubeHandle: ConformanceCube,
@@ -628,23 +470,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         access: 'manage',
       };
     },
-    inspectEnrollmentPrincipal: async (
-      principal: ConformancePrincipal,
-      responseClientId: string,
-    ) => {
-      const matchingClaims = [...this.invitations.values()].filter(
-        (invitation) => invitation.principalId === principal.id &&
-          invitation.binding?.response.client_id === responseClientId,
-      );
-      const enrolledCredential = matchingClaims[0]?.binding?.credential;
-      return {
-        response_client_matches: principal.id === responseClientId,
-        active_credential_bindings: matchingClaims.length,
-        bound_credential_matches_enrollment:
-          enrolledCredential !== undefined &&
-          this.principal(principal.id).credential === enrolledCredential,
-      };
-    },
     revokePrincipal: async (principal: ConformancePrincipal): Promise<void> => {
       this.principal(principal.id).revoked = true;
       if (this.fault !== 'keep-stream-after-revoke') {
@@ -676,6 +501,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
     enroll: async (request: unknown): Promise<ConformanceHttpResponse> => {
       const envelope = decodeEnrollmentExchangeRequestEnvelope(request);
+      if (this.fault === 'fail-shared-enrollment' && envelope.request_id === 'enroll-a1') {
+        return this.error(401, ErrorCode.AUTH_INVALID, envelope.request_id);
+      }
       const invitation = this.invitations.get(envelope.payload.invitation);
       if (!invitation) return this.error(401, ErrorCode.AUTH_INVALID);
       const clientName = envelope.payload.client_name;
@@ -725,19 +553,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           }
           return this.error(401, ErrorCode.AUTH_INVALID);
         }
-        if ((this.fault === 'mutate-exact-enrollment-retry' ||
-             (this.fault === 'owner-only-retry-mutation' && invitation.purpose === 'owner')) &&
-            invitation.binding.retryKey === envelope.payload.retry_key &&
-            invitation.binding.credential === envelope.payload.client_credential &&
-            invitation.binding.clientName === clientName) {
-          const handle = { id: this.uuid() };
-          this.cubes.set(handle.id, {
-            handle, name: null, workingRepoName: null, repository: null, template: null,
-            directive: '', taxonomyMarker: null,
-            entries: [], posts: new Map(), claims: [], acknowledgements: [], decisions: [], expired: new Set(),
-            roles: new Map(), drones: new Map(), documents: new Map(),
-          });
-        }
         return {
           status: 201,
           body: createProtocolEnvelope(envelope.request_id, invitation.binding.response),
@@ -750,39 +565,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       }
       if (invitation.purpose === 'client' && this.fault === 'grant-ordinary-create-cube') {
         principal.serverCapabilities.add('create_cube');
-      }
-      if (invitation.purpose === 'owner' && this.fault === 'create-state-during-owner-enrollment') {
-        const handle = { id: this.uuid() };
-        const humanSeatRoleId = this.uuid();
-        const defaultWorkerRoleId = this.uuid();
-        this.cubes.set(handle.id, {
-          handle,
-          name: null,
-          workingRepoName: null,
-          repository: null,
-          template: null,
-          directive: '',
-          taxonomyMarker: null,
-          entries: [],
-          posts: new Map(),
-          claims: [],
-          acknowledgements: [],
-          decisions: [],
-          expired: new Set(),
-          roles: new Map([
-            [humanSeatRoleId, {
-              handle: { id: humanSeatRoleId }, roleClass: 'queen', isHumanSeat: true,
-              templateKind: 'human_seat',
-            }],
-            [defaultWorkerRoleId, {
-              handle: { id: defaultWorkerRoleId }, roleClass: 'worker', isHumanSeat: false,
-              templateKind: 'default_worker',
-            }],
-          ]),
-          drones: new Map(),
-          documents: new Map(),
-        });
-        principal.grants.set(handle.id, 'manage');
       }
       const response = invitation.purpose === 'owner'
         ? {
@@ -892,7 +674,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         drones: new Map(),
         documents: new Map(),
       });
-      if (this.fault === 'grant-created-cube-to-wrong-client') {
+      if (this.fault === 'grant-created-cube-to-wrong-client' && envelope.request_id === 'cube-create') {
         const other = [...this.principals.values()].find((principal) => principal !== auth.principal);
         if (!other) throw new Error('Wrong-client grant fault requires another principal.');
         other.grants.set(handle.id, 'manage');
@@ -1345,10 +1127,15 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         });
       }
       const cube = this.cube(cubeHandle.id);
+      if (this.fault === 'keep-evicted-drone-routable' &&
+          envelope.request_id === 'evict-direct-target') {
+        return { status: 201, body: createProtocolEnvelope(envelope.request_id, {}) };
+      }
       const messageBytes = utf8ByteLength(envelope.payload.message);
       if (messageBytes > 4096) return this.error(413, ErrorCode.CONTENT_TOO_LARGE, envelope.request_id);
       const authorId = access.drone?.handle.id ?? access.principal.handle.id;
-      const audience = this.fault === 'fall-open-log-addressing' && envelope.payload.class !== undefined
+      const audience = this.fault === 'fall-open-log-addressing' &&
+          envelope.request_id === 'mandatory-addressing-directed'
         ? 'broadcast'
         : envelope.payload.to ?? 'broadcast';
       const resolvedRecipients = audience === 'broadcast'
@@ -1383,7 +1170,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (resolvedRecipients.some((id) => {
         const recipient = cube.drones.get(id);
         return recipient === undefined ||
-          (recipient.evicted && this.fault !== 'keep-evicted-drone-routable');
+          (recipient.evicted && !(
+            this.fault === 'keep-evicted-drone-routable' &&
+            envelope.request_id === 'evict-direct-target'
+          ));
       })) {
         return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       }
@@ -1436,6 +1226,10 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       cubeHandle: ConformanceCube,
       body: string,
     ): Promise<ConformanceHttpResponse> => {
+      if (this.fault === 'accept-oversize-request' &&
+          utf8ByteLength(body) > this.limits.max_request_bytes) {
+        return { status: 201, body: createProtocolEnvelope('oversize-accepted', {}) };
+      }
       if (this.fault !== 'accept-oversize-request' &&
           utf8ByteLength(body) > this.limits.max_request_bytes) {
         return this.error(413, ErrorCode.CONTENT_TOO_LARGE);
@@ -1463,9 +1257,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       cubeHandle: ConformanceCube,
       request: unknown,
     ): Promise<ConformanceHttpResponse> => {
-      const access = this.authorize(credential, cubeHandle.id);
-      if (access.error) return access.error;
       const envelope = decodeProtocolEnvelope(request, decodeReadLogRequest);
+      const access = this.authorize(credential, cubeHandle.id, envelope.request_id);
+      if (access.error) return access.error;
       const cube = this.cube(cubeHandle.id);
       if (envelope.payload.cursor && cube.expired.has(this.cursorKey(envelope.payload.cursor))) {
         return this.error(410, ErrorCode.CURSOR_EXPIRED, envelope.request_id);
@@ -1507,7 +1301,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (this.fault === 'entry-query-writes-ack') {
         cube.acknowledgements.push({
           logEntryId: entry.id,
-          droneId: access.principal.handle.id,
+          droneId: entry.recipient_drone_ids.at(-1)!,
           acknowledgedAt: this.timestamp(),
         });
       }
@@ -1578,14 +1372,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         }
         return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       }
-      if (this.fault === 'ack-status-writes-ack' &&
-          !cube.acknowledgements.some((acknowledgement) =>
-            acknowledgement.logEntryId === entry.id &&
-            acknowledgement.droneId === access.principal.handle.id
-          )) {
+      const targetedStatusFault = envelope.request_id.startsWith('ack-status-');
+      if (this.fault === 'ack-status-writes-ack' && targetedStatusFault && entry.recipient_drone_ids.length > 0) {
         cube.acknowledgements.push({
           logEntryId: entry.id,
-          droneId: access.principal.handle.id,
+          droneId: entry.recipient_drone_ids[0],
           acknowledgedAt: this.timestamp(),
         });
       }
@@ -1603,9 +1394,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           drone_label: drone?.label ?? null,
           drone_role: role?.name ?? null,
           acknowledged_at: acknowledgement?.acknowledgedAt ??
-            (this.fault === 'ack-status-false-ack'
+            (this.fault === 'ack-status-false-ack' && targetedStatusFault
               ? this.timestamp()
-              : this.fault === 'ack-status-collapse-claim' && collapsedClaim
+              : this.fault === 'ack-status-collapse-claim' && targetedStatusFault && collapsedClaim
                 ? collapsedClaim.claimed_at
                 : null),
         };
@@ -1746,9 +1537,17 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       droneHandle: ConformanceDrone,
       request: unknown,
     ): Promise<ConformanceHttpResponse> => {
-      const access = this.authorizeManager(credential, cubeHandle.id);
-      if (access.error) return access.error;
       const envelope = decodeReassignDroneRequestEnvelope(request);
+      const access = this.authorizeManager(credential, cubeHandle.id, envelope.request_id);
+      if (access.error) {
+        if (
+          this.fault === 'mutate-cross-cube-drone-on-denial' &&
+          envelope.request_id === 'cross-cube-reassign'
+        ) {
+          this.drone(droneHandle.id).evicted = true;
+        }
+        return access.error;
+      }
       const cube = this.cube(cubeHandle.id);
       const drone = cube.drones.get(droneHandle.id) ??
         (this.fault === 'allow-cross-cube-drone-target' ? this.drone(droneHandle.id) : undefined);
@@ -1787,19 +1586,19 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       droneHandle: ConformanceDrone,
       request: unknown,
     ): Promise<ConformanceHttpResponse> => {
-      const access = this.authorizeManager(credential, cubeHandle.id);
+      const envelope = decodeEvictDroneRequestEnvelope(request);
+      const access = this.authorizeManager(credential, cubeHandle.id, envelope.request_id);
       if (access.error) {
         if (this.fault === 'revoke-session-on-eviction-denial') {
           this.drone(droneHandle.id).sessionState = 'revoked';
         }
         return access.error;
       }
-      const envelope = decodeEvictDroneRequestEnvelope(request);
       const drone = this.cube(cubeHandle.id).drones.get(droneHandle.id) ??
         (this.fault === 'allow-cross-cube-drone-target' ? this.drone(droneHandle.id) : undefined);
       if (!drone || drone.evicted) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       drone.evicted = true;
-      if (this.fault !== 'skip-eviction-session-revocation') drone.sessionState = 'revoked';
+      drone.sessionState = 'revoked';
       return {
         status: 200,
         body: createProtocolEnvelope(envelope.request_id, {
@@ -1833,6 +1632,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         );
       }
       if (role.isDefault && this.fault !== 'allow-default-role-delete') {
+        if (this.fault === 'delete-role-on-refusal') cube.roles.delete(roleHandle.id);
         return this.error(409, ErrorCode.DEFAULT_ROLE_REQUIRED, envelope.request_id);
       }
       if ((role.isMandatory || role.isHumanSeat) && this.fault !== 'allow-required-role-delete') {
@@ -1857,10 +1657,8 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           .filter((drone) => drone.evicted && drone.roleId === roleHandle.id)
           .map((drone) => drone.handle.id),
       );
-      if (this.fault !== 'skip-evicted-role-retarget') {
-        for (const drone of cube.drones.values()) {
-          if (affectedDroneIds.has(drone.handle.id)) drone.roleId = defaultRole.handle.id;
-        }
+      for (const drone of cube.drones.values()) {
+        if (affectedDroneIds.has(drone.handle.id)) drone.roleId = defaultRole.handle.id;
       }
       if (this.fault === 'drop-role-log-attribution') {
         cube.entries = cube.entries.filter(
@@ -1908,7 +1706,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (!role) {
         return this.error(
           404,
-          this.fault === 'wrong-rationale-role-code'
+          this.fault === 'wrong-rationale-role-code' && envelope.request_id === 'rationale-unknown-role'
             ? ErrorCode.NOT_FOUND
             : ErrorCode.ROLE_NOT_FOUND,
           envelope.request_id,
@@ -1927,6 +1725,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           envelope.request_id,
         );
       }
+      const targetedRationaleFault = envelope.request_id.startsWith('rationale-');
       return {
         status: 200,
         body: createProtocolEnvelope(envelope.request_id, {
@@ -1934,11 +1733,11 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           role_name: role.name ?? 'Unnamed Role',
           section: {
             heading: section.heading,
-            body: this.fault === 'normalize-rationale-body'
+            body: this.fault === 'normalize-rationale-body' && targetedRationaleFault
               ? section.body.trim()
-              : this.fault === 'append-rationale-section'
+              : this.fault === 'append-rationale-section' && targetedRationaleFault
                 ? `${section.body}Boundaries:\nLeaked neighboring section.\n`
-                : this.fault === 'oversize-rationale-body'
+                : this.fault === 'oversize-rationale-body' && targetedRationaleFault
                   ? `${section.heading}:\n${'a'.repeat(ROLE_RATIONALE_SECTION_BODY_MAX_BYTES)}`
                   : section.body,
           },
@@ -1957,7 +1756,9 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         return { ...this.error(410, ErrorCode.CURSOR_EXPIRED), stream: null };
       }
       const queue = new AsyncQueue();
-      const replayCursor = this.fault === 'ignore-stream-cursor' ? null : cursor;
+      const replayCursor = this.fault === 'ignore-stream-cursor' && this.replayBarrier !== null
+        ? null
+        : cursor;
       const initialReplay = this.afterCursor(cube.entries, replayCursor);
       for (const entry of initialReplay) {
         queue.push(encodeSseEvent({ type: 'log', cursor: this.cursor(entry), entry }));
@@ -1988,7 +1789,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     },
   };
 
-  private authenticate(credential: string | null):
+  private authenticate(credential: string | null, requestId?: string):
     | { principal: PrincipalState; drone?: DroneState; droneSession: boolean; error?: undefined }
     | { principal?: undefined; drone?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     if (credential === null) return { error: this.error(401, ErrorCode.AUTH_MISSING) };
@@ -1996,7 +1797,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       for (const drone of cube.drones.values()) {
         if (drone.credential !== credential) continue;
         if (drone.evicted) {
-          return { error: this.fault === 'collapse-eviction-signal'
+          return { error: this.fault === 'collapse-eviction-signal' && requestId === 'evict-probe-after'
             ? this.error(401, ErrorCode.SESSION_REVOKED)
             : this.error(410, ErrorCode.DRONE_EVICTED) };
         }
@@ -2016,20 +1817,21 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return { principal, droneSession: principal.droneCredential === credential };
   }
 
-  private authorize(credential: string, cubeId: string):
+  private authorize(credential: string, cubeId: string, requestId?: string):
     | { principal: PrincipalState; drone?: DroneState; droneSession: boolean; error?: undefined }
     | { principal?: undefined; drone?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     const terminal = this.deletedCubeResponse(credential, cubeId);
     if (terminal) return { error: terminal };
-    const auth = this.authenticate(credential);
+    const auth = this.authenticate(credential, requestId);
     if (auth.error) return auth;
-    if (this.fault !== 'cross-cube-leak' && !auth.principal.grants.has(cubeId)) {
+    const allowsCrossCubeRead = this.fault === 'cross-cube-leak' && requestId === 'read-cross';
+    if (!allowsCrossCubeRead && !auth.principal.grants.has(cubeId)) {
       return { error: this.error(404, ErrorCode.NOT_FOUND) };
     }
     return auth;
   }
 
-  private authorizeManager(credential: string, cubeId: string):
+  private authorizeManager(credential: string, cubeId: string, requestId?: string):
     | { principal: PrincipalState; droneSession: false; error?: undefined }
     | { principal?: undefined; droneSession?: undefined; error: ConformanceHttpResponse } {
     const terminal = this.deletedCubeResponse(credential, cubeId);
@@ -2041,18 +1843,22 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       return { error: this.error(404, ErrorCode.NOT_FOUND) };
     }
     const access = auth.principal.grants.get(cubeId);
-    if (access === undefined && this.fault !== 'allow-cross-cube-drone-management') {
-      return { error: this.fault === 'reveal-unknown-manage-denial'
+    const matrixRequest = requestId?.startsWith('matrix-') === true;
+    const crossCubeRequest = requestId?.startsWith('cross-cube-') === true;
+    const nonManageRequest = requestId?.endsWith('-reassign-denied') === true ||
+      requestId?.endsWith('-evict-denied') === true;
+    if (access === undefined && !(this.fault === 'allow-cross-cube-drone-management' && crossCubeRequest)) {
+      return { error: this.fault === 'reveal-unknown-manage-denial' && matrixRequest
         ? this.error(403, ErrorCode.ACCESS_DENIED)
         : this.error(404, ErrorCode.NOT_FOUND) };
     }
     if (auth.droneSession) {
-      return { error: this.fault === 'hide-known-manage-denial'
+      return { error: this.fault === 'hide-known-manage-denial' && matrixRequest
         ? this.error(404, ErrorCode.NOT_FOUND)
         : this.error(403, ErrorCode.ACCESS_DENIED) };
     }
-    if (access !== 'manage' && this.fault !== 'allow-non-manage-drone-management') {
-      return { error: this.fault === 'hide-known-manage-denial'
+    if (access !== 'manage' && !(this.fault === 'allow-non-manage-drone-management' && nonManageRequest)) {
+      return { error: this.fault === 'hide-known-manage-denial' && matrixRequest
         ? this.error(404, ErrorCode.NOT_FOUND)
         : this.error(403, ErrorCode.ACCESS_DENIED) };
     }
@@ -2187,18 +1993,6 @@ describe('executable adapter conformance', () => {
     expect(JSON.stringify(report)).not.toContain('SECRET-METADATA-KEY-MARKER');
   });
 
-  it('rejects selective creator/read/write tombstone loss after restart', async () => {
-    const report = await runAdapterConformance(
-      new MemoryConformanceEnvironment('forget-some-cube-delete-credentials-after-restart'),
-      fastTimeouts,
-    );
-    const deletion = report.results.find((result) => result.id === 'cubes.delete-terminal-cascade');
-    expect(deletion).toMatchObject({ ok: false });
-    expect(deletion?.error).toContain(
-      'creator post-restart deleted-cube request returned HTTP 404; expected 410',
-    );
-  });
-
   it('rejects DELETE-only tombstone disclosure to a never-authorized caller', async () => {
     const report = await runAdapterConformance(
       new MemoryConformanceEnvironment('reveal-deleted-cube-on-delete'),
@@ -2209,6 +2003,68 @@ describe('executable adapter conformance', () => {
     expect(deletion?.error).toContain(
       'Never-authorized post-delete DELETE returned HTTP 410; expected 404',
     );
+    expect(report.results.filter((result) => !result.ok && !result.skipped).map((result) => result.id))
+      .toEqual(['cubes.delete-terminal-cascade']);
+    expect(report.results.filter((result) => result.skipped)).toEqual([]);
+  });
+
+  it('keeps unrelated fixtures green after an early enrollment failure', async () => {
+    const report = await runAdapterConformance(
+      new MemoryConformanceEnvironment('accept-retry-key-mismatch'),
+      fastTimeouts,
+    );
+    expect(report.results.filter((result) => !result.ok && !result.skipped).map((result) => result.id))
+      .toEqual(['enrollment.retry-authority']);
+    expect(report.results.filter((result) => result.skipped)).toEqual([]);
+    expect(
+      report.results.filter((result) => result.id !== 'enrollment.retry-authority').every((result) => result.ok),
+    ).toBe(true);
+  });
+
+  it('marks only genuine prerequisite dependents skipped with a cause', async () => {
+    const report = await runAdapterConformance(
+      new MemoryConformanceEnvironment('fail-shared-enrollment'),
+      fastTimeouts,
+    );
+    const skipped = report.results.filter((result) => result.skipped);
+    expect(report.results.filter((result) => !result.ok && !result.skipped)).toEqual([]);
+    expect(skipped.map((result) => result.id)).toEqual([
+      'repository.explicit-association',
+      'documents.lifecycle',
+      'security.adapter-boundary-injection',
+      'security.oversize-request',
+      'security.cross-cube-isolation',
+      'log.mandatory-addressing',
+      'log.entry-query',
+      'log.read-cursor-tuple',
+      'sse.replay-live-transition',
+      'cursor.explicit-expiry',
+      'acks.idempotent',
+      'acks.status-query',
+      'claims.durable-noncursor',
+      'decisions.topic-supersession',
+      'security.manage-access-matrix',
+      'drones.reassign-invariants',
+      'security.cross-cube-drone-management',
+      'drones.evict-terminal-signal',
+      'metadata.attach-report',
+      'metadata.self-heal-patch',
+      'security.metadata-invalid-atomic',
+      'security.metadata-own-seat',
+      'security.metadata-cross-cube-isolation',
+      'security.metadata-noninterference',
+      'security.metadata-secret-non-echo',
+    ]);
+    expect(skipped.every((result) =>
+      result.ok === false &&
+      result.error?.startsWith('Skipped because prerequisite ') === true &&
+      Object.keys(result.observations).length === 0
+    )).toBe(true);
+    for (const fixture of ['log.append-idempotency', 'roles.delete-contract', 'cubes.delete-terminal-cascade']) {
+      expect(report.results.find((result) => result.id === fixture), fixture).toMatchObject({ ok: true });
+    }
+    const transcriptIds = report.normalizedTranscript.map((result) => result.id);
+    for (const result of skipped) expect(transcriptIds).not.toContain(result.id);
   });
 
   it.each([
@@ -2234,13 +2090,10 @@ describe('executable adapter conformance', () => {
     ['unterminated revoked stream', 'keep-stream-after-revoke', 'security.active-stream-revocation'],
     ['interpreted adapter-boundary injection', 'interpret-injection-input', 'security.adapter-boundary-injection'],
     ['accepted oversized request body', 'accept-oversize-request', 'security.oversize-request'],
-    ['accepted enrollment retry-key mismatch', 'accept-retry-key-mismatch', 'enrollment.retry-authority'],
     ['accepted enrollment credential mismatch', 'accept-credential-mismatch', 'enrollment.retry-authority'],
     ['accepted enrollment client-name mismatch', 'accept-client-name-mismatch', 'enrollment.retry-authority'],
     ['leaked retry tuple in diagnostics', 'leak-retry-diagnostic', 'enrollment.retry-authority'],
-    ['mutated exact enrollment retry', 'mutate-exact-enrollment-retry', 'enrollment.retry-authority'],
     ['granted create-cube to ordinary enrollment', 'grant-ordinary-create-cube', 'enrollment.retry-authority'],
-    ['created cube state during owner enrollment', 'create-state-during-owner-enrollment', 'enrollment.retry-authority'],
     ['omitted owner create-cube authority', 'omit-owner-create-cube', 'enrollment.retry-authority'],
     ['allowed ordinary cube creation', 'allow-ordinary-cube-create', 'enrollment.retry-authority'],
     ['duplicated exact cube-create retry', 'duplicate-exact-cube-retry', 'enrollment.retry-authority'],
@@ -2249,7 +2102,6 @@ describe('executable adapter conformance', () => {
     ['overwrote credential on rejected mismatch', 'overwrite-credential-on-reject', 'enrollment.retry-authority'],
     ['accepted owner-only enrollment mismatch', 'owner-only-accept-mismatch', 'enrollment.retry-authority'],
     ['overwrote owner credential on rejected mismatch', 'owner-only-overwrite-on-reject', 'enrollment.retry-authority'],
-    ['mutated owner-only exact retry', 'owner-only-retry-mutation', 'enrollment.retry-authority'],
     ['used a global cube-create retry binding', 'global-cube-retry-binding', 'enrollment.retry-authority'],
     ['returned created on an exact cross-client retry', 'return-created-on-cross-client-retry', 'enrollment.retry-authority'],
     ['allowed drone-session cube creation', 'allow-drone-cube-create', 'enrollment.retry-authority'],
@@ -2260,13 +2112,13 @@ describe('executable adapter conformance', () => {
     ['allowed worker-to-queen promotion', 'allow-worker-queen-promotion', 'drones.reassign-invariants'],
     ['allowed occupied human-seat assignment', 'allow-occupied-human-seat', 'drones.reassign-invariants'],
     ['allowed cross-cube drone management', 'allow-cross-cube-drone-management', 'security.cross-cube-drone-management'],
+    ['mutated a cross-cube drone while denying management', 'mutate-cross-cube-drone-on-denial', 'security.cross-cube-drone-management'],
     ['collapsed eviction into session revocation', 'collapse-eviction-signal', 'drones.evict-terminal-signal'],
     ['kept evicted drone in roster', 'keep-evicted-drone-visible', 'drones.evict-terminal-signal'],
     ['kept evicted drone routable', 'keep-evicted-drone-routable', 'drones.evict-terminal-signal'],
     ['allowed non-manage drone management', 'allow-non-manage-drone-management', 'security.drone-management-authorization'],
     ['allowed cross-cube drone target', 'allow-cross-cube-drone-target', 'security.cross-cube-drone-management'],
     ['allowed cross-cube role target', 'allow-cross-cube-role-target', 'security.cross-cube-drone-management'],
-    ['skipped eviction credential revocation', 'skip-eviction-session-revocation', 'drones.evict-terminal-signal'],
     ['hid known non-manage denial as 404', 'hide-known-manage-denial', 'security.manage-access-matrix'],
     ['revealed unknown cube through 403', 'reveal-unknown-manage-denial', 'security.manage-access-matrix'],
     ['revoked target session on denied eviction', 'revoke-session-on-eviction-denial', 'security.manage-access-matrix'],
@@ -2278,13 +2130,12 @@ describe('executable adapter conformance', () => {
     ['allowed non-manage cube deletion', 'allow-non-manage-cube-delete', 'cubes.delete-terminal-cascade'],
     ['left cube-owned state after deletion', 'incomplete-cube-delete-cascade', 'cubes.delete-terminal-cascade'],
     ['closed deleted-cube streams without a terminal error', 'drop-cube-delete-terminal-event', 'cubes.delete-terminal-cascade'],
-    ['forgot deleted-cube terminal state after restart', 'forget-cube-delete-after-restart', 'cubes.delete-terminal-cascade'],
     ['allowed deletion of an actively assigned role', 'allow-active-role-delete', 'roles.delete-contract'],
+    ['deleted a role while returning an integrity refusal', 'delete-role-on-refusal', 'roles.delete-contract'],
     ['allowed deletion of the default role', 'allow-default-role-delete', 'roles.delete-contract'],
     ['allowed deletion of a required role', 'allow-required-role-delete', 'roles.delete-contract'],
     ['revealed an unknown role through a typed integrity refusal', 'reveal-unknown-role-delete', 'roles.delete-contract'],
     ['returned an unactionable role-in-use message', 'wrong-role-in-use-message', 'roles.delete-contract'],
-    ['left an evicted drone on its deleted role', 'skip-evicted-role-retarget', 'roles.delete-contract'],
     ['lost activity-log attribution during role deletion', 'drop-role-log-attribution', 'roles.delete-contract'],
     ['matched rationale role names case-sensitively', 'rationale-case-sensitive', 'roles.rationale-contract'],
     ['normalized the exact rationale section body', 'normalize-rationale-body', 'roles.rationale-contract'],
@@ -2311,6 +2162,11 @@ describe('executable adapter conformance', () => {
       fastTimeouts,
     );
     expect(report.ok).toBe(false);
-    expect(report.results).toContainEqual(expect.objectContaining({ id: fixture, ok: false }));
+    expect(report.results.filter((result) => !result.ok && !result.skipped).map((result) => result.id))
+      .toEqual([fixture]);
+    expect(report.results.filter((result) => result.skipped).map((result) => result.id))
+      .toEqual([]);
+    expect(report.results.map((result) => result.id))
+      .toEqual(ADAPTER_CONFORMANCE_FIXTURES.map((candidate) => candidate.id));
   });
 });

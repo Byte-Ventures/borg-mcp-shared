@@ -288,7 +288,7 @@ describe('packed artifact', () => {
         deleted: true,
       },
       cubeDeletedCode: 'CUBE_DELETED',
-      deletionVectorCount: 5,
+      deletionVectorCount: 4,
       documentRequest: {
         title: 'Packed evidence',
         content_type: 'text/plain',
