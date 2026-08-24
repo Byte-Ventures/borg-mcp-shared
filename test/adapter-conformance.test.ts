@@ -13,6 +13,7 @@ import {
   decodeEnrollmentExchangeRequestEnvelope,
   encodeInvitationArtifact,
   decodeAttachRequestEnvelope,
+  decodeAttachResponseEnvelope,
   decodeAssociateRepositoryCubeRequestEnvelope,
   decodeCreateCubeRequestEnvelope,
   decodeDeleteCubeRequestEnvelope,
@@ -21,6 +22,7 @@ import {
   decodeDeleteRoleRequestEnvelope,
   decodeRoleRationaleRequestEnvelope,
   decodeProtocolEnvelope,
+  decodeProtocolErrorEnvelope,
   decodeReadLogRequest,
   decodeResolveRepositoryCubeRequestEnvelope,
   decodeReassignDroneRequestEnvelope,
@@ -1100,8 +1102,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       const reused = drone !== undefined && drone.principalId === auth.principal.handle.id && !drone.evicted;
       if (drone && !reused) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       if (!drone && role.isHumanSeat && [...cube.drones.values()].some(
-        (candidate) => !candidate.evicted && candidate.sessionState === 'active' &&
-          candidate.roleId === role.handle.id,
+        (candidate) => !candidate.evicted && candidate.roleId === role.handle.id,
       )) {
         return this.error(409, ErrorCode.ROLE_IN_USE, envelope.request_id);
       }
@@ -2148,6 +2149,54 @@ describe('executable adapter conformance', () => {
     );
     expect(report.results.every((result) => result.ok)).toBe(true);
     expect(JSON.stringify(report)).not.toContain('SECRET-METADATA-KEY-MARKER');
+  });
+
+  it('keeps a human seat occupied until its drone is evicted', async () => {
+    const environment = new MemoryConformanceEnvironment();
+    const principal = await environment.admin.createPrincipal('seat-owner');
+    const invitation = await environment.admin.issueSingleUseInvitation(principal, 'owner');
+    const credential = 'Q'.repeat(43);
+    const enrollment = await environment.operations.enroll(createProtocolEnvelope('seat-enroll', {
+      invitation,
+      retry_key: '00000000-0000-4000-8000-000000000801',
+      client_credential: credential,
+      client_name: 'seat-owner',
+    }));
+    expect(enrollment.status).toBe(201);
+    const cube = await environment.admin.createCube('seat-cube');
+    const role = await environment.admin.createRole(cube, {
+      roleClass: 'queen',
+      isHumanSeat: true,
+    });
+    await environment.admin.grantCube(principal, cube);
+    const attached = await environment.operations.attach(credential, createProtocolEnvelope('seat-attach', {
+      cube_id: cube.id,
+      role_id: role.id,
+      session_credential: 'S'.repeat(43),
+    }));
+    expect(attached.status).toBe(200);
+    const drone = decodeAttachResponseEnvelope(attached.body).payload.drone;
+    await environment.admin.revokeManagedDroneSession(drone);
+    const occupied = await environment.operations.attach(credential, createProtocolEnvelope('seat-revoked-attach', {
+      cube_id: cube.id,
+      role_id: role.id,
+      session_credential: 'T'.repeat(43),
+    }));
+    expect(occupied.status).toBe(409);
+    expect(decodeProtocolErrorEnvelope(occupied.body).error.code).toBe(ErrorCode.ROLE_IN_USE);
+    const evicted = await environment.operations.evictDrone(
+      credential,
+      cube,
+      drone,
+      createProtocolEnvelope('seat-evict', {}),
+    );
+    expect(evicted.status).toBe(200);
+    const replaced = await environment.operations.attach(credential, createProtocolEnvelope('seat-replacement-attach', {
+      cube_id: cube.id,
+      role_id: role.id,
+      session_credential: 'U'.repeat(43),
+    }));
+    expect(replaced.status).toBe(200);
   });
 
   it('rejects DELETE-only tombstone disclosure to a never-authorized caller', async () => {
