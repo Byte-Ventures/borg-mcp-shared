@@ -146,23 +146,12 @@ export interface RosterResponse {
   since?: string | null;
 }
 
-export interface ReadLogClaim {
-  log_entry_id: string;
-  claimant_drone_id: string;
-  claimant_label: string | null;
-  claimant_role: string | null;
-  claimed_at: string;
-  stale: boolean;
-}
-
 export interface ReadLogResponse {
   entries: ActivityLogEntry[];
   drones: Drone[];
   roles: PublicRole[];
   behind_by?: number;
   has_more?: boolean;
-  /** Added with advisory claims; optional when reading older servers. */
-  claims?: ReadLogClaim[];
 }
 
 export interface RoutingEcho {

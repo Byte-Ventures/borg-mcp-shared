@@ -474,7 +474,7 @@ export interface CubeTemplateAcceptanceConformanceVector {
   accepts: boolean;
 }
 
-/** Protocol v13's complete closed acceptance set for cube-creation templates. */
+/** Protocol v14's complete closed acceptance set for cube-creation templates. */
 export const CUBE_TEMPLATE_ACCEPTANCE_CONFORMANCE:
 readonly CubeTemplateAcceptanceConformanceVector[] = [
   { name: 'accepts the software-development template', template: 'software-dev', accepts: true },
