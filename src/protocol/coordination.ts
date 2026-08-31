@@ -26,15 +26,6 @@ export interface ReadLogRequest {
   limit?: number;
 }
 
-export interface ClaimRecord {
-  log_entry_id: string;
-  claimant_drone_id: string;
-  claimant_label: string | null;
-  claimant_role: string | null;
-  claimed_at: string;
-  stale: boolean;
-}
-
 export interface AppendLogResult extends Omit<AppendLogResponse, 'entry'> {
   entry: EnrichedStreamEntry;
 }
@@ -44,7 +35,6 @@ export interface ReadLogResult {
   cursor: LogCursor | null;
   behind_by: number;
   has_more: boolean;
-  claims: ClaimRecord[];
 }
 
 export interface EntryQueryRequest {
@@ -443,38 +433,6 @@ export function decodeAckStatusResultEnvelope(
   return decodeProtocolEnvelope(value, decodeAckStatusResult);
 }
 
-function decodeClaimRecord(value: unknown): ClaimRecord {
-  const input = object(value);
-  exact(
-    input,
-    [
-      'log_entry_id',
-      'claimant_drone_id',
-      'claimant_label',
-      'claimant_role',
-      'claimed_at',
-      'stale',
-    ],
-    [
-      'log_entry_id',
-      'claimant_drone_id',
-      'claimant_label',
-      'claimant_role',
-      'claimed_at',
-      'stale',
-    ],
-  );
-  if (typeof input.stale !== 'boolean') throw new ProtocolContractError('Invalid claim stale flag.');
-  return {
-    log_entry_id: decodeUuid(input.log_entry_id, ['log_entry_id']),
-    claimant_drone_id: decodeUuid(input.claimant_drone_id, ['claimant_drone_id']),
-    claimant_label: nullableString(input.claimant_label, 'claimant_label', 120),
-    claimant_role: nullableString(input.claimant_role, 'claimant_role', 120),
-    claimed_at: decodeCanonicalTimestamp(input.claimed_at, ['claimed_at']),
-    stale: input.stale,
-  };
-}
-
 function decodeRoutingEcho(value: unknown): RoutingEcho {
   const input = object(value);
   exact(
@@ -549,14 +507,11 @@ export function decodeReadLogResult(value: unknown): ReadLogResult {
   const input = object(value);
   exact(
     input,
-    ['entries', 'cursor', 'behind_by', 'has_more', 'claims'],
-    ['entries', 'cursor', 'behind_by', 'has_more', 'claims'],
+    ['entries', 'cursor', 'behind_by', 'has_more'],
+    ['entries', 'cursor', 'behind_by', 'has_more'],
   );
   if (!Array.isArray(input.entries) || input.entries.length > 500) {
     throw new ProtocolContractError('Invalid read-log entries.');
-  }
-  if (!Array.isArray(input.claims) || input.claims.length > 500) {
-    throw new ProtocolContractError('Invalid read-log claims.');
   }
   if (typeof input.has_more !== 'boolean') throw new ProtocolContractError('Invalid has_more flag.');
   const entries = input.entries.map(decodeEnrichedStreamEntry);
@@ -579,7 +534,6 @@ export function decodeReadLogResult(value: unknown): ReadLogResult {
     cursor,
     behind_by: nonNegativeInteger(input.behind_by, 'behind_by', Number.MAX_SAFE_INTEGER),
     has_more: input.has_more,
-    claims: input.claims.map(decodeClaimRecord),
   };
 }
 

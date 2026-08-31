@@ -53,7 +53,6 @@ import {
   type EnrichedStreamEntry,
   type LogCursor,
   type ResolvedRepositoryCube,
-  type ReadLogClaim,
   type DroneRuntimeMetadata,
   type CubeDocument,
 } from '../src/index.js';
@@ -203,7 +202,7 @@ interface CubeState {
     recipientDroneIds: string[];
     documents: string[];
   }>;
-  claims: ReadLogClaim[];
+  claims: StoredClaim[];
   acknowledgements: Array<{
     logEntryId: string;
     droneId: string;
@@ -214,6 +213,15 @@ interface CubeState {
   roles: Map<string, RoleState>;
   drones: Map<string, DroneState>;
   documents: Map<string, { document: CubeDocument; authorPrincipalId: string }>;
+}
+
+interface StoredClaim {
+  log_entry_id: string;
+  claimant_drone_id: string;
+  claimant_label: string | null;
+  claimant_role: string | null;
+  claimed_at: string;
+  stale: boolean;
 }
 
 interface RoleState {
@@ -551,7 +559,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '13',
+                protocol_version: '14',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -571,7 +579,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '13',
+                protocol_version: '14',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -633,7 +641,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '13',
+              protocol_version: '14',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -1179,7 +1187,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '13', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '14', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -1386,7 +1394,6 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           cursor,
           behind_by: after.length - entries.length,
           has_more: after.length > entries.length,
-          claims: cube.claims,
         }),
       };
     },
@@ -2135,7 +2142,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '13',
+        protocol_version: '14',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message },
       },
@@ -2255,7 +2262,6 @@ describe('executable adapter conformance', () => {
       'cursor.explicit-expiry',
       'acks.idempotent',
       'acks.status-query',
-      'claims.durable-noncursor',
       'decisions.topic-supersession',
       'security.manage-access-matrix',
       'drones.reassign-invariants',

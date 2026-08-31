@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import type {
   AppendLogResponse,
   AssimilateRequest,
@@ -87,7 +87,7 @@ describe('current public response contracts', () => {
     expect(response.roles[0].is_mandatory).toBe(true);
   });
 
-  it('represents read-log claims and nullable entry attribution', () => {
+  it('represents read-log pagination and nullable entry attribution', () => {
     const response = {
       entries: [
         {
@@ -103,19 +103,11 @@ describe('current public response contracts', () => {
       roles: [publicRole],
       behind_by: 1,
       has_more: false,
-      claims: [
-        {
-          log_entry_id: 'entry-1',
-          claimant_drone_id: 'drone-1',
-          claimant_label: 'one-of-one-builder',
-          claimant_role: 'Builder',
-          claimed_at: '2026-01-01T00:00:00.000Z',
-          stale: false,
-        },
-      ],
     } satisfies ReadLogResponse;
 
-    expect(response.claims).toHaveLength(1);
+    expect(response.entries[0].drone_id).toBeNull();
+    expect(response.behind_by).toBe(1);
+    expectTypeOf<ReadLogResponse>().not.toHaveProperty('claims');
   });
 
   it('represents orientation hashes, decisions, and identity metadata', () => {

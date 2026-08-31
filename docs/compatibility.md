@@ -108,14 +108,19 @@ message taxonomy classifies prefixes and lifecycle only, and routing never falls
 open. A v11 peer and a v12 peer reject each other during credential-free
 preflight before either new contract is dispatched.
 
-The next `borgmcp-shared` release carries protocol v13. It removes the legacy
+`borgmcp-shared@1.1.0` carries protocol v13. It removes the legacy
 `default` cube-template identifier and unrepresented error codes. Every accepted
 cube-template identifier now resolves through the canonical named-template
 registry. A v12 peer and a v13 peer reject each other during credential-free
 preflight before either changed contract is dispatched. Client adoption of v13
 must stop sending `template: 'default'` from its cube-creation requests and
-remove its `LEGACY_DEFAULT_TEMPLATE_LABEL` import; the shared v13 release must
-not ship until coordinated client and server releases are ready.
+remove its `LEGACY_DEFAULT_TEMPLATE_LABEL` import.
+
+`borgmcp-shared@2.0.0` carries protocol v14. It removes advisory claims from the
+read-log response contract while preserving claim visibility through
+acknowledgement status, roster, and diagnostics. A v13 peer and a v14 peer reject
+each other during credential-free preflight before either peer sends credentials
+or dispatches a read-log operation.
 
 Removing or reinterpreting an existing field is a protocol-breaking change even
 when TypeScript permits it. Implementations must not infer compatibility from a

@@ -282,7 +282,6 @@ export const ADAPTER_CONFORMANCE_FIXTURES = [
   { id: 'cursor.explicit-expiry', area: 'cursor' },
   { id: 'acks.idempotent', area: 'acks' },
   { id: 'acks.status-query', area: 'acks' },
-  { id: 'claims.durable-noncursor', area: 'claims' },
   { id: 'decisions.topic-supersession', area: 'decisions' },
   { id: 'security.drone-management-authorization', area: 'security' },
   { id: 'security.manage-access-matrix', area: 'security' },
@@ -318,7 +317,6 @@ const FIXTURE_PREREQUISITES: Partial<Record<AdapterConformanceFixtureId, readonl
   'cursor.explicit-expiry': ['shared.enrolled-principals'],
   'acks.idempotent': ['shared.enrolled-principals'],
   'acks.status-query': ['shared.enrolled-principals'],
-  'claims.durable-noncursor': ['shared.enrolled-principals'],
   'decisions.topic-supersession': ['shared.enrolled-principals'],
   'security.manage-access-matrix': ['shared.enrolled-principals'],
   'drones.reassign-invariants': ['shared.enrolled-principals'],
@@ -2274,42 +2272,6 @@ export async function runAdapterConformance(
     };
   });
 
-  await record('claims.durable-noncursor', async () => {
-    const principal = await environment.admin.createPrincipal('claim-noncursor');
-    const cube = await environment.admin.createCube('claim-noncursor');
-    await environment.admin.grantCube(principal, cube);
-    const credential = await environment.admin.issueDroneSession(principal);
-    const appended = await environment.operations.append(
-      credential,
-      cube,
-      createProtocolEnvelope('claim-fixture-entry', {
-        post_id: '00000000-0000-4000-8000-000000000314',
-        to: 'broadcast',
-        message: 'claim cursor baseline',
-      }),
-    );
-    expectStatus(appended, 201, 'Claim fixture append');
-    const entry = decodeAppendLogResultEnvelope(appended.body).payload.entry;
-    const baselineCursor = { id: entry.id, created_at: entry.created_at };
-    const claim = await environment.operations.ack(
-      credential,
-      cube,
-      createProtocolEnvelope('claim-fixture-claim', { entry_id: entry.id, kind: 'claim' }),
-    );
-    expectStatus(claim, 204, 'Claim');
-    const read = await environment.operations.read(
-      credential,
-      cube,
-      createProtocolEnvelope('claim-fixture-readback', { cursor: baselineCursor, limit: 10 }),
-    );
-    expectStatus(read, 200, 'Claim-state read');
-    const page = decodeReadLogResultEnvelope(read.body).payload;
-    invariant(page.entries.length === 0, 'Claim unexpectedly created a log entry.');
-    invariant(page.cursor !== null && compareLogCursor(page.cursor, baselineCursor) === 0, 'Claim advanced the log cursor.');
-    invariant(page.claims.some((item) => item.log_entry_id === entry.id), 'Claim was not durable in a later read.');
-    return { durable_claims: 1, entries: 0, cursor_advanced: false };
-  });
-
   await record('decisions.topic-supersession', async () => {
     const firstResponse = await environment.operations.recordDecision(
       credentialA,
@@ -3878,6 +3840,12 @@ export async function runAdapterConformance(
       );
       expectStatus(log, 200, `${label} deletion log readback`);
       const logPayload = decodeReadLogResultEnvelope(log.body).payload;
+      const claimStatus = await environment.operations.ackStatus(
+        manager.credential,
+        cube,
+        createProtocolEnvelope(`delete-${label}-claim-readback`, { entry_id: entry.id }),
+      );
+      expectStatus(claimStatus, 200, `${label} deletion claim readback`);
       const roster = await environment.operations.listDrones(manager.credential, cube);
       expectStatus(roster, 200, `${label} deletion roster readback`);
       const roleReadback = await environment.operations.attach(
@@ -3894,7 +3862,7 @@ export async function runAdapterConformance(
       return {
         decisions: active,
         entries: logPayload.entries,
-        claims: logPayload.claims,
+        claims: decodeAckStatusResultEnvelope(claimStatus.body).payload.claims,
         drone: listedDrone(roster, drone.id),
         role: rolePayload,
       };
