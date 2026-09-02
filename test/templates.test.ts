@@ -21,12 +21,27 @@ const ROLE_LIMIT = 51_200;
 
 const COORDINATOR_ACTIVATION_COPY = [
   'START NOW, RESUME NOW, REVIEW NOW, or HOLD',
-  'ACK and claim are receipt only',
+  'ACK and CLAIM are receipt only',
   'concrete milestones from the dispatch and acceptance evidence',
   'one direct status request',
   'report the evidence to the human',
   'requires explicit human operator approval for the exact work item and recipient',
   'Require BLOCKED when safe work stops',
+];
+
+const COORDINATOR_SUPERVISION_COPY = [
+  'Active read-log polling is allowed only from dispatch until the first receipt signal',
+  'Stop polling immediately when the first receipt signal arrives',
+  'ACK and CLAIM are receipt only; `borg_ack` records receipt; STARTING or substantive PROGRESS proves activation',
+  'After receipt, end the active turn',
+  'exactly one dormant two-minute activation-deadline wake',
+  'exactly one dormant supervision wake for 12-15 minutes after the latest substantive signal',
+  'ten-minute progress expectation with bounded grace',
+  'drain unread activity once',
+  'send one direct status request and use read-only liveness checks',
+  'Clear the supervision wake when work is complete',
+  'deadline wakes never stack',
+  'Do not use shell sleeps, stacked deadlines, repeated read-log polling, repeated reminders for the same miss, process manipulation, or unauthorized reassignment',
 ];
 
 describe('cube templates', () => {
@@ -297,6 +312,13 @@ describe('cube templates', () => {
     expect(coordinator.detailed_description).toContain(
       'use `borg_ack-status` for the routed entry; it reports acknowledgements and claims without advancing unread cursors',
     );
+  });
+
+  it('bounds Coordinator receipt polling and dormant supervision', () => {
+    const coordinator = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!;
+    for (const phrase of COORDINATOR_SUPERVISION_COPY) {
+      expect(coordinator.detailed_description).toContain(phrase);
+    }
   });
 
   it('requires operator approval before any coordinating role changes ownership', () => {

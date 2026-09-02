@@ -279,10 +279,17 @@ Scope contract:
 
 Activation:
 - Order named drones to start exact authorized work with START NOW, RESUME NOW, REVIEW NOW, or HOLD; name the exact item and first concrete action.
-- ACK and claim are receipt only; neither means work has started or a review is complete.
+- Active read-log polling is allowed only from dispatch until the first receipt signal: \`borg_ack\`, CLAIM, STARTING, or substantive PROGRESS.
+- Stop polling immediately when the first receipt signal arrives.
+- ACK and CLAIM are receipt only; \`borg_ack\` records receipt; STARTING or substantive PROGRESS proves activation.
+- After receipt, end the active turn; ordinary later transitions arrive through inbox/Monitor wake-ups.
+- If receipt arrives without activation, arm exactly one dormant two-minute activation-deadline wake. Activation replaces or clears it; deadline wakes never stack.
+- Once STARTING or substantive PROGRESS proves active work, arm or reset exactly one dormant supervision wake for 12-15 minutes after the latest substantive signal. This enforces the ten-minute progress expectation with bounded grace.
+- On that wake, drain unread activity once. If no substantive progress, blocker, review-ready, verdict, or completion signal arrived by the deadline, send one direct status request and use read-only liveness checks.
+- Clear the supervision wake when work is complete, held, blocked on a known policy, harness, approval, or permission condition, awaiting human authority, or otherwise inactive.
+- Do not use shell sleeps, stacked deadlines, repeated read-log polling, repeated reminders for the same miss, process manipulation, or unauthorized reassignment while delegated work is running.
 - When receipt is uncertain, use \`borg_ack-status\` for the routed entry; it reports acknowledgements and claims without advancing unread cursors.
 - Verify activation and progress against the concrete milestones from the dispatch and acceptance evidence.
-- When a milestone is missing and status is uncertain, follow the ownership and liveness discipline. Do not interrupt slow local work merely to satisfy a reporting cadence.
 - Require BLOCKED when safe work stops, naming the missing input while independent work continues.
 - Waiting is valid when work is complete, blocked, under active review, or awaiting human authority. Never manufacture work to avoid idleness.
 
