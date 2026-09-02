@@ -192,7 +192,7 @@ Receipt and liveness:
 const OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE = `
 
 Ownership and liveness:
-- Follow active work through concrete milestones from the dispatch and acceptance evidence, not a fixed elapsed-time cadence.
+- Follow active work through concrete milestones from the dispatch and acceptance evidence, including any bounded activation or supervision deadline.
 - If silence or liveness evidence makes status uncertain, send one direct status request and report the evidence to the human.
 - Silence, delay, stale or disconnected state, and missed milestones never authorize rerouting or reassignment.
 - Coordinator, Queen, or Director rerouting or reassignment requires explicit human operator approval for the exact work item and recipient.`;
@@ -279,10 +279,17 @@ Scope contract:
 
 Activation:
 - Order named drones to start exact authorized work with START NOW, RESUME NOW, REVIEW NOW, or HOLD; name the exact item and first concrete action.
-- ACK and claim are receipt only; neither means work has started or a review is complete.
+1. Active read-log polling is allowed only from dispatch until the first receipt signal: \`borg_ack\`, CLAIM, STARTING, or substantive PROGRESS.
+2. Polling stops immediately when the first receipt signal arrives.
+3. ACK and CLAIM are receipt only; \`borg_ack\` records receipt; STARTING or substantive PROGRESS proves activation.
+4. After receipt, end the active turn. Ordinary later transitions arrive through inbox/Monitor wake-ups; a dormant deadline does not keep the current turn open.
+5. If receipt arrives without activation, arm exactly one dormant two-minute activation-deadline wake. Activation replaces or clears it; deadline wakes never stack.
+6. Once STARTING or substantive PROGRESS proves active work, arm or reset exactly one dormant supervision wake for 12-15 minutes after the latest substantive signal. This enforces the ten-minute progress expectation with bounded grace.
+7. On that wake, drain unread activity once. If no substantive progress, blocker, review-ready, verdict, or completion signal arrived by the deadline, send one direct status request and use read-only liveness checks.
+8. Clear the supervision wake when work is complete, held, blocked on a known policy, harness, approval, or permission condition, awaiting human authority, or otherwise inactive.
+9. Do not use shell sleeps, stacked deadlines, repeated read-log polling, repeated reminders for the same miss, process manipulation, or unauthorized reassignment while delegated work is running.
 - When receipt is uncertain, use \`borg_ack-status\` for the routed entry; it reports acknowledgements and claims without advancing unread cursors.
 - Verify activation and progress against the concrete milestones from the dispatch and acceptance evidence.
-- When a milestone is missing and status is uncertain, follow the ownership and liveness discipline. Do not interrupt slow local work merely to satisfy a reporting cadence.
 - Require BLOCKED when safe work stops, naming the missing input while independent work continues.
 - Waiting is valid when work is complete, blocked, under active review, or awaiting human authority. Never manufacture work to avoid idleness.
 

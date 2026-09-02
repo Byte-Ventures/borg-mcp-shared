@@ -21,13 +21,29 @@ const ROLE_LIMIT = 51_200;
 
 const COORDINATOR_ACTIVATION_COPY = [
   'START NOW, RESUME NOW, REVIEW NOW, or HOLD',
-  'ACK and claim are receipt only',
+  'ACK and CLAIM are receipt only',
   'concrete milestones from the dispatch and acceptance evidence',
   'one direct status request',
   'report the evidence to the human',
   'requires explicit human operator approval for the exact work item and recipient',
   'Require BLOCKED when safe work stops',
 ];
+
+function hasCoordinatorLifecycleSemantics(description: string): boolean {
+  const points = new Map(
+    [...description.matchAll(/^(\d)\. (.+)$/gmu)].map((match) => [match[1]!, match[2]!] as const),
+  );
+  return points.size === 9 &&
+    /polling.*only.*dispatch.*first receipt.*borg_ack.*CLAIM.*STARTING.*PROGRESS/iu.test(points.get('1') ?? '') &&
+    /polling stops immediately.*signal arrives/iu.test(points.get('2') ?? '') &&
+    /ACK.*CLAIM.*receipt only.*STARTING.*PROGRESS.*proves activation/iu.test(points.get('3') ?? '') &&
+    /receipt.*end the active turn.*transitions.*inbox.*Monitor.*wake.*dormant deadline.*does not keep.*turn open/iu.test(points.get('4') ?? '') &&
+    /receipt.*without activation.*exactly one.*two-minute.*Activation replaces or clears.*never stack/iu.test(points.get('5') ?? '') &&
+    /STARTING.*PROGRESS.*active work.*arm or reset exactly one.*12-15 minutes.*latest substantive signal.*ten-minute.*bounded grace/iu.test(points.get('6') ?? '') &&
+    /^On that wake, drain unread activity once\. If no .* arrived by the deadline, send one direct status request and use read-only liveness checks\.$/u.test(points.get('7') ?? '') &&
+    /wake when work is complete.*held.*blocked.*policy.*harness.*approval.*permission.*human authority.*inactive/iu.test(points.get('8') ?? '') &&
+    /Do not use shell sleeps.*stacked deadlines.*repeated read-log polling.*repeated reminders.*process manipulation.*unauthorized reassignment/iu.test(points.get('9') ?? '');
+}
 
 describe('cube templates', () => {
   it('registers the built-in templates', () => {
@@ -297,6 +313,47 @@ describe('cube templates', () => {
     expect(coordinator.detailed_description).toContain(
       'use `borg_ack-status` for the routed entry; it reports acknowledgements and claims without advancing unread cursors',
     );
+  });
+
+  it('bounds Coordinator receipt polling and dormant supervision', () => {
+    const coordinator = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!;
+    expect(hasCoordinatorLifecycleSemantics(coordinator.detailed_description)).toBe(true);
+  });
+
+  it.each([
+    {
+      failure: 'keeps the turn open and ignores Monitor transitions',
+      mutate: (value: string) => value.replace(
+        'After receipt, end the active turn. Ordinary later transitions arrive through inbox/Monitor wake-ups; a dormant deadline does not keep the current turn open.',
+        'After receipt, keep the active turn open and ignore ordinary inbox/Monitor wake-ups; a dormant deadline keeps the current turn open.',
+      ),
+    },
+    {
+      failure: 'leaves the activation deadline armed and permits stacking',
+      mutate: (value: string) => value.replace(
+        'Activation replaces or clears it; deadline wakes never stack.',
+        'Activation leaves it armed; deadline wakes may stack.',
+      ),
+    },
+    {
+      failure: 'keys supervision to the first signal without reset',
+      mutate: (value: string) => value.replace(
+        'arm or reset exactly one dormant supervision wake for 12-15 minutes after the latest substantive signal',
+        'arm exactly one dormant supervision wake for 12-15 minutes after the first substantive signal without resetting it',
+      ),
+    },
+    {
+      failure: 'runs status evaluation when no transition is overdue',
+      mutate: (value: string) => value.replace(
+        'If no substantive progress, blocker, review-ready, verdict, or completion signal arrived by the deadline, send one direct status request',
+        'Whether or not a transition is overdue, send one direct status request',
+      ),
+    },
+  ])('rejects Coordinator lifecycle text that $failure', ({ mutate }) => {
+    const coordinator = TEMPLATES['software-dev'].roles.find((role) => role.name === 'Coordinator')!;
+    const mutated = mutate(coordinator.detailed_description);
+    expect(mutated).not.toBe(coordinator.detailed_description);
+    expect(hasCoordinatorLifecycleSemantics(mutated)).toBe(false);
   });
 
   it('requires operator approval before any coordinating role changes ownership', () => {
