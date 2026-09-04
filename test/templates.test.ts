@@ -13,6 +13,7 @@ import {
   resolveMessageTaxonomyForCreate,
   type Template,
 } from '../src/templates.js';
+import { parseRoleSections } from '../src/role-section.js';
 import * as generatedTemplates from '../dist/templates.js';
 
 const CONCISE_ROLE_BUDGET = 12_000;
@@ -30,8 +31,11 @@ const COORDINATOR_ACTIVATION_COPY = [
 ];
 
 function hasCoordinatorLifecycleSemantics(description: string): boolean {
+  const activation = parseRoleSections(description).find(({ heading }) => heading === 'Activation');
+  if (activation === undefined) return false;
   const points = new Map(
-    [...description.matchAll(/^(\d)\. (.+)$/gmu)].map((match) => [match[1]!, match[2]!] as const),
+    [...activation.body.matchAll(/^(\d)\. (.+)$/gmu)]
+      .map((match) => [match[1]!, match[2]!] as const),
   );
   return points.size === 9 &&
     /polling.*only.*dispatch.*first receipt.*borg_ack.*CLAIM.*STARTING.*PROGRESS/iu.test(points.get('1') ?? '') &&
@@ -45,6 +49,42 @@ function hasCoordinatorLifecycleSemantics(description: string): boolean {
     /Do not use shell sleeps.*stacked deadlines.*repeated read-log polling.*repeated reminders.*process manipulation.*unauthorized reassignment/iu.test(points.get('9') ?? '');
 }
 
+function hasDurableLayerSemantics(description: string): boolean {
+  const section = parseRoleSections(description).find(({ heading }) => heading === 'Durable layers');
+  if (section === undefined) return false;
+
+  const layers = new Map(
+    [...section.body.matchAll(/^(\d)\. ([^:]+): (.+)$/gmu)]
+      .map((match) => [match[1]!, { name: match[2]!, purpose: match[3]! }] as const),
+  );
+  if (layers.size !== 4) return false;
+
+  const decisionRegistry = layers.get('1');
+  const cubeDirective = layers.get('2');
+  const cubeDocuments = layers.get('3');
+  const repositoryRules = layers.get('4');
+  const rules = section.body.match(/^Rules: (.+)$/imu)?.[1] ?? '';
+  const capSteps = ['relocate rules', 'supersede stale choices', 'remove obsolete']
+    .map((step) => rules.indexOf(step));
+
+  return decisionRegistry?.name === 'Decision registry (`borg_decide` / `borg_decisions`)' &&
+    /choices between alternatives.*cited by topic.*16,384 active bytes per cube/iu.test(
+      decisionRegistry.purpose,
+    ) &&
+    cubeDirective?.name === 'Cube directive (`borg_update-cube`)' &&
+    /standing operating rules and conventions.*served every session/iu.test(cubeDirective.purpose) &&
+    cubeDocuments?.name === 'Cube documents (`borg_put-document` / `borg_get-document`)' &&
+    /large or detailed material.*cited by id/iu.test(cubeDocuments.purpose) &&
+    repositoryRules?.name === 'Repository `AGENTS.md`' &&
+    /rules specific to one repository.*seats working there/iu.test(repositoryRules.purpose) &&
+    /rule rather than a choice.*belongs in the directive.*move it.*remove the registry copy/iu.test(
+      rules,
+    ) &&
+    capSteps.every((position) => position >= 0) &&
+    capSteps.every((position, index) => index === 0 || position > capSteps[index - 1]!) &&
+    /detail.*document.*cited/iu.test(section.body);
+}
+
 describe('cube templates', () => {
   it('registers the built-in templates', () => {
     expect(listTemplateNames()).toEqual(['software-dev', 'starter', 'local-model']);
@@ -53,6 +93,36 @@ describe('cube templates', () => {
       expect(getTemplate(inherited)).toBeNull();
     }
     for (const name of listTemplateNames()) expect(getTemplate(name)).toBe(TEMPLATES[name]);
+  });
+
+  it.each([
+    ['software-dev', 'Coordinator'],
+    ['starter', 'Coordinator'],
+    ['local-model', 'Director'],
+  ])('teaches durable-layer semantics in %s/%s', (templateName, roleName) => {
+    const role = TEMPLATES[templateName].roles.find(({ name }) => name === roleName)!;
+    expect(hasDurableLayerSemantics(role.detailed_description)).toBe(true);
+  });
+
+  it.each([
+    {
+      failure: 'drops the document layer',
+      mutate: (value: string) => value.replace(/^3\. Cube documents.*\n/mu, ''),
+    },
+    {
+      failure: 'keeps a rule in the registry',
+      mutate: (value: string) => value.replace(
+        'move it and remove the registry copy',
+        'keep it and copy it to the directive',
+      ),
+    },
+  ])('rejects durable-layer guidance that $failure', ({ mutate }) => {
+    const coordinator = TEMPLATES['software-dev'].roles.find(
+      ({ name }) => name === 'Coordinator',
+    )!;
+    const mutated = mutate(coordinator.detailed_description);
+    expect(mutated).not.toBe(coordinator.detailed_description);
+    expect(hasDurableLayerSemantics(mutated)).toBe(false);
   });
 
   it('owns the exact host-neutral template presentation copy', () => {

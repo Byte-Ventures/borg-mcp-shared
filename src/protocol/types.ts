@@ -184,9 +184,9 @@ export interface Decision {
   topic: string;
   decision: string;
   rationale: string | null;
-  ratified_by?: string | null;
-  status?: 'active' | 'superseded' | 'removed';
-  supersedes?: string | null;
+  ratified_by: string | null;
+  status: 'active' | 'superseded' | 'removed';
+  supersedes: string | null;
   created_at: string;
 }
 

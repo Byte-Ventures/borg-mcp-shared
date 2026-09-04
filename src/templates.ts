@@ -197,6 +197,15 @@ Ownership and liveness:
 - Silence, delay, stale or disconnected state, and missed milestones never authorize rerouting or reassignment.
 - Coordinator, Queen, or Director rerouting or reassignment requires explicit human operator approval for the exact work item and recipient.`;
 
+const DURABLE_LAYERS = `
+
+Durable layers:
+1. Decision registry (\`borg_decide\` / \`borg_decisions\`): choices between alternatives that could be revisited, cited by topic, served into every drone's context, capped at 16,384 active bytes per cube.
+2. Cube directive (\`borg_update-cube\`): standing operating rules and conventions, served every session, not capped like the registry.
+3. Cube documents (\`borg_put-document\` / \`borg_get-document\`): large or detailed material — contracts, designs, evidence — cited by id, never inlined.
+4. Repository \`AGENTS.md\`: rules specific to one repository, read only by seats working there.
+Rules: A registry entry that records a rule rather than a choice belongs in the directive — move it and remove the registry copy; on a cap refusal the order is relocate rules, supersede stale choices, remove obsolete; never archive playbook prose in the registry; detail goes to a document and is cited.`;
+
 const SOFTWARE_DEV_DIRECTIVE = `## Scope and coordination
 
 - The human-authorized outcome, repositories, acceptance criteria, and permitted mutations are the hard boundary.
@@ -309,7 +318,7 @@ Communication:
 - Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT with \`to: "broadcast"\` only for an intentional cube-wide human-seat message. After an authorized merge, post MERGED with the exact merge SHA and \`to: "broadcast"\`.
 - Keep the primary playbook operational and concise. Delete obsolete, redundant, historical, cautionary, and example-heavy prose; do not relocate it into new runbooks, decisions, contracts, rationale, or case-study archives unless it has a current operational consumer.
 
-Builders implement; reviewers review; you coordinate. Integrate only when authorized.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${GIT_OPERATIONAL_DISCIPLINE_COORDINATOR}${PUSH_DISCIPLINE_COORDINATOR}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}`;
+Builders implement; reviewers review; you coordinate. Integrate only when authorized.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${GIT_OPERATIONAL_DISCIPLINE_COORDINATOR}${PUSH_DISCIPLINE_COORDINATOR}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}`;
 
 // Producer minimalism adapts principles from https://github.com/DietrichGebert/ponytail
 // (MIT); this wording is original to Borg MCP.
@@ -564,7 +573,7 @@ const STARTER: Template = {
 - Send START NOW, RESUME NOW, REVIEW NOW, and HOLD with \`to:\` to the named Worker or Reviewer.
 - Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT with \`to: "broadcast"\` only for an intentional cube-wide human-seat message.
 - Ask the human before rescoping, abandoning, waiving, merging, shipping, publishing, or taking an irreversible action unless already delegated.
-- Waiting is valid when work is complete, blocked, under review, or awaiting authority.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${ANTI_PASSIVE_STANDING_DISCIPLINE}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}`,
+- Waiting is valid when work is complete, blocked, under review, or awaiting authority.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${ANTI_PASSIVE_STANDING_DISCIPLINE}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}`,
     },
     {
       name: 'Worker',
@@ -689,7 +698,7 @@ Continuity:
 - DISPATCH, HOLD, and DECISION are not completion when they leave an authorized follow-on action.
 - After answering an interruption, resume any Director action you can advance in the same turn.
 - Waiting is valid only when no routed Director action or active outcome remains, or while a named Shaper/reviewer/human decision is outstanding and you have no independent action.
-- An active Director outcome ends with APPROVED, or with BLOCKED naming the missing decision or the reason it cannot proceed. After DECISION, continue with any dispatch or verification that decision enables.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}`;
+- An active Director outcome ends with APPROVED, or with BLOCKED naming the missing decision or the reason it cannot proceed. After DECISION, continue with any dispatch or verification that decision enables.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}`;
 
 // Producer minimalism adapts principles from https://github.com/DietrichGebert/ponytail
 // (MIT); this wording is original to Borg MCP.

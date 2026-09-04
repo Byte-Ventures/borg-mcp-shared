@@ -558,7 +558,17 @@ export function decodeDecision(value: unknown): Decision {
       'supersedes',
       'created_at',
     ],
-    ['id', 'cube_id', 'topic', 'decision', 'rationale', 'status', 'supersedes', 'created_at'],
+    [
+      'id',
+      'cube_id',
+      'topic',
+      'decision',
+      'rationale',
+      'ratified_by',
+      'status',
+      'supersedes',
+      'created_at',
+    ],
   );
   if (!['active', 'superseded', 'removed'].includes(String(input.status))) {
     throw new ProtocolContractError('Invalid decision status.');
@@ -570,11 +580,9 @@ export function decodeDecision(value: unknown): Decision {
     // Existing registry entries may exceed the write limit; only new writes are capped.
     decision: boundedString(input.decision, 'decision', Number.MAX_SAFE_INTEGER),
     rationale: nullableString(input.rationale, 'rationale', Number.MAX_SAFE_INTEGER),
-    ratified_by: input.ratified_by === undefined
-      ? undefined
-      : input.ratified_by === null
-        ? null
-        : decodeUuid(input.ratified_by, ['ratified_by']),
+    ratified_by: input.ratified_by === null
+      ? null
+      : decodeUuid(input.ratified_by, ['ratified_by']),
     status: input.status as 'active' | 'superseded' | 'removed',
     supersedes: input.supersedes === null ? null : decodeUuid(input.supersedes, ['supersedes']),
     created_at: decodeCanonicalTimestamp(input.created_at, ['created_at']),
