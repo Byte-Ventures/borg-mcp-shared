@@ -1444,6 +1444,26 @@ describe('coordination request codecs', () => {
     ).toMatchObject({ decision, rationale: decision });
   });
 
+  it('requires the complete server decision record shape', () => {
+    const decision = {
+      id: '00000000-0000-4000-8000-000000000001',
+      cube_id: '10000000-0000-4000-8000-000000000001',
+      topic: 'runtime',
+      decision: 'Use Node 22.',
+      rationale: null,
+      ratified_by: null,
+      status: 'active',
+      supersedes: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+    } as const;
+
+    expect(decodeDecision(decision)).toEqual(decision);
+    const { status: _status, ...withoutStatus } = decision;
+    const { ratified_by: _ratifiedBy, ...withoutRatifier } = decision;
+    expect(() => decodeDecision(withoutStatus)).toThrow(ProtocolContractError);
+    expect(() => decodeDecision(withoutRatifier)).toThrow(ProtocolContractError);
+  });
+
   it('requires positive read limits and a cursor matching the final ordered entry', () => {
     expect(() => decodeReadLogRequest({ cursor: null, limit: 0 })).toThrow(
       ProtocolContractError,
