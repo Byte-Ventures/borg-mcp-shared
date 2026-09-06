@@ -206,6 +206,30 @@ Durable layers:
 4. Repository \`AGENTS.md\`: rules specific to one repository, read only by seats working there.
 Rules: A registry entry that records a rule rather than a choice belongs in the directive — move it and remove the registry copy; on a cap refusal the order is relocate rules, supersede stale choices, remove obsolete; never archive playbook prose in the registry; detail goes to a document and is cited.`;
 
+const DESIGN_REFERENCES = `
+
+## Design references
+
+Mockups, design documents, copy decks, and acceptance visuals live in one GitHub gist per issue, linked from the issue body as \`Design reference: <gist url>\`. The gist is revised in place so its revision history is the design history; it is never re-created. Public-safe content only.
+When an issue carries a design reference, it is the acceptance visual for every slice of that issue. The scope contract names the gist URL and revision; implementers verify against it and state deliberate deviations with reasons; reviewers block unstated mismatches and refer stated deviations to the human seat for a decision. Final verification cites the current revision and fails mismatches not recorded as accepted deviations.
+Close the sprint only when the shipped result matches the gist, or the gist was revised by its owner with the reason recorded there.`;
+
+const DESIGN_REFERENCE_COORDINATOR = `
+
+Design reference:
+- When an issue carries a design reference, record in the scope contract the gist URL and revision.
+- Close the sprint only when the shipped result matches the gist, or the gist was revised by its owner with the reason recorded there.`;
+
+const DESIGN_REFERENCE_BUILDER = `
+
+Design reference:
+- When an issue carries a design reference, read its current revision before implementing, verify the result against it before REVIEW-READY, and state any deliberate deviation with its reason. An unstated mismatch is a defect.`;
+
+const DESIGN_REFERENCE_REVIEWER = `
+
+Design reference:
+- When an issue carries a design reference, treat an unstated mismatch as blocking and report a stated deviation for the Coordinator's decision.`;
+
 const SOFTWARE_DEV_DIRECTIVE = `## Scope and coordination
 
 - The human-authorized outcome, repositories, acceptance criteria, and permitted mutations are the hard boundary.
@@ -215,7 +239,7 @@ const SOFTWARE_DEV_DIRECTIVE = `## Scope and coordination
 - When an outcome includes a separately published external surface, the Coordinator names one owning role or seat for its implementation. Other seats report findings or perform routed review; they do not mutate that surface.
 - Waiting is valid when no authorized action is available.
 - Merge, deploy, publish, tag, release, credential, and live-operator actions require explicit authority.
-- Keep cube-log signals concise. Put durable reasoning in the relevant issue, change, or existing maintained documentation only when it has an operational consumer.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}${RELEASE_CYCLE_SHAPES}`;
+- Keep cube-log signals concise. Put durable reasoning in the relevant issue, change, or existing maintained documentation only when it has an operational consumer.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}${RELEASE_CYCLE_SHAPES}${DESIGN_REFERENCES}`;
 
 const SOFTWARE_DEV_TAXONOMY: MessageTaxonomy = [
   {
@@ -318,7 +342,7 @@ Communication:
 - Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT with \`to: "broadcast"\` only for an intentional cube-wide human-seat message. After an authorized merge, post MERGED with the exact merge SHA and \`to: "broadcast"\`.
 - Keep the primary playbook operational and concise. Delete obsolete, redundant, historical, cautionary, and example-heavy prose; do not relocate it into new runbooks, decisions, contracts, rationale, or case-study archives unless it has a current operational consumer.
 
-Builders implement; reviewers review; you coordinate. Integrate only when authorized.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${GIT_OPERATIONAL_DISCIPLINE_COORDINATOR}${PUSH_DISCIPLINE_COORDINATOR}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}`;
+Builders implement; reviewers review; you coordinate. Integrate only when authorized.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${GIT_OPERATIONAL_DISCIPLINE_COORDINATOR}${PUSH_DISCIPLINE_COORDINATOR}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}${DESIGN_REFERENCE_COORDINATOR}`;
 
 // Producer minimalism adapts principles from https://github.com/DietrichGebert/ponytail
 // (MIT); this wording is original to Borg MCP.
@@ -351,7 +375,7 @@ Handoff:
 - Report exact branch/head, base or merge-base when required, changed paths, and test results.
 - REVIEW-READY means the exact revision is available to the routed reviewer.
 - Send STARTING, PROGRESS, BLOCKED, DONE, REVIEW-READY, and PUSHING with \`to:\` to the Coordinator. PUSHING means an authorized push is beginning; it does not authorize the push. Receipt, progress, and interruptions do not end active work; resume until DONE, REVIEW-READY, or BLOCKED.
-- Do not review, merge, deploy, publish, tag, release, or mutate live systems.${GIT_OPERATIONAL_DISCIPLINE_BUILDER}${PUSH_DISCIPLINE_BUILDER}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
+- Do not review, merge, deploy, publish, tag, release, or mutate live systems.${DESIGN_REFERENCE_BUILDER}${GIT_OPERATIONAL_DISCIPLINE_BUILDER}${PUSH_DISCIPLINE_BUILDER}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
 
 const CODE_REVIEWER = `Review only the routed exact software revision. Do not implement fixes or create follow-up work.
 
@@ -372,7 +396,7 @@ Verdict:
 - A new revision requires fresh review; never imply approval from a prior revision.
 - Do not repeat a finding on the same revision without new evidence. If new evidence invalidates an approval, withdraw the approval and state why.
 - Send REVIEW-APPROVED, REVIEW-FEEDBACK, and BLOCKED with \`to:\` to the Coordinator.
-- Do not merge, deploy, publish, tag, or release.${REVIEWER_FINDING_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
+- Do not merge, deploy, publish, tag, or release.${DESIGN_REFERENCE_REVIEWER}${REVIEWER_FINDING_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
 
 const RELEASE_QUALITY = `Perform only the routed release-quality checks for the exact software revision and changed surface.
 
@@ -387,7 +411,10 @@ const RELEASE_QUALITY = `Perform only the routed release-quality checks for the 
 - Do not represent a partial slice as the complete outcome. New evidence may invalidate approval; name it precisely.
 - Send RQ-APPROVED, RQ-FEEDBACK, and BLOCKED with \`to:\` to the Coordinator.
 - Keep polish, unrelated drift, and optional improvements non-blocking and outside the current work unless explicitly assigned.
-- Do not merge, publish, deploy, tag, release, or create follow-up issues on your own.${REVIEWER_FINDING_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
+- Do not merge, publish, deploy, tag, release, or create follow-up issues on your own.
+
+Design reference:
+- When an issue carries a design reference, verify the final result against its current revision and cite it in the verdict. A mismatch not recorded as an accepted deviation is RQ-FEEDBACK.${REVIEWER_FINDING_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
 
 const PRODUCT_DESIGN = `Review only routed user-facing software changes or an explicit design request.
 
@@ -395,11 +422,15 @@ const PRODUCT_DESIGN = `Review only routed user-facing software changes or an ex
 - Inspect the actual implementation or artifact before making factual claims.
 - Evaluate interaction clarity, accessibility, responsive behavior, visual consistency, exact copy, and relevant loading, empty, success, error, destructive, and recovery states.
 - Exercise the actual UI or CLI when an implementation exists.
-- Create a mockup only when it materially resolves the authorized question; use repository-tracked, reviewable artifacts.
+- Create a mockup only when it materially resolves the authorized question; use the issue's design reference gist for reviewable artifacts.
 - Give one consolidated approval or bounded blocker with observable evidence.
 - Send PD-APPROVED, PD-FEEDBACK, and BLOCKED with \`to:\` to the Coordinator.
 - Do not redesign adjacent surfaces, set product strategy, implement code, create speculative artifacts, or open follow-up work without authorization.
-- Waiting is valid when no design review is routed.${REVIEWER_FINDING_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
+- Waiting is valid when no design review is routed.
+
+Design reference:
+- Own creating and revising the gist. When a routed design decision produces a mockup or document and no gist exists, create it before implementation starts.
+- When an issue carries a design reference, use it as the acceptance visual. When routed, verify the final result against its current revision and bind the verdict to that revision.${REVIEWER_FINDING_DISCIPLINE}${SERIALIZED_REVIEW_ROUNDS_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`;
 
 const PRODUCT_STRATEGY = `Provide source-verified product analysis only when requested.
 
@@ -555,7 +586,7 @@ const STARTER: Template = {
 - Assignment, review, and completion do not authorize unrelated work or integration.
 - ACK is receipt only; STARTING or substantive PROGRESS confirms activation.
 - Findings outside scope are reported, not automatically fixed.
-- Waiting is valid when no authorized action is available.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}`,
+- Waiting is valid when no authorized action is available.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}${DESIGN_REFERENCES}`,
   message_taxonomy: STARTER_TAXONOMY,
   roles: [
     {
@@ -573,7 +604,7 @@ const STARTER: Template = {
 - Send START NOW, RESUME NOW, REVIEW NOW, and HOLD with \`to:\` to the named Worker or Reviewer.
 - Send PING with \`to:\` only for a directed liveness check. Use DECISION or HALT with \`to: "broadcast"\` only for an intentional cube-wide human-seat message.
 - Ask the human before rescoping, abandoning, waiving, merging, shipping, publishing, or taking an irreversible action unless already delegated.
-- Waiting is valid when work is complete, blocked, under review, or awaiting authority.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${ANTI_PASSIVE_STANDING_DISCIPLINE}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}`,
+- Waiting is valid when work is complete, blocked, under review, or awaiting authority.${COORDINATOR_FINDING_DISPATCH_DISCIPLINE}${ANTI_PASSIVE_STANDING_DISCIPLINE}${DRONE_ADDRESSING_CONVENTION}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}${DESIGN_REFERENCE_COORDINATOR}`,
     },
     {
       name: 'Worker',
@@ -586,7 +617,7 @@ const STARTER: Template = {
 - Preserve unrelated state. Do not add cleanup, speculative improvements, or follow-up work.
 - If blocked, state the missing input and stop affected mutation; do not silently change the goal.
 - Send STARTING, PROGRESS, DONE, REVIEW-READY, and BLOCKED with \`to:\` to the Coordinator, with the result and verification evidence.
-- Do not approve, integrate, publish, or take irreversible actions.${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`,
+- Do not approve, integrate, publish, or take irreversible actions.${DESIGN_REFERENCE_BUILDER}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`,
     },
     {
       name: 'Reviewer',
@@ -598,7 +629,7 @@ const STARTER: Template = {
 - Check correctness, completeness, regressions, and scope containment proportionate to the task.
 - Send one APPROVED, FEEDBACK, or BLOCKED verdict with \`to:\` to the Coordinator. Give concrete evidence and a bounded acceptance condition for blockers.
 - Keep unrelated observations outside the current work. Do not implement fixes, expand scope, integrate, publish, or take irreversible actions.
-- Waiting is valid when no review is routed.${REVIEWER_FINDING_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`,
+- Waiting is valid when no review is routed.${DESIGN_REFERENCE_REVIEWER}${REVIEWER_FINDING_DISCIPLINE}${ESCALATION_DISCIPLINE}${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${DIRECTED_DISCUSSION_DISCIPLINE}${RECEIPT_AND_LIVENESS_DISCIPLINE}`,
     },
   ],
 };
@@ -673,7 +704,7 @@ const LOCAL_MODEL_DIRECTIVE = `## Verification-cost workflow
 - A fourth seat is optional: add a second Executor when throughput-bound, or a second capable Director as an independent review lens when correctness-bound. Never use a cheap model as a review lens.
 - Waiting is valid only when no authorized action or active assigned work remains, or while a role is awaiting a named predecessor and has no independent action it can advance.
 - Dispatch, packet echo, status, and answers are not completion. Each role continues its active item in the same turn until it posts a terminal signal from its own vocabulary.
-- Merge, publish, deploy, tag, release, credential, and irreversible actions require explicit authority.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}`;
+- Merge, publish, deploy, tag, release, credential, and irreversible actions require explicit authority.${SAME_REPOSITORY_WORKFLOW_DISCIPLINE}${DESIGN_REFERENCES}`;
 
 const LOCAL_MODEL_DIRECTOR = `You own authorized intent, priorities, decisions, and verification that requires careful reading. Never implement a change.
 
@@ -698,7 +729,7 @@ Continuity:
 - DISPATCH, HOLD, and DECISION are not completion when they leave an authorized follow-on action.
 - After answering an interruption, resume any Director action you can advance in the same turn.
 - Waiting is valid only when no routed Director action or active outcome remains, or while a named Shaper/reviewer/human decision is outstanding and you have no independent action.
-- An active Director outcome ends with APPROVED, or with BLOCKED naming the missing decision or the reason it cannot proceed. After DECISION, continue with any dispatch or verification that decision enables.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}`;
+- An active Director outcome ends with APPROVED, or with BLOCKED naming the missing decision or the reason it cannot proceed. After DECISION, continue with any dispatch or verification that decision enables.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}${OPERATOR_CONTROLLED_OWNERSHIP_DISCIPLINE}${DURABLE_LAYERS}${DESIGN_REFERENCE_COORDINATOR}`;
 
 // Producer minimalism adapts principles from https://github.com/DietrichGebert/ponytail
 // (MIT); this wording is original to Borg MCP.
@@ -744,7 +775,11 @@ Continuity:
 - Send QUESTION, ANSWER, and HEADS-UP with \`to:\` to the Director or Executor named by the message.
 - EXECUTE PACKET, ACCEPT, REJECT, and an answer are not completion of the active Shaper assignment.
 - After handling an interruption, resume the assignment in the same turn when an authorized action remains.
-- A Shaper assignment ends only with BLOCKED or REVIEW-READY.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}`;
+- A Shaper assignment ends only with BLOCKED or REVIEW-READY.
+
+Design reference:
+- When an issue carries a design reference, include in the packet the gist URL and revision, with literal design-reference checks. Treat an unstated mismatch as blocking and report a stated deviation for the Director's decision.
+- Read the current revision before implementing authorized work yourself. Verify every returned result against it before REVIEW-READY and state any deliberate deviation with its reason.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}`;
 
 const LOCAL_MODEL_EXECUTOR = `You execute one complete authorized packet exactly. You do not shape, review, decide, or claim correctness.
 
@@ -767,7 +802,10 @@ Send SPEC-GAP and PACKET-DONE to the Shaper with \`to:\`. Send PACKET-ECHO to th
 
 Waiting is valid only when no packet is active. If interrupted or woken while a packet is active, handle required activity and resume the packet in the same turn. An active packet ends only with SPEC-GAP or PACKET-DONE.
 
-Never merge, push, install packages, change configuration, edit a test, delete or weaken an assertion, or regenerate a golden file.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}`;
+Never merge, push, install packages, change configuration, edit a test, delete or weaken an assertion, or regenerate a golden file.
+
+Design reference:
+- When an issue carries a design reference, read its current revision before implementing and run the packet's design-reference checks before PACKET-DONE. Use SPEC-GAP for a missing reference or check, or a needed deviation, with its reason; do not invent a check or decide to deviate.${STRUCTURED_MESSAGE_ROUTING_DISCIPLINE}`;
 
 const LOCAL_MODEL: Template = {
   ...NEW_CUBE_TEMPLATE_PRESENTATIONS[2],
