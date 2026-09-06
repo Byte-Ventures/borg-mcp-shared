@@ -85,6 +85,57 @@ function hasDurableLayerSemantics(description: string): boolean {
     /detail.*document.*cited/iu.test(section.body);
 }
 
+const DESIGN_REFERENCE_ROLES: Record<string, string[]> = {
+  'software-dev': ['Coordinator', 'Builder', 'Code Reviewer', 'Release Quality', 'Product Design'],
+  starter: ['Coordinator', 'Worker', 'Reviewer'],
+  'local-model': ['Director', 'Shaper', 'Executor'],
+};
+
+function hasDesignReferenceSemantics(template: Template, roleNames: string[]): boolean {
+  const directive = template.cube_directive?.match(/^## Design references\n([\s\S]*?)(?=^## |$(?![\s\S]))/mu)?.[1] ?? '';
+  const closesOnMatch = /close.*only.*shipped result matches the gist.*or.*gist.*revised by its owner.*reason recorded there/iu;
+  if (!/one GitHub gist per issue/iu.test(directive) ||
+      !/issue body as `Design reference: <gist url>`/u.test(directive) ||
+      !/revised in place.*revision history.*design history.*never re-created/iu.test(directive) ||
+      !/public-safe/iu.test(directive) ||
+      !/when.*design reference.*acceptance visual for every slice/iu.test(directive) ||
+      !closesOnMatch.test(directive)) return false;
+
+  return roleNames.every((roleName) => {
+    const role = template.roles.find(({ name }) => name === roleName);
+    const body = parseRoleSections(role?.detailed_description ?? '')
+      .find(({ heading }) => heading === 'Design reference')?.body ?? '';
+    if (!/when.*issue.*design reference/iu.test(body)) return false;
+    const implementsDesign = /read.*current revision before implementing/iu.test(body) &&
+      /verify.*result.*before REVIEW-READY/iu.test(body) &&
+      /state.*deliberate deviation.*reason/iu.test(body);
+    const reviewsDesign = /unstated mismatch.*blocking/iu.test(body) &&
+      /stated deviation.*(?:Coordinator|Director).*decision/iu.test(body);
+    switch (roleName) {
+      case 'Coordinator':
+      case 'Director':
+        return /scope contract.*gist URL and revision/iu.test(body) && closesOnMatch.test(body);
+      case 'Builder':
+      case 'Worker': return implementsDesign;
+      case 'Code Reviewer':
+      case 'Reviewer': return reviewsDesign;
+      case 'Release Quality':
+        return /verify.*final result.*current revision.*cite/iu.test(body) &&
+          /mismatch not recorded as an accepted deviation.*RQ-FEEDBACK/iu.test(body);
+      case 'Product Design':
+        return /own.*creating and revising.*gist/iu.test(body) &&
+          /before implementation starts/iu.test(body) &&
+          /when routed.*verify.*final.*current revision.*bind.*verdict.*revision/iu.test(body);
+      case 'Shaper': return implementsDesign && reviewsDesign && /packet.*gist URL and revision/iu.test(body);
+      case 'Executor':
+        return /read.*current revision before implementing/iu.test(body) &&
+          /run.*packet.*design-reference checks before PACKET-DONE/iu.test(body) &&
+          /SPEC-GAP.*missing.*check.*deviation.*reason/iu.test(body);
+      default: return false;
+    }
+  });
+}
+
 describe('cube templates', () => {
   it('registers the built-in templates', () => {
     expect(listTemplateNames()).toEqual(['software-dev', 'starter', 'local-model']);
@@ -124,6 +175,43 @@ describe('cube templates', () => {
     expect(mutated).not.toBe(coordinator.detailed_description);
     expect(hasDurableLayerSemantics(mutated)).toBe(false);
   });
+
+  it.each(Object.entries(DESIGN_REFERENCE_ROLES))(
+    'teaches design-reference semantics in %s', (name, roles) => {
+      const template = TEMPLATES[name];
+      expect(hasDesignReferenceSemantics(template, roles)).toBe(true);
+      for (const roleName of roles) {
+        const mutated = {
+          ...template,
+          roles: template.roles.map((role) => role.name !== roleName ? role : {
+            ...role,
+            detailed_description: parseRoleSections(role.detailed_description)
+              .filter(({ heading }) => heading !== 'Design reference')
+              .map(({ body }) => body).join(''),
+          }),
+        };
+        expect(hasDesignReferenceSemantics(mutated, roles), roleName).toBe(false);
+      }
+      for (const [before, after] of [
+        ['Design reference: <gist url>', 'See the design'],
+        ['revised in place', 're-created elsewhere'],
+      ]) {
+        expect(hasDesignReferenceSemantics({
+          ...template, cube_directive: template.cube_directive!.replace(before, after),
+        }, roles)).toBe(false);
+      }
+      const withoutClose = (value: string) => value.replace(/^.*close.*only.*shipped result.*$/gimu, '');
+      expect(hasDesignReferenceSemantics({
+        ...template, cube_directive: withoutClose(template.cube_directive!),
+      }, roles)).toBe(false);
+      expect(hasDesignReferenceSemantics({
+        ...template,
+        roles: template.roles.map((role) => ({
+          ...role, detailed_description: withoutClose(role.detailed_description),
+        })),
+      }, roles)).toBe(false);
+    },
+  );
 
   it('owns the exact host-neutral template presentation copy', () => {
     expect(NEW_CUBE_TEMPLATE_PRESENTATIONS).toEqual([
