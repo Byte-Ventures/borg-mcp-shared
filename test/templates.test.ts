@@ -71,9 +71,9 @@ function hasDurableLayerSemantics(description: string): boolean {
     /choices between alternatives.*cited by topic.*16,384 active bytes per cube/iu.test(
       decisionRegistry.purpose,
     ) &&
-    cubeDirective?.name === 'Cube directive (`borg_update-cube`)' &&
+    cubeDirective?.name === 'Cube directive (`borg_update_cube`)' &&
     /standing operating rules and conventions.*served every session/iu.test(cubeDirective.purpose) &&
-    cubeDocuments?.name === 'Cube documents (`borg_put-document` / `borg_get-document`)' &&
+    cubeDocuments?.name === 'Cube documents (`borg_put_document` / `borg_get_document`)' &&
     /large or detailed material.*cited by id/iu.test(cubeDocuments.purpose) &&
     repositoryRules?.name === 'Repository `AGENTS.md`' &&
     /rules specific to one repository.*seats working there/iu.test(repositoryRules.purpose) &&
@@ -469,7 +469,7 @@ describe('cube templates', () => {
     expect(coordinator.detailed_description).toContain('does not authorize');
     expect(coordinator.detailed_description).toContain('Never manufacture work');
     expect(coordinator.detailed_description).toContain(
-      'use `borg_ack-status` for the routed entry; it reports acknowledgements and claims without advancing unread cursors',
+      'use `borg_ack_status` for the routed entry; it reports acknowledgements and claims without advancing unread cursors',
     );
   });
 
