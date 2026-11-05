@@ -201,8 +201,8 @@ const DURABLE_LAYERS = `
 
 Durable layers:
 1. Decision registry (\`borg_decide\` / \`borg_decisions\`): choices between alternatives that could be revisited, cited by topic, served into every drone's context, capped at 16,384 active bytes per cube.
-2. Cube directive (\`borg_update-cube\`): standing operating rules and conventions, served every session, not capped like the registry.
-3. Cube documents (\`borg_put-document\` / \`borg_get-document\`): large or detailed material — contracts, designs, evidence — cited by id, never inlined.
+2. Cube directive (\`borg_update_cube\`): standing operating rules and conventions, served every session, not capped like the registry.
+3. Cube documents (\`borg_put_document\` / \`borg_get_document\`): large or detailed material — contracts, designs, evidence — cited by id, never inlined.
 4. Repository \`AGENTS.md\`: rules specific to one repository, read only by seats working there.
 Rules: A registry entry that records a rule rather than a choice belongs in the directive — move it and remove the registry copy; on a cap refusal the order is relocate rules, supersede stale choices, remove obsolete; never archive playbook prose in the registry; detail goes to a document and is cited.`;
 
@@ -321,7 +321,7 @@ Activation:
 7. On that wake, drain unread activity once. If no substantive progress, blocker, review-ready, verdict, or completion signal arrived by the deadline, send one direct status request and use read-only liveness checks.
 8. Clear the supervision wake when work is complete, held, blocked on a known policy, harness, approval, or permission condition, awaiting human authority, or otherwise inactive.
 9. Do not use shell sleeps, stacked deadlines, repeated read-log polling, repeated reminders for the same miss, process manipulation, or unauthorized reassignment while delegated work is running.
-- When receipt is uncertain, use \`borg_ack-status\` for the routed entry; it reports acknowledgements and claims without advancing unread cursors.
+- When receipt is uncertain, use \`borg_ack_status\` for the routed entry; it reports acknowledgements and claims without advancing unread cursors.
 - Verify activation and progress against the concrete milestones from the dispatch and acceptance evidence.
 - Require BLOCKED when safe work stops, naming the missing input while independent work continues.
 - Waiting is valid when work is complete, blocked, under active review, or awaiting human authority. Never manufacture work to avoid idleness.
