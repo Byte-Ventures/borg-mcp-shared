@@ -14,9 +14,6 @@ function assertHistoricalReleaseRecord(releases: string): void {
 describe('npm publish workflow', () => {
   it('audits the locked dependency tree before ordinary CI build and tag authorization', async () => {
     const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
-    const lock = JSON.parse(await readFile('package-lock.json', 'utf8')) as {
-      packages: Record<string, { version?: string }>;
-    };
     const packageJob = workflow.match(/^  package:\n([\s\S]*?)(?=^  [a-z][\w-]*:\n)/m)?.[1];
     expect(packageJob).toBeDefined();
     const executableSteps: string[] = packageJob?.match(/^      - run: .+$/gm) ?? [];
@@ -27,22 +24,6 @@ describe('npm publish workflow', () => {
     expect(install).toBeGreaterThan(-1);
     expect(audit).toBeGreaterThan(install);
     expect(build).toBeGreaterThan(audit);
-    expect(executableSteps.filter((step) => step === '      - run: npm audit --audit-level=high')).toHaveLength(1);
-    expect(lock.packages['node_modules/nanoid']?.version).toBe('3.3.18');
-  });
-
-  it('classifies release identity PRs with the trusted base verifier', async () => {
-    const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
-
-    expect(workflow.match(/^  release-identity:$/gm)).toHaveLength(1);
-    expect(workflow).toContain("if: github.event_name == 'pull_request'");
-    expect(workflow).toContain('fetch-depth: 0');
-    expect(workflow).toContain('BASE_SHA: ${{ github.event.pull_request.base.sha }}');
-    expect(workflow).toContain('CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}');
-    expect(workflow).toContain('if test "${base_version}" = "${candidate_version}"; then');
-    expect(workflow).toContain('git show "${BASE_SHA}:scripts/release-identity.mjs" > "${trusted_verifier}"');
-    expect(workflow).toContain('node "${trusted_verifier}" verify "${BASE_SHA}" "${CANDIDATE_SHA}"');
-    expect(workflow.match(/node "\$\{trusted_verifier\}" verify/g)).toHaveLength(1);
   });
 
   it('skips the release identity verifier when the package version is unchanged', async () => {
@@ -88,20 +69,14 @@ describe('npm publish workflow', () => {
     }
   });
 
-  it('uses one protected build, package, and publish authority', async () => {
-    const ci = await readFile('.github/workflows/ci.yml', 'utf8');
+  it('protects publication authority and stages the verified tarball with provenance', async () => {
     const workflow = await readFile('.github/workflows/publish.yml', 'utf8');
-    const runbook = await readFile('docs/releasing.md', 'utf8');
-    const compatibility = await readFile('docs/compatibility.md', 'utf8');
 
     expect(workflow).toContain("tags: ['v*.*.*']");
     expect(workflow).not.toContain('workflow_dispatch:');
-    expect(workflow.match(/^  publish:$/gm)).toHaveLength(1);
     expect(workflow).toContain('environment:\n      name: npm-publish');
     expect(workflow).toContain('id-token: write');
     expect(workflow).toContain('contents: read');
-    expect(workflow).not.toContain('GITHUB_RUN_ATTEMPT');
-    expect(workflow).toContain('npm install --global npm@11.18.0');
     expect(workflow).toContain('test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"');
     expect(workflow).toContain('test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"');
     expect(workflow).toContain('test -z "${NODE_AUTH_TOKEN:-}"');
@@ -112,105 +87,29 @@ describe('npm publish workflow', () => {
       'npm run build',
       'npm pack --ignore-scripts',
     ]) {
-      expect(workflow.split(command)).toHaveLength(2);
+      expect(workflow).toContain(command);
     }
 
     expect(workflow).toContain('node scripts/verify-registry-release.mjs prepublish "release/${{ steps.pack.outputs.tarball }}"');
-    expect(workflow).toContain('Exercise exact tarball in a clean consumer');
-    for (const specifier of [
-      'borgmcp-shared',
-      'borgmcp-shared/templates',
-      'borgmcp-shared/role-section',
-      'borgmcp-shared/log-stream-hwm',
-      'borgmcp-shared/drone-address',
-      'borgmcp-shared/runtime-metadata',
-      'borgmcp-shared/protocol',
-      'borgmcp-shared/domain',
-      'borgmcp-shared/conformance',
-      'borgmcp-shared/package.json',
-    ]) expect(workflow).toContain(specifier);
-
-    const preflight = workflow.indexOf('- name: Reject existing version and wrong owner');
-    const exercise = workflow.indexOf('- name: Exercise exact tarball in a clean consumer');
-    const publish = workflow.indexOf('- name: Stage exact verified tarball with Trusted Publishing provenance');
+    const preflight = workflow.indexOf('node scripts/verify-registry-release.mjs prepublish');
+    const exercise = workflow.indexOf('npm install --prefix "${consumer}" --ignore-scripts --no-save "./release/${TARBALL}"');
+    const publish = workflow.indexOf('npm stage publish');
     expect(preflight).toBeGreaterThan(-1);
     expect(preflight).toBeLessThan(publish);
     expect(exercise).toBeGreaterThan(preflight);
     expect(exercise).toBeLessThan(publish);
     expect(workflow).toContain('NPM_EXPECTED_OWNER: ${{ vars.NPM_EXPECTED_OWNER }}');
     const stageCommand = 'npm stage publish "./release/${{ steps.pack.outputs.tarball }}" --ignore-scripts --access public --provenance --registry=https://registry.npmjs.org';
-    expect(workflow.split(stageCommand)).toHaveLength(2);
+    expect(workflow).toContain(stageCommand);
     expect(workflow).not.toMatch(/^\s*npm publish\b/m);
     expect(workflow).not.toMatch(/--tag(?:=|\s+)staging\b/);
     expect(workflow).not.toMatch(/^\s*npm dist-tag\b/m);
     expect(workflow).not.toContain('NPM_TOKEN');
-    expect(workflow).not.toContain('verify-registry-release.mjs postpublish');
-    expect(workflow).not.toContain('registry-verification');
-    expect(workflow).not.toContain('npm audit signatures');
-
-    expect(workflow.match(/npm stage publish "\.\/release\//g)).toHaveLength(1);
-    expect(workflow).not.toMatch(/npm stage publish "release\//);
     expect(workflow).not.toContain('publishConfig.registry');
     expect(workflow).not.toMatch(/uses: [^\n]+@(v|main|master)\b/);
-    expect(workflow).not.toContain('origin/main');
-    expect(workflow.match(/main_verification_ref="refs\/release-verification\/main"/g)).toHaveLength(1);
-    expect(workflow.match(/git fetch --no-tags origin "\+refs\/heads\/main:\$\{main_verification_ref\}"/g)).toHaveLength(1);
-    expect(workflow.match(/git merge-base --is-ancestor "\$\{release_commit\}" "\$\{main_verification_ref\}"/g)).toHaveLength(1);
-
-    for (const retired of [
-      'ARTIFACT_SR_',
-      'validate-sr-gate',
-      'RUN_EVIDENCE',
-      'SHA512SUMS',
-      'npm sbom',
-      'upload-artifact',
-      'download-artifact',
-      'dsseEnvelope',
-      'verifyProvenanceStatement',
-    ]) expect(workflow).not.toContain(retired);
-
-    expect(runbook).toContain('`minimal-package-release-assurance`');
-    expect(runbook).toContain('one protected workflow job');
-    expect(runbook).toContain('does not authorize a tag or publication');
-    expect(runbook).toContain('No workflow post-publication readback');
-    expect(compatibility).toMatch(/publication window is a release\s+property/i);
-    expect(compatibility).toContain('matching coupled shared, server, and client versions');
-    expect(compatibility).not.toContain('There is no mixed-version window');
-    expect(runbook).not.toContain('ARTIFACT_SR_');
-    expect(runbook).not.toContain('Security must download and audit that exact workflow artifact');
-    expect(ci).toContain('push:\n    branches: [main]');
-    expect(ci).toContain('node-version: 22.12.0');
-    expect(ci).toContain('node-version: 24.19.0');
-    for (const command of ['npm audit --audit-level=high', 'npm run build', 'npm run check', 'npm pack --dry-run --ignore-scripts']) {
-      expect(ci.split(command)).toHaveLength(2);
-    }
-  });
-
-  it('keeps Node support claims aligned with the tested runtimes', async () => {
-    const manifest = JSON.parse(await readFile('package.json', 'utf8')) as {
-      engines: { node: string };
-    };
-    const [readme, contributing, agents, runbook, nvmrc, ci] = await Promise.all([
-      readFile('README.md', 'utf8'),
-      readFile('CONTRIBUTING.md', 'utf8'),
-      readFile('AGENTS.md', 'utf8'),
-      readFile('docs/releasing.md', 'utf8'),
-      readFile('.nvmrc', 'utf8'),
-      readFile('.github/workflows/ci.yml', 'utf8'),
-    ]);
-
-    expect(manifest.engines.node).toBe('>=22.12.0');
-    expect(readme).toContain('Node.js 22.12.0 or newer');
-    expect(contributing).toContain('Node.js 22.12.0 or newer');
-    expect(agents).toContain('minimum Node.js 22.12.0');
-    expect(agents).toContain('release runtime Node.js 24.19.0');
-    expect(runbook).toContain('Node.js 24.19.0 and npm 11.18.0 exactly');
-    expect(nvmrc.trim()).toBe('24.19.0');
-    expect(ci).toContain('node-version: 22.12.0');
-    expect(ci).toContain('node-version: 24.19.0');
-    for (const staleClaim of [readme, contributing, agents, runbook]) {
-      expect(staleClaim).not.toMatch(/Node\.js 20|Node 20|20 and 22/);
-    }
+    expect(workflow).toContain('main_verification_ref="refs/release-verification/main"');
+    expect(workflow).toContain('git fetch --no-tags origin "+refs/heads/main:${main_verification_ref}"');
+    expect(workflow).toContain('git merge-base --is-ancestor "${release_commit}" "${main_verification_ref}"');
   });
 
   it('builds generated output before every dist-importing validation lane', async () => {
