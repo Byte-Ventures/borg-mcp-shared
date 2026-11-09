@@ -33,4 +33,6 @@ export enum ErrorCode {
    * Carried by the server's typed 401 takeover rejection.
    */
   SESSION_REJECTED = 'SESSION_REJECTED',
+  ATTACHMENT_RETIRED = 'ATTACHMENT_RETIRED',
+  ATTACHMENT_FINALIZED = 'ATTACHMENT_FINALIZED',
 }

@@ -14,6 +14,8 @@ import {
   encodeInvitationArtifact,
   decodeAttachRequestEnvelope,
   decodeAttachResponseEnvelope,
+  decodeReconcileAttachmentRequestEnvelope,
+  deriveAttachmentReceipt,
   decodeAssociateRepositoryCubeRequestEnvelope,
   decodeCreateCubeRequestEnvelope,
   decodeDeleteCubeRequestEnvelope,
@@ -55,6 +57,7 @@ import {
   type ResolvedRepositoryCube,
   type DroneRuntimeMetadata,
   type CubeDocument,
+  type AttachResponse,
 } from '../src/index.js';
 
 function same(left: unknown, right: unknown): boolean {
@@ -62,6 +65,20 @@ function same(left: unknown, right: unknown): boolean {
 }
 
 type Fault =
+  | 'attachment-attach-tuple-bypass'
+  | 'attachment-attach-revoked-bypass'
+  | 'attachment-attach-replacement-bypass'
+  | 'attachment-attach-refusal-mutation'
+  | 'attachment-duplicate-retry'
+  | 'attachment-recompute-cursor'
+  | 'attachment-mutate-on-reject'
+  | 'attachment-ignore-tombstone'
+  | 'attachment-retire-finalized'
+  | 'attachment-ignore-prior'
+  | 'attachment-global-tombstone'
+  | 'attachment-skip-terminal'
+  | 'attachment-foreign-retire'
+  | 'attachment-skip-grant'
   | 'fail-shared-enrollment'
   | 'allow-read-document-put'
   | 'allow-peer-document-remove'
@@ -288,6 +305,16 @@ class AsyncQueue implements AsyncIterable<string> {
 }
 
 class MemoryConformanceEnvironment implements ConformanceEnvironment {
+  private attachmentOperations = new Map<string, {
+    parentId: string;
+    receipt: string;
+    cubeId: string;
+    roleId: string;
+    priorDroneId?: string;
+    disposition: 'accepted' | 'finalized' | 'retired';
+    token?: string;
+    response?: AttachResponse;
+  }>();
   private readonly limits = {
     max_request_bytes: 65_536,
     max_log_message_bytes: 4096,
@@ -332,6 +359,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
 
   readonly admin = {
     reset: async (): Promise<void> => {
+      this.attachmentOperations.clear();
       for (const stream of this.streams) stream.queue.close();
       this.principals.clear();
       this.cubes.clear();
@@ -559,7 +587,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '14',
+                protocol_version: '15',
                 error: {
                   code: ErrorCode.AUTH_INVALID,
                   message: `retry_key=${envelope.payload.retry_key}`,
@@ -579,7 +607,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
             return {
               status: 401,
               body: {
-                protocol_version: '14',
+                protocol_version: '15',
                 error: { code: ErrorCode.AUTH_INVALID, message: `Bound value ${leakedOriginal}.` },
               },
             };
@@ -641,7 +669,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
           return {
             status: 403,
             body: {
-              protocol_version: '14',
+              protocol_version: '15',
               error: {
                 code: ErrorCode.ACCESS_DENIED,
                 message: `retry_key=${envelope.payload.retry_key}`,
@@ -1102,8 +1130,48 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (!cube || !role || !auth.principal.grants.has(cube.handle.id)) {
         return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
       }
-      let drone = envelope.payload.prior_drone_id
-        ? cube.drones.get(envelope.payload.prior_drone_id)
+      const receipt = await deriveAttachmentReceipt(envelope.payload.session_credential);
+      const key = `${auth.principal.handle.id}/${receipt}`;
+      const operation = this.attachmentOperations.get(key);
+      const globalRetirement = this.fault === 'attachment-global-tombstone' &&
+        [...this.attachmentOperations.values()].some((entry) => entry.receipt === receipt && entry.disposition === 'retired');
+      if ((operation?.disposition === 'retired' && this.fault !== 'attachment-ignore-tombstone') || globalRetirement) {
+        return this.error(409, ErrorCode.ATTACHMENT_RETIRED, envelope.request_id);
+      }
+      // The bearer binding is global; the operation tombstone remains parent-scoped.
+      const bound = [...this.attachmentOperations.values()].find((entry) => entry.receipt === receipt && entry.response);
+      // Admin-issued native sessions also bind their exact bearer, before any ordinary attach probe.
+      const boundDrone = bound ? this.cubes.get(bound.cubeId)!.drones.get(bound.response!.drone.id)! :
+        [...this.cubes.values()].flatMap((candidate) => [...candidate.drones.values()])
+          .find((candidate) => candidate.credential === envelope.payload.session_credential);
+      if (boundDrone) {
+        const tupleMismatch = (bound?.parentId ?? boundDrone.principalId) !== auth.principal.handle.id ||
+          (bound?.cubeId ?? boundDrone.cubeId) !== cube.handle.id ||
+          (bound?.roleId ?? boundDrone.roleId) !== role.handle.id ||
+          (envelope.payload.prior_drone_id !== undefined && envelope.payload.prior_drone_id !== boundDrone.handle.id);
+        if (tupleMismatch && this.fault !== 'attachment-attach-tuple-bypass') {
+          if (this.fault === 'attachment-attach-refusal-mutation' && bound) bound.response!.session.id = this.uuid();
+          return this.error(401, ErrorCode.SESSION_REJECTED, envelope.request_id);
+        }
+        if (boundDrone.evicted) return this.error(410, ErrorCode.DRONE_EVICTED, envelope.request_id);
+        if (boundDrone.sessionState === 'revoked' && this.fault !== 'attachment-attach-revoked-bypass') {
+          return this.error(401, ErrorCode.SESSION_REVOKED, envelope.request_id);
+        }
+        if (boundDrone.credential !== envelope.payload.session_credential && this.fault !== 'attachment-attach-replacement-bypass') {
+          return this.error(401, ErrorCode.SESSION_REJECTED, envelope.request_id);
+        }
+      } else if (envelope.payload.prior_drone_id !== undefined) {
+        const prior = cube.drones.get(envelope.payload.prior_drone_id);
+        if (prior?.principalId === auth.principal.handle.id && prior.roleId === role.handle.id) {
+          if (prior.evicted) return this.error(410, ErrorCode.DRONE_EVICTED, envelope.request_id);
+          if (prior.sessionState === 'revoked') return this.error(401, ErrorCode.SESSION_REVOKED, envelope.request_id);
+        }
+        return this.error(401, ErrorCode.SESSION_REJECTED, envelope.request_id);
+      }
+      const existingId = this.fault === 'attachment-duplicate-retry' && envelope.request_id === 'attachment-attach'
+        ? undefined : operation?.response?.drone.id ?? boundDrone?.handle.id ?? envelope.payload.prior_drone_id;
+      let drone = existingId
+        ? cube.drones.get(existingId)
         : undefined;
       const reused = drone !== undefined && drone.principalId === auth.principal.handle.id && !drone.evicted;
       if (drone && !reused) return this.error(404, ErrorCode.NOT_FOUND, envelope.request_id);
@@ -1141,24 +1209,91 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if (envelope.payload.runtime_metadata !== undefined) drone.metadataReported = true;
       drone.credential = envelope.payload.session_credential;
       drone.sessionState = 'active';
-      return {
-        status: 200,
-        body: createProtocolEnvelope(envelope.request_id, {
-          result: reused ? 'reused' : 'created',
-          cube: { id: cube.handle.id, name: 'conformance-cube' },
-          role: { id: role.handle.id, name: 'Builder', role_class: role.roleClass, is_human_seat: role.isHumanSeat },
-          drone: {
-            id: drone.handle.id,
-            label: drone.label,
-            runtime_metadata: drone.metadata,
-            runtime_metadata_reported: drone.metadataReported,
-          },
-          session: { id: this.uuid() },
-          initial_log_cursor: cube.entries.length === 0
-            ? null
-            : this.cursor(cube.entries[cube.entries.length - 1]),
-        }),
+      const response: AttachResponse = {
+        result: reused ? 'reused' : 'created',
+        cube: { id: cube.handle.id, name: 'conformance-cube' },
+        role: { id: role.handle.id, name: 'Builder', role_class: role.roleClass, is_human_seat: role.isHumanSeat },
+        drone: {
+          id: drone.handle.id,
+          label: drone.label,
+          runtime_metadata: drone.metadata,
+          runtime_metadata_reported: drone.metadataReported,
+        },
+        session: { id: operation?.response?.session.id ?? this.uuid() },
+        initial_log_cursor: operation?.response && !(this.fault === 'attachment-recompute-cursor' && envelope.request_id === 'attachment-attach')
+          ? operation.response.initial_log_cursor : cube.entries.length === 0
+          ? null
+          : this.cursor(cube.entries[cube.entries.length - 1]),
       };
+      this.attachmentOperations.set(key, {
+        parentId: auth.principal.handle.id, receipt, cubeId: cube.handle.id, roleId: role.handle.id,
+        priorDroneId: operation ? operation.priorDroneId : envelope.payload.prior_drone_id,
+        disposition: operation?.disposition === 'finalized' ? 'finalized' : 'accepted',
+        token: envelope.payload.session_credential, response,
+      });
+      return { status: 200, body: createProtocolEnvelope(envelope.request_id, response) };
+    },
+    reconcileAttachment: async (credential: string, request: unknown): Promise<ConformanceHttpResponse> => {
+      const auth = this.authenticate(credential);
+      if (auth.error) return auth.error;
+      if (auth.droneSession) return this.error(404, ErrorCode.NOT_FOUND);
+      let envelope;
+      try {
+        envelope = decodeReconcileAttachmentRequestEnvelope(request);
+      } catch (error) {
+        if (error instanceof ProtocolContractError) return this.error(
+          error.code === ErrorCode.UNSUPPORTED_PROTOCOL_VERSION ? 426 : 400, error.code,
+        );
+        throw error;
+      }
+      const payload = envelope.payload;
+      const cube = this.cubes.get(payload.cube_id);
+      const role = cube?.roles.get(payload.role_id);
+      if (!cube || !role || (!auth.principal.grants.has(cube.handle.id) && this.fault !== 'attachment-skip-grant')) {
+        return this.error(404, ErrorCode.NOT_FOUND);
+      }
+      const key = `${auth.principal.handle.id}/${payload.receipt}`;
+      let operation = this.attachmentOperations.get(key);
+      const foreign = [...this.attachmentOperations.values()].find((entry) =>
+        entry.receipt === payload.receipt && entry.parentId !== auth.principal.handle.id && entry.response);
+      if (!operation && foreign) {
+        if (this.fault !== 'attachment-foreign-retire') return this.error(404, ErrorCode.NOT_FOUND);
+        operation = foreign;
+      }
+      if (operation && (operation.cubeId !== payload.cube_id || operation.roleId !== payload.role_id ||
+          (operation.priorDroneId !== payload.prior_drone_id && this.fault !== 'attachment-ignore-prior'))) {
+        if (this.fault === 'attachment-mutate-on-reject') operation.disposition = 'retired';
+        return this.error(401, ErrorCode.SESSION_REJECTED);
+      }
+      const ok = (payload: unknown) => ({ status: 200, body: createProtocolEnvelope(envelope.request_id, payload) });
+      if (!operation) {
+        if (payload.action === 'inspect') return ok({ disposition: 'absent' });
+        if (payload.action === 'finalize') return this.error(404, ErrorCode.NOT_FOUND);
+        operation = { parentId: auth.principal.handle.id, receipt: payload.receipt, cubeId: cube.handle.id,
+          roleId: role.handle.id, priorDroneId: payload.prior_drone_id, disposition: 'retired' };
+        this.attachmentOperations.set(key, operation);
+      }
+      if (operation.disposition === 'retired') {
+        if (payload.action === 'finalize') return this.error(409, ErrorCode.ATTACHMENT_RETIRED);
+        return ok({ disposition: 'retired' });
+      }
+      const drone = cube.drones.get(operation.response!.drone.id)!;
+      if (this.fault !== 'attachment-skip-terminal') {
+        if (drone.evicted) return this.error(410, ErrorCode.DRONE_EVICTED);
+        if (drone.sessionState === 'revoked') return this.error(401, ErrorCode.SESSION_REVOKED);
+        if (drone.credential !== operation.token) return this.error(401, ErrorCode.SESSION_REJECTED);
+      }
+      if (payload.action === 'retire') {
+        if (operation.disposition === 'finalized' && this.fault !== 'attachment-retire-finalized') {
+          return this.error(409, ErrorCode.ATTACHMENT_FINALIZED);
+        }
+        operation.disposition = 'retired';
+        drone.evicted = true;
+        drone.sessionState = 'revoked';
+        return ok({ disposition: 'retired' });
+      }
+      if (payload.action === 'finalize') operation.disposition = 'finalized';
+      return ok({ disposition: operation.disposition, drone_id: drone.handle.id, session_id: operation.response!.session.id });
     },
     selfMetadataUpdate: async (
       credential: string,
@@ -1187,7 +1322,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
         if (this.fault === 'metadata-raw-echo') {
           return {
             status: 400,
-            body: { protocol_version: '14', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
+            body: { protocol_version: '15', error: { code: ErrorCode.INVALID_INPUT, message: JSON.stringify(request) } },
           };
         }
         if (error instanceof ProtocolContractError) return this.error(400, ErrorCode.INVALID_INPUT);
@@ -2142,7 +2277,7 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
     return {
       status,
       body: {
-        protocol_version: '14',
+        protocol_version: '15',
         ...(requestId ? { request_id: requestId } : {}),
         error: { code, message },
       },
@@ -2212,6 +2347,29 @@ describe('executable adapter conformance', () => {
       session_credential: 'U'.repeat(43),
     }));
     expect(replaced.status).toBe(200);
+  });
+
+  it.each([
+    ['attachment-attach-tuple-bypass', 'Ordinary changed tuple returned HTTP 200; expected 401.'],
+    ['attachment-attach-revoked-bypass', 'Ordinary revoked retry returned HTTP 200; expected 401.'],
+    ['attachment-attach-replacement-bypass', 'Ordinary superseded retry returned HTTP 200; expected 401.'],
+    ['attachment-attach-refusal-mutation', 'Denied operation mutated attachment.'],
+    ['attachment-duplicate-retry', 'Ordinary retry replaced its attachment/session/cursor.'],
+    ['attachment-recompute-cursor', 'Ordinary retry replaced its attachment/session/cursor.'],
+    ['attachment-mutate-on-reject', 'Denied operation mutated attachment.'],
+    ['attachment-ignore-tombstone', 'Late original attach returned HTTP 200; expected 409.'],
+    ['attachment-retire-finalized', 'Retiring finalized attachment returned HTTP 200; expected 409.'],
+    ['attachment-ignore-prior', 'Changed immutable tuple returned HTTP 200; expected 401.'],
+    ['attachment-global-tombstone', 'Ordinary attachment returned HTTP 409; expected 200.'],
+    ['attachment-skip-terminal', 'Externally revoked attachment inspect returned HTTP 200; expected 401.'],
+    ['attachment-foreign-retire', 'Foreign receipt returned HTTP 200; expected 404.'],
+    ['attachment-skip-grant', 'Revoked current grant returned HTTP 200; expected 404.'],
+  ] as const)('rejects executed attachment violation %s at its named assertion', async (fault, error) => {
+    const report = await runAdapterConformance(new MemoryConformanceEnvironment(fault), fastTimeouts);
+    expect(report.ok).toBe(false);
+    expect(report.results.filter((result) => !result.ok)).toEqual([
+      { id: 'attachment.reconciliation', ok: false, observations: {}, error },
+    ]);
   });
 
   it('rejects DELETE-only tombstone disclosure to a never-authorized caller', async () => {
@@ -2406,7 +2564,8 @@ describe('executable adapter conformance', () => {
     );
     expect(report.ok).toBe(false);
     expect(report.results.filter((result) => !result.ok && !result.skipped).map((result) => result.id))
-      .toEqual([fixture]);
+      .toEqual(fault === 'keep-evicted-drone-visible' ? [fixture, 'attachment.reconciliation'] :
+        fault === 'metadata-derived-role-mutation' ? [fixture, 'security.metadata-noninterference'] : [fixture]);
     expect(report.results.filter((result) => result.skipped).map((result) => result.id))
       .toEqual([]);
     expect(report.results.map((result) => result.id))

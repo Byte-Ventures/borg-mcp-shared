@@ -33,6 +33,77 @@ A wire-shape change must include:
 3. A package version bump so the new protocol tag never ships under a version
    whose already-published artifact carries a different tag.
 
+## Protocol 15 attachment reconciliation
+
+Protocol 15 adds `POST /api/client/attach/reconcile`, authenticated by the
+currently enrolled parent client, not a drone session. It does not change the
+attach request or response, introduce another attach retry key, or recover a
+lost session credential. Ordinary exact-bearer retries still reuse the same
+drone, session, and initial log cursor.
+
+`deriveAttachmentReceipt` computes lowercase hexadecimal SHA-256 over the
+concatenation of UTF-8 `borgmcp.attach-receipt.v1\0` (one terminating NUL byte)
+and the exact validated session credential text. It does not decode base64url,
+trim, normalize, or hash an existing credential digest. The receipt is an
+internal operation locator, never authentication, a printed handle, or a
+credential returned by recovery. `ATTACHMENT_RECEIPT_CONFORMANCE` supplies
+portable synthetic vectors.
+
+The exact reconciliation payload requires `receipt`, `cube_id`, `role_id`, and
+`action` (`inspect`, `finalize`, or `retire`), with optional `prior_drone_id`.
+Omission means the original attachment had no prior drone, not a wildcard;
+`null` is invalid. Parent identity comes from authentication. Runtime metadata
+is not part of the immutable ownership tuple.
+
+Every success is HTTP 200 inside the ordinary protocol envelope:
+
+| Disposition | Other payload fields | Allowed request actions |
+| --- | --- | --- |
+| `absent` | None | `inspect` |
+| `accepted` | `drone_id`, `session_id` | `inspect` |
+| `finalized` | `drone_id`, `session_id` | `inspect`, `finalize` |
+| `retired` | None | `inspect`, `retire` |
+
+All identity fields are UUIDs; unknown fields are rejected. Response decoders
+require the requested action and reject a mismatched success. Consumers must
+also compare returned identities with their exact locally bound generation.
+Neither receipts nor credential material appear in responses or diagnostics.
+
+An original attach atomically records `accepted`. Finalization acknowledges a
+**durably completed local bind**, not merely acceptance by the server.
+Retirement can fence an absent operation or retire an accepted operation, but
+cannot retire a finalized attachment. Cancellation tombstones are parent-scoped
+and durable: another parent cannot fence an original delayed attach, and a
+retired operation cannot be revived by a late attach or finalization. Retirement
+touches only the exact original current session and drone, never a replacement.
+Repeated finalization still rechecks current authorization and external terminal
+session state; only a completed retirement may confirm its own revocation.
+
+Current parent authentication and cube/role access are checked on every
+transition, including retries. Missing access or a foreign operation returns
+`404 NOT_FOUND`; an owned tuple mismatch or superseded session returns
+`401 SESSION_REJECTED`. Existing `401 SESSION_REVOKED` and
+`410 DRONE_EVICTED` remain distinct. Late attach/finalize after retirement returns
+`409 ATTACHMENT_RETIRED`; retiring a finalized operation returns
+`409 ATTACHMENT_FINALIZED`. Failures do not change attachment state.
+
+Local generation/reset serialization, durable recovery intent, after-rename
+commit ambiguity, and operator-confirmed stale-lock remediation remain client
+responsibilities. A later reset after completed binding does not authorize
+pending-only retirement, bearer restoration, or automatically minting a
+replacement; ordinary manage-authorized cleanup is a separate operation.
+
+The coordinated rollout publishes the shared contract first, then pins that
+exact registry artifact in both implementations. Protocol 15 peers accept only
+tag `15`; protocol 14 peers fail closed, with no aliases or dual decoding.
+Client credential-free preflight rejects the wrong tag before credential
+creation/transmission. Authenticated server routes retain authentication before
+envelope decoding; envelope tag validation precedes payload decoding, not server
+authentication. Package release preparation and publication follow separately;
+this section does not claim that a protocol 15 client/server is already published.
+
+## Published protocol generations
+
 Protocol v3 is carried by the published `borgmcp-shared@0.5.0` release. It
 removes `session.expires_at` from attach responses: the exact session shape is
 `{ "id": "<UUID>" }`. A v2 peer rejects v3 at preflight and envelope boundaries
