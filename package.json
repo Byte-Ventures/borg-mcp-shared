@@ -1,6 +1,6 @@
 {
   "name": "borgmcp-shared",
-  "version": "2.2.1",
+  "version": "3.0.0",
   "description": "Shared protocol, domain, templates, and conformance contracts for Borg MCP implementations.",
   "type": "module",
   "main": "./dist/index.js",
