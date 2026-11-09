@@ -65,6 +65,10 @@ function same(left: unknown, right: unknown): boolean {
 }
 
 type Fault =
+  | 'attachment-attach-tuple-bypass'
+  | 'attachment-attach-revoked-bypass'
+  | 'attachment-attach-replacement-bypass'
+  | 'attachment-attach-refusal-mutation'
   | 'attachment-duplicate-retry'
   | 'attachment-recompute-cursor'
   | 'attachment-mutate-on-reject'
@@ -1134,8 +1138,38 @@ class MemoryConformanceEnvironment implements ConformanceEnvironment {
       if ((operation?.disposition === 'retired' && this.fault !== 'attachment-ignore-tombstone') || globalRetirement) {
         return this.error(409, ErrorCode.ATTACHMENT_RETIRED, envelope.request_id);
       }
+      // The bearer binding is global; the operation tombstone remains parent-scoped.
+      const bound = [...this.attachmentOperations.values()].find((entry) => entry.receipt === receipt && entry.response);
+      // Admin-issued native sessions also bind their exact bearer, before any ordinary attach probe.
+      const boundDrone = bound ? this.cubes.get(bound.cubeId)!.drones.get(bound.response!.drone.id)! :
+        [...this.cubes.values()].flatMap((candidate) => [...candidate.drones.values()])
+          .find((candidate) => candidate.credential === envelope.payload.session_credential);
+      if (boundDrone) {
+        const tupleMismatch = (bound?.parentId ?? boundDrone.principalId) !== auth.principal.handle.id ||
+          (bound?.cubeId ?? boundDrone.cubeId) !== cube.handle.id ||
+          (bound?.roleId ?? boundDrone.roleId) !== role.handle.id ||
+          (envelope.payload.prior_drone_id !== undefined && envelope.payload.prior_drone_id !== boundDrone.handle.id);
+        if (tupleMismatch && this.fault !== 'attachment-attach-tuple-bypass') {
+          if (this.fault === 'attachment-attach-refusal-mutation' && bound) bound.response!.session.id = this.uuid();
+          return this.error(401, ErrorCode.SESSION_REJECTED, envelope.request_id);
+        }
+        if (boundDrone.evicted) return this.error(410, ErrorCode.DRONE_EVICTED, envelope.request_id);
+        if (boundDrone.sessionState === 'revoked' && this.fault !== 'attachment-attach-revoked-bypass') {
+          return this.error(401, ErrorCode.SESSION_REVOKED, envelope.request_id);
+        }
+        if (boundDrone.credential !== envelope.payload.session_credential && this.fault !== 'attachment-attach-replacement-bypass') {
+          return this.error(401, ErrorCode.SESSION_REJECTED, envelope.request_id);
+        }
+      } else if (envelope.payload.prior_drone_id !== undefined) {
+        const prior = cube.drones.get(envelope.payload.prior_drone_id);
+        if (prior?.principalId === auth.principal.handle.id && prior.roleId === role.handle.id) {
+          if (prior.evicted) return this.error(410, ErrorCode.DRONE_EVICTED, envelope.request_id);
+          if (prior.sessionState === 'revoked') return this.error(401, ErrorCode.SESSION_REVOKED, envelope.request_id);
+        }
+        return this.error(401, ErrorCode.SESSION_REJECTED, envelope.request_id);
+      }
       const existingId = this.fault === 'attachment-duplicate-retry' && envelope.request_id === 'attachment-attach'
-        ? undefined : operation?.response?.drone.id ?? envelope.payload.prior_drone_id;
+        ? undefined : operation?.response?.drone.id ?? boundDrone?.handle.id ?? envelope.payload.prior_drone_id;
       let drone = existingId
         ? cube.drones.get(existingId)
         : undefined;
@@ -2316,6 +2350,10 @@ describe('executable adapter conformance', () => {
   });
 
   it.each([
+    ['attachment-attach-tuple-bypass', 'Ordinary changed tuple returned HTTP 200; expected 401.'],
+    ['attachment-attach-revoked-bypass', 'Ordinary revoked retry returned HTTP 200; expected 401.'],
+    ['attachment-attach-replacement-bypass', 'Ordinary superseded retry returned HTTP 200; expected 401.'],
+    ['attachment-attach-refusal-mutation', 'Denied operation mutated attachment.'],
     ['attachment-duplicate-retry', 'Ordinary retry replaced its attachment/session/cursor.'],
     ['attachment-recompute-cursor', 'Ordinary retry replaced its attachment/session/cursor.'],
     ['attachment-mutate-on-reject', 'Denied operation mutated attachment.'],
@@ -2526,7 +2564,8 @@ describe('executable adapter conformance', () => {
     );
     expect(report.ok).toBe(false);
     expect(report.results.filter((result) => !result.ok && !result.skipped).map((result) => result.id))
-      .toEqual(fault === 'keep-evicted-drone-visible' ? [fixture, 'attachment.reconciliation'] : [fixture]);
+      .toEqual(fault === 'keep-evicted-drone-visible' ? [fixture, 'attachment.reconciliation'] :
+        fault === 'metadata-derived-role-mutation' ? [fixture, 'security.metadata-noninterference'] : [fixture]);
     expect(report.results.filter((result) => result.skipped).map((result) => result.id))
       .toEqual([]);
     expect(report.results.map((result) => result.id))

@@ -17,6 +17,7 @@ import {
   deriveAttachmentReceipt,
   type ReconcileAttachmentAction,
   type ReconcileAttachmentRequest,
+  type AttachRequest,
   decodeEvictDroneResultEnvelope,
   decodeDeleteRoleResultEnvelope,
   decodeRoleRationaleResultEnvelope,
@@ -4056,9 +4057,10 @@ export async function runAdapterConformance(
       expectStatus(response, 200, `Attachment ${action}`);
       return decodeReconcileAttachmentResponseEnvelope(response.body, action).payload;
     };
-    const attach = (token: string) => environment.operations.attach(parent.credential, createProtocolEnvelope('attachment-attach', {
-      cube_id: cube.id, role_id: role.id, session_credential: token,
-    }));
+    const attach = (token: string, tuple: Partial<Pick<AttachRequest, 'cube_id' | 'role_id' | 'prior_drone_id'>> = {}, credential = parent.credential) =>
+      environment.operations.attach(credential, createProtocolEnvelope('attachment-attach', {
+        cube_id: cube.id, role_id: role.id, session_credential: token, ...tuple,
+      }));
     const attachPayload = async (token: string) => {
       const response = await attach(token);
       expectStatus(response, 200, 'Ordinary attachment');
@@ -4092,6 +4094,21 @@ export async function runAdapterConformance(
     const rosterBefore = await environment.operations.listDrones(parent.credential, cube);
     expectStatus(rosterBefore, 200, 'Attachment roster baseline');
     invariant(same(listedDroneIds(rosterBefore), [initial.drone.id]), 'Concurrent retries created duplicate drones.');
+    const explicitPrior = await attach(token, { prior_drone_id: initial.drone.id });
+    expectStatus(explicitPrior, 200, 'Same-bearer retry with explicit current prior');
+    const explicitPriorPayload = decodeAttachResponseEnvelope(explicitPrior.body).payload;
+    invariant(explicitPriorPayload.result === 'reused' && same(explicitPriorPayload.session, initial.session) &&
+      same(explicitPriorPayload.initial_log_cursor, initial.initial_log_cursor), 'Optional prior changed session/cursor.');
+    const otherCube = await environment.admin.createCube('Other Granted Attachment Cube');
+    const otherCubeRole = await environment.admin.createRole(otherCube, { roleClass: 'worker', isHumanSeat: false });
+    await environment.admin.grantCube(parent.principal, otherCube, 'write');
+    for (const changed of [
+      { role_id: otherRole.id }, { prior_drone_id: otherRole.id },
+      { cube_id: otherCube.id, role_id: otherCubeRole.id },
+    ]) expectSecretFreeError(await attach(token, changed), 401, ErrorCode.SESSION_REJECTED,
+      'Ordinary changed tuple', [token, request.receipt]);
+    expectSecretFreeError(await attach(token, {}, foreign.credential), 401, ErrorCode.SESSION_REJECTED,
+      'Ordinary foreign bearer retry', [token, request.receipt]);
     for (const changed of [
       { ...request, role_id: otherRole.id }, { ...request, prior_drone_id: initial.drone.id },
     ]) expectSecretFreeError(await call(changed, 'retire'), 401, ErrorCode.SESSION_REJECTED,
@@ -4101,6 +4118,10 @@ export async function runAdapterConformance(
     invariant(same(await result(request, 'inspect'), { disposition: 'accepted', ...identity }), 'Denied operation mutated attachment.');
     invariant(same(listedDroneIds(await environment.operations.listDrones(parent.credential, cube)), listedDroneIds(rosterBefore)),
       'Denied operation mutated roster.');
+    const unchangedRetry = await attachPayload(token);
+    invariant(unchangedRetry.role.id === role.id && unchangedRetry.drone.id === initial.drone.id &&
+      same(unchangedRetry.session, initial.session) && same(unchangedRetry.initial_log_cursor, initial.initial_log_cursor),
+    'Refused ordinary attach changed original tuple/session/cursor.');
     await environment.admin.revokeCubeGrant(parent.principal, cube);
     expectError(await call(request, 'retire'), 404, ErrorCode.NOT_FOUND, 'Revoked current grant');
     await environment.admin.grantCube(parent.principal, cube, 'write');
@@ -4146,12 +4167,25 @@ export async function runAdapterConformance(
       // Check accepted cleanup AND idempotent finalized acknowledgments against replacements/terminal state.
       if (finalized) await result(terminalRequest, 'finalize');
       if (terminal === 'revoked') await environment.admin.revokeManagedDroneSession(target);
-      if (terminal === 'superseded') await environment.admin.issueManagedDroneSession(target);
+      const replacement = terminal === 'superseded' ? await environment.admin.issueManagedDroneSession(target) : null;
       if (terminal === 'evicted') {
         await environment.admin.grantCube(parent.principal, cube, 'manage');
         expectStatus(await environment.operations.evictDrone(parent.credential, cube, target,
           createProtocolEnvelope('attachment-external-evict', {})), 200, 'External eviction');
       }
+      const terminalRoster = await environment.operations.listDrones(parent.credential, cube);
+      expectStatus(terminalRoster, 200, 'Terminal ordinary retry roster baseline');
+      expectSecretFreeError(await attach(terminalToken), terminal === 'evicted' ? 410 : 401,
+        terminal === 'evicted' ? ErrorCode.DRONE_EVICTED : terminal === 'revoked' ? ErrorCode.SESSION_REVOKED : ErrorCode.SESSION_REJECTED,
+        `Ordinary ${terminal} retry`, [terminalToken, terminalRequest.receipt]);
+      const afterTerminalRetry = await environment.operations.listDrones(parent.credential, cube);
+      expectStatus(afterTerminalRetry, 200, 'Terminal ordinary retry roster readback');
+      invariant(same(listedDroneIds(afterTerminalRetry), listedDroneIds(terminalRoster)) &&
+        listedDrone(afterTerminalRetry, target.id)?.role_id === listedDrone(terminalRoster, target.id)?.role_id,
+      'Terminal ordinary retry mutated roster/role state.');
+      if (replacement) expectStatus(await environment.operations.read(replacement, cube,
+        createProtocolEnvelope('attachment-replacement-read', { cursor: null, limit: 1 })), 200,
+      'Superseding session after refused ordinary retry');
       for (const action of ['inspect', 'finalize', 'retire'] as const) {
         expectError(await call(terminalRequest, action), terminal === 'evicted' ? 410 : 401,
           terminal === 'evicted' ? ErrorCode.DRONE_EVICTED : terminal === 'revoked' ? ErrorCode.SESSION_REVOKED : ErrorCode.SESSION_REJECTED,
