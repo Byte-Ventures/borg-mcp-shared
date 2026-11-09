@@ -56,6 +56,37 @@ describe('packed artifact', () => {
     expect(report.readmeRelativeLinkCount).toBeGreaterThan(0);
   });
 
+  it('executes attachment recovery contracts through installed public entrypoints', async () => {
+    const { destination, tarball } = await pack();
+    const consumer = join(destination, 'attachment-consumer');
+    await mkdir(consumer);
+    await writeFile(join(consumer, 'package.json'), JSON.stringify({ private: true }));
+    execFileSync('npm', ['install', '--prefix', consumer, '--ignore-scripts', '--no-save', tarball],
+      { stdio: 'pipe', env: materializeNpmEnv });
+    const report = JSON.parse(execFileSync('node', ['--input-type=module', '--eval', `
+      import { deriveAttachmentReceipt, decodeReconcileAttachmentResponse } from 'borgmcp-shared';
+      import { decodeReconcileAttachmentRequest, ATTACH_RECONCILE_PATH } from 'borgmcp-shared/protocol';
+      import { ATTACHMENT_RECEIPT_CONFORMANCE } from 'borgmcp-shared/conformance';
+      const receipt = await deriveAttachmentReceipt(ATTACHMENT_RECEIPT_CONFORMANCE[0].input);
+      const request = decodeReconcileAttachmentRequest({ receipt,
+        cube_id: '10000000-0000-4000-8000-000000000001',
+        role_id: '20000000-0000-4000-8000-000000000001', action: 'retire' });
+      let wrongActionRefused = false;
+      try { decodeReconcileAttachmentResponse({ disposition: 'accepted',
+        drone_id: '30000000-0000-4000-8000-000000000001',
+        session_id: '40000000-0000-4000-8000-000000000001' }, 'retire'); }
+      catch { wrongActionRefused = true; }
+      process.stdout.write(JSON.stringify({ receipt, path: ATTACH_RECONCILE_PATH,
+        absentPrior: !('prior_drone_id' in request), wrongActionRefused,
+        retired: decodeReconcileAttachmentResponse({ disposition: 'retired' }, 'retire') }));
+    `], { cwd: consumer, encoding: 'utf8' }));
+    expect(report).toEqual({
+      receipt: 'd75870c762cae95b7c6c89e5585ad3b762435e68c90ea3316ded6e4f91f135e1',
+      path: '/api/client/attach/reconcile', absentPrior: true, wrongActionRefused: true,
+      retired: { disposition: 'retired' },
+    });
+  });
+
   it('requires the release history linked by the packed README', async () => {
     const tarball = await repack(async (root) => {
       await rm(join(root, 'RELEASES.md'));
@@ -274,7 +305,7 @@ describe('packed artifact', () => {
         { name: 'rejects an unknown template name', template: 'custom', accepts: false },
         { name: 'rejects a non-string template', template: null, accepts: false },
       ],
-      protocolVersion: '14',
+      protocolVersion: '15',
       appendRequest: {
         post_id: '00000000-0000-4000-8000-000000000004',
         message: 'explicit audience',

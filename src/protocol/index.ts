@@ -2,6 +2,7 @@ export * from './errors.js';
 export * from './types.js';
 export * from './version.js';
 export * from './contract.js';
+export * from './attachment.js';
 export * from './coordination.js';
 export * from './documents.js';
 export * from './sse.js';

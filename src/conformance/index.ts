@@ -785,6 +785,13 @@ export interface AttachSessionConformanceVector {
   accepts: boolean;
 }
 
+/** Synthetic public tokens; hashes cover the domain NUL and exact encoded token text. */
+export const ATTACHMENT_RECEIPT_CONFORMANCE: readonly ConformanceVector<string, string>[] = [
+  { name: 'uppercase A token', input: 'A'.repeat(43), expected: 'd75870c762cae95b7c6c89e5585ad3b762435e68c90ea3316ded6e4f91f135e1' },
+  { name: 'uppercase B token', input: 'B'.repeat(43), expected: '79c3f1dd06321c606897f072864731d8b025c3683456823205d966ad24771bfd' },
+  { name: 'base64url underscore token', input: '_'.repeat(43), expected: 'c139935e69d2f55cfb5e276ce7d7e202a77d9a752eb5dc1eae69acd4fca6d5c4' },
+];
+
 const ATTACH_RESPONSE = {
   result: 'created',
   cube: { id: '10000000-0000-4000-8000-000000000001', name: 'test-cube' },

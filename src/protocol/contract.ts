@@ -33,6 +33,7 @@ export const ROLE_RATIONALE_PATH = '/api/cubes/:cubeId/role-rationale' as const;
 export const REPOSITORY_CUBE_RESOLVE_PATH = '/api/repository-cubes/resolve' as const;
 export const REPOSITORY_CUBE_ASSOCIATION_PATH = '/api/repository-cubes/association' as const;
 export const ATTACH_PATH = '/api/client/attach' as const;
+export const ATTACH_RECONCILE_PATH = '/api/client/attach/reconcile' as const;
 export const SELF_RUNTIME_METADATA_PATH = '/api/cubes/:cubeId/drones/self/metadata' as const;
 export const DOCUMENTS_PATH = '/api/cubes/:cubeId/documents' as const;
 export const DOCUMENT_PATH = '/api/cubes/:cubeId/documents/:documentId' as const;
@@ -82,6 +83,7 @@ export const PROTOCOL_HTTP_CONTRACT = {
     mutation: true,
   },
   attach: { method: 'POST', path: ATTACH_PATH, authenticated: true, success_status: 200 },
+  attach_reconcile: { method: 'POST', path: ATTACH_RECONCILE_PATH, authenticated: 'client', success_status: 200 },
   drone_reassign: {
     method: 'PATCH',
     path: '/api/cubes/:cubeId/drones/:droneId',
@@ -104,6 +106,8 @@ export const PROTOCOL_HTTP_CONTRACT = {
   auth_invalid_status: 401,
   session_revoked_status: 401,
   session_rejected_status: 401,
+  attachment_retired_status: 409,
+  attachment_finalized_status: 409,
   cursor_expired_status: 410,
   cube_deleted_status: 410,
   drone_evicted_status: 410,
