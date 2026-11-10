@@ -7,6 +7,12 @@
 - `src/protocol/` owns wire envelopes and protocol constants. `src/domain/` owns shared domain types. `src/conformance/` owns portable behavioral vectors that implementations run through an adapter.
 - `src/index.ts` is the root public surface. Subpath exports are declared explicitly in `package.json`; adding a public entry point requires updating both surfaces and the packed-artifact checks.
 
+## Code Contracts (EGM.md)
+
+- Each code directory has an `EGM.md` contract that states its interface, invariants, side effects, and verification command. Start at the root [`EGM.md`](EGM.md).
+- Contracts for `src/` live under `egm/src/`, not in `src/`. `src/` is packed to npm, and `scripts/verify-packed-artifact.mjs` rejects any non-`.ts` file there.
+- When a change alters a documented interface, invariant, or side effect, update the matching contract in the same PR. Contracts are orientation summaries; the code is authoritative.
+
 ## Source and generated output
 
 - The project is pure ESM with TypeScript `module`/`moduleResolution` set to `NodeNext`. Use `.js` extensions in relative imports written in `.ts` files.
